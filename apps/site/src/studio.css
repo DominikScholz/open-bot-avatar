@@ -689,7 +689,7 @@
       container-type: inline-size;
     }
 
-    /* Narrow panels drop words before cutting labels: "Claude Code", then "Copy". */
+    /* Narrow panels drop words before cutting labels: "T3 Code", then "Copy". */
     @container (max-width: 400px) {
       .prompt-actions-block .label-open-extra {
         display: none;

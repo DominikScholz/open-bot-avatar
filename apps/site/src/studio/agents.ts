@@ -7,17 +7,17 @@ import type { Brief } from "./brief";
  * prompt button.
  */
 export const AGENT_TARGETS = {
+  t3code: { label: "T3 Code", link: (prompt: string) => deepLink("t3code://new", { prompt }) },
   claude: { label: "Claude Code", link: (prompt: string) => deepLink("claude://code/new", { q: prompt }) },
   codex: { label: "Codex", link: (prompt: string) => deepLink("codex://threads/new", { prompt }) },
   cursor: { label: "Cursor", link: (prompt: string) => deepLink("cursor://anysphere.cursor-deeplink/prompt", { text: prompt }) },
-  t3code: { label: "T3 Code", link: (prompt: string) => deepLink("t3code://new", { prompt }) },
 } as const;
 
 export type AgentTarget = keyof typeof AGENT_TARGETS;
 
 export const AGENT_TARGET_IDS = Object.keys(AGENT_TARGETS) as AgentTarget[];
 
-const DEFAULT_TARGET: AgentTarget = "claude";
+const DEFAULT_TARGET: AgentTarget = "t3code";
 
 /** The deep link that opens an app with a prompt filled in. */
 export function agentLink(target: AgentTarget, prompt: string): string {

@@ -18,7 +18,7 @@ interface PromptActionsProps {
 
 /**
  * Two ways to use a design prompt: copy the full prompt for any chat model, or open the picked
- * agent app (Claude Code, Codex, Cursor or T3 Code) with it filled in, unsent. ▾ picks the app.
+ * agent app (T3 Code, Claude Code, Codex or Cursor) with it filled in, unsent. ▾ picks the app.
  */
 export function PromptActions({ brief, copyWhat, copied, disabled, size, copy, onDone }: PromptActionsProps) {
   const [target, setTarget] = useAgentTarget();
