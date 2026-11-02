@@ -8,6 +8,32 @@ A JSON spec and renderer for interactive agent avatars.
 
 Open source, MIT licensed. [Docs](https://dominikscholz.github.io/open-bot-avatar/#/docs).
 
+## Make an avatar
+
+In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it returns into Import. The prompt is [system-prompt.md](skills/generate-avatar/references/system-prompt.md); agents with skills can use the [generate-avatar skill](skills/generate-avatar/SKILL.md).
+
+To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery).
+
+## Definition
+
+One SVG path in a `0 0 100 100` box, and the eyes.
+
+```json
+{
+  "version": 1,
+  "id": "box",
+  "name": "Box",
+  "body": { "path": "M20 20 H80 V80 H20 Z" },
+  "eyes": { "x": 50, "y": 46, "spacing": 15, "scale": 1 }
+}
+```
+
+`x`, `y`: the eyes' center; `spacing`: the distance between them; `scale`: their size. Check definitions you didn't write with `validateAvatar`, which returns `{ ok: true, value }` or `{ ok: false, errors }`. The rules are in the [contract](docs/avatar-contract.md).
+
+## How it renders
+
+The volume is inferred from the outline as stacked cross-sections, drawn as SVG paths in a CSS 3D scene (or projected into one SVG for stills).
+
 ## Install
 
 ```sh
@@ -46,6 +72,22 @@ avatar.destroy();
 | `still` | One static SVG, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 
+## SVG
+
+`renderAvatarSvg` returns an SVG string; `avatarFrame` returns the same frame as data, for drawing it yourself. Neither needs a DOM.
+
+```ts
+import { avatarFrame, renderAvatarSvg, validateAvatar } from "open-bot-avatar";
+
+const result = validateAvatar(JSON.parse(json));
+if (result.ok) {
+  const svg = renderAvatarSvg(result.value, { color: "#1fbf68", size: 256 });
+  const frame = avatarFrame(result.value, { color: "#1fbf68" });
+}
+```
+
+Both also take `time` (seconds), `motion` (the mood) and `gaze`.
+
 ## React
 
 There's no React package; copy this component. Other frameworks work the same way.
@@ -65,48 +107,6 @@ export function BotAvatar({ size = 96, ...options }: AvatarOptions & { size?: nu
   return <div ref={host} style={{ width: size, aspectRatio: "1" }} />;
 }
 ```
-
-## SVG
-
-`renderAvatarSvg` returns an SVG string; `avatarFrame` returns the same frame as data, for drawing it yourself. Neither needs a DOM.
-
-```ts
-import { avatarFrame, renderAvatarSvg, validateAvatar } from "open-bot-avatar";
-
-const result = validateAvatar(JSON.parse(json));
-if (result.ok) {
-  const svg = renderAvatarSvg(result.value, { color: "#1fbf68", size: 256 });
-  const frame = avatarFrame(result.value, { color: "#1fbf68" });
-}
-```
-
-Both also take `time` (seconds), `motion` (the mood) and `gaze`.
-
-## Definition
-
-One SVG path in a `0 0 100 100` box, and the eyes.
-
-```json
-{
-  "version": 1,
-  "id": "box",
-  "name": "Box",
-  "body": { "path": "M20 20 H80 V80 H20 Z" },
-  "eyes": { "x": 50, "y": 46, "spacing": 15, "scale": 1 }
-}
-```
-
-`x`, `y`: the eyes' center; `spacing`: the distance between them; `scale`: their size. Check definitions you didn't write with `validateAvatar`, which returns `{ ok: true, value }` or `{ ok: false, errors }`. The rules are in the [contract](docs/avatar-contract.md).
-
-## Make an avatar
-
-In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it returns into Import. The prompt is [system-prompt.md](skills/generate-avatar/references/system-prompt.md); agents with skills can use the [generate-avatar skill](skills/generate-avatar/SKILL.md).
-
-To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery).
-
-## How it renders
-
-The volume is inferred from the outline as stacked cross-sections, drawn as SVG paths in a CSS 3D scene (or projected into one SVG for stills).
 
 ## Repository layout
 

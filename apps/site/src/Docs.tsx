@@ -107,6 +107,20 @@ export function Docs() {
         <p className="lead">Open source, MIT licensed.</p>
       </section>
 
+      <h2>Make an avatar</h2>
+      <p>
+        In the <a href="#/">editor</a>, describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it{" "}
+        returns into Import.
+      </p>
+
+      <h2>Definition</h2>
+      <p>
+        One path in a <code>0 0 100 100</code> box, and the eyes: their center, spacing and scale. Check any definition you didn't{" "}
+        write with <code>validateAvatar</code>. The rules are in the{" "}
+        <a href={`${REPO}/blob/main/docs/avatar-contract.md`}>contract</a>.
+      </p>
+      <Code snippet="definition" language="JSON" />
+
       <h2>Install</h2>
       <Code snippet="install" language="Shell" />
 
@@ -128,10 +142,6 @@ export function Docs() {
         </tbody>
       </table>
 
-      <h2>React</h2>
-      <p>There's no React package; this component is all you need. Other frameworks work the same way.</p>
-      <Code snippet="react" language="TSX" />
-
       <h2>SVG</h2>
       <p>
         <code>renderAvatarSvg</code> returns an SVG string, with no DOM needed. <code>avatarFrame</code> returns the same frame as{" "}
@@ -139,19 +149,9 @@ export function Docs() {
       </p>
       <Code snippet="still" language="TypeScript" />
 
-      <h2>Definition</h2>
-      <p>
-        One path in a <code>0 0 100 100</code> box, and the eyes: their center, spacing and scale. Check any definition you didn't{" "}
-        write with <code>validateAvatar</code>. The rules are in the{" "}
-        <a href={`${REPO}/blob/main/docs/avatar-contract.md`}>contract</a>.
-      </p>
-      <Code snippet="definition" language="JSON" />
-
-      <h2>Make one</h2>
-      <p>
-        In the <a href="#/">editor</a>, describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it{" "}
-        returns into Import.
-      </p>
+      <h2>React</h2>
+      <p>There's no React package; this component is all you need. Other frameworks work the same way.</p>
+      <Code snippet="react" language="TSX" />
     </main>
   );
 }
