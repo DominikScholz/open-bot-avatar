@@ -1,0 +1,3 @@
+interface:
+  display_name: "Generate Avatar"
+  short_description: "Silhouette + eyes JSON for the avatar engine"

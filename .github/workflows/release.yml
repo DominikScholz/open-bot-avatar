@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: release
+
+permissions:
+  contents: write
+  pull-requests: write
+  # npm trusted publishing (OIDC): no npm token, and the package gets provenance. The trusted
+  # publisher may only stage; each release goes live when it's approved on npm with 2FA.
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The previous commit too: the release script stages only when a push changes the version.
+          fetch-depth: 2
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing and `npm stage` need a recent npm.
+      - run: npm install -g npm@latest
+      - run: pnpm install --frozen-lockfile
+      # With changesets waiting: opens or updates a "Version packages" pull request. Without: stages the
+      # package on npm if this push changed its version (merging that pull request does).
+      - uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          publish: pnpm release
+          title: Version packages
+          commit: Version packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

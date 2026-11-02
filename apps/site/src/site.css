@@ -1,0 +1,381 @@
+/* The site around the studio: the header and the docs page. */
+@layer components {
+  .avatar-studio {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    isolation: isolate;
+
+    /*
+     * Watermark: the name in Geist Mono, small and repeating in staggered rows, turned diagonally,
+     * just above the ground. The tile is drawn by scripts/watermark.ts. A fixed layer twice the
+     * viewport's size, rotated as a whole so the tiles stay seamless.
+     */
+    &::before {
+      content: "";
+      position: fixed;
+      inset: -50%;
+      z-index: -1;
+      pointer-events: none;
+      transform: rotate(-24deg);
+      background-image: url("./watermark.svg");
+    }
+
+    /* Sizes include padding and borders, as the studio's layout assumes. */
+    &,
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    /* No bar: the logo cat on the left and the links on the right float over the page. */
+    .site-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 24px 0;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 20px;
+      text-decoration: none;
+    }
+
+    .brand-avatar {
+      width: 60px;
+      height: 60px;
+      flex: none;
+    }
+
+    .brand-name {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      line-height: 1.1;
+    }
+
+    /*
+     * The studio is one window tall: the picker takes the height left and scrolls inside
+     * (studio.css). A window too short for that scrolls as a whole.
+     */
+    &.route-studio {
+      height: 100dvh;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    /* Landscape studio: studio.css lays out the two columns inside, which always fit. */
+    @media (min-aspect-ratio: 5/4) and (min-width: 900px), (max-height: 560px) and (min-aspect-ratio: 5/4) {
+      &.route-studio {
+        height: 100dvh;
+        min-height: 0;
+        overflow: hidden;
+      }
+    }
+
+    /* Wide screens: the header floats over the top corners, so the studio still fits one screen. */
+    @media (min-width: 1000px) {
+      .site-top {
+        position: absolute;
+        inset: 0 0 auto;
+        z-index: 1;
+        pointer-events: none;
+      }
+
+      .site-top > * {
+        pointer-events: auto;
+      }
+
+      .page {
+        padding-top: 88px;
+      }
+    }
+
+    .site-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-github {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .nav-github svg {
+      width: 15px;
+      height: 15px;
+      fill: currentColor;
+    }
+
+    .site-nav a {
+      padding: 6px 12px;
+      border-radius: 999px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .site-nav a:hover {
+      color: var(--text);
+      background: var(--hover);
+    }
+
+    .site-nav a[aria-current="page"] {
+      color: var(--text);
+      background: var(--raised);
+    }
+
+    /* The credit, as on t-iv.com: small mono text, faint until hovered. Under the studio in one column. */
+    .credit {
+      flex: none;
+      align-self: center;
+      padding: 2px 8px 10px;
+      font: 500 12px/1.2 var(--mono);
+      color: var(--muted);
+      text-decoration: none;
+      opacity: 0.5;
+      transition: opacity 120ms ease;
+    }
+
+    .credit:hover,
+    .credit:focus-visible {
+      opacity: 1;
+    }
+
+    /*
+     * The two-column studio: pinned to the bottom-left corner, under the avatar's column. Short,
+     * wide windows (an embedded post) have no room for it.
+     */
+    @media (min-aspect-ratio: 5/4) and (min-width: 900px), (max-height: 560px) and (min-aspect-ratio: 5/4) {
+      &.route-studio .credit {
+        display: none;
+      }
+
+      @media (min-height: 561px) {
+        &.route-studio .credit {
+          display: block;
+          position: fixed;
+          z-index: 1;
+          left: 24px;
+          bottom: 20px;
+          padding: 0;
+        }
+      }
+    }
+
+    /* Pages */
+
+    .page {
+      width: min(100% - 32px, 960px);
+      margin: 0 auto;
+      padding: 32px 0 24px;
+    }
+
+    .page-head {
+      margin-bottom: 28px;
+    }
+
+    .page h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .page h2 {
+      margin: 36px 0 12px;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .page h2 small {
+      margin-left: 8px;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--faint);
+    }
+
+    .page p {
+      color: var(--muted);
+      max-width: 68ch;
+    }
+
+    .page .lead {
+      font-size: 16px;
+      margin: 0;
+    }
+
+    /* What it is: three short points under the tagline. */
+    .docs .what {
+      max-width: 68ch;
+      margin: 8px 0 10px;
+      padding-left: 1.2em;
+      color: var(--muted);
+    }
+
+    .docs .what li + li {
+      margin-top: 2px;
+    }
+
+    /* Docs */
+
+    @media (min-width: 1000px) {
+      .page.docs {
+        padding-top: 88px;
+      }
+    }
+
+    .docs .page-head {
+      position: relative;
+      padding-right: 140px;
+    }
+
+    .docs-avatar {
+      position: absolute;
+      right: 0;
+      top: -8px;
+      width: 120px;
+    }
+
+    .docs pre.code {
+      margin: 0 0 12px;
+      max-height: none;
+      color: var(--text);
+    }
+
+    .docs pre.code {
+      font-family: var(--mono);
+      /* The avatars' palette (studio/look.ts): pink, green, amber, teal, blue. */
+      --sh-identifier: #f2f2f2;
+      --sh-keyword: #ec4899;
+      --sh-string: #1fbf68;
+      --sh-class: #f8a01c;
+      --sh-property: #14b3a5;
+      --sh-entity: #1f7cf2;
+      --sh-jsxliterals: #f2f2f2;
+      --sh-sign: #9a9a9a;
+      --sh-comment: #7a7a7a;
+    }
+
+    .docs pre.code code {
+      font: inherit;
+    }
+
+    .docs pre.code:focus-visible {
+      outline: 2px solid #9dc9f2;
+      outline-offset: 2px;
+    }
+
+    .docs .props caption {
+      text-align: left;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+
+    .props {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin: 8px 0 0;
+    }
+
+    .props th,
+    .props td {
+      text-align: left;
+      vertical-align: top;
+      padding: 9px 12px 9px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .props th {
+      width: 34%;
+      font-weight: 400;
+      white-space: nowrap;
+    }
+
+    .props td {
+      color: var(--muted);
+    }
+
+    /* Between phones and wide screens the header takes room above the studio: keep it compact. */
+    @media (min-width: 561px) and (max-width: 1099px) {
+      .brand-avatar {
+        width: 52px;
+        height: 52px;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .site-top {
+        padding: 8px 12px 0;
+        align-items: center;
+      }
+
+      .brand {
+        gap: 6px;
+      }
+
+      .brand-avatar {
+        width: 40px;
+        height: 40px;
+      }
+
+      /* "Open Bot / Avatar" on two lines, so the links still fit beside it. */
+      .brand-name {
+        font-size: 13px;
+        max-width: 5em;
+      }
+
+      .site-nav {
+        gap: 0;
+      }
+
+      .site-nav a {
+        padding: 6px 9px;
+        font-size: 13px;
+      }
+
+      .nav-github span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      @media (min-width: 1000px) {
+      .page.docs {
+        padding-top: 88px;
+      }
+    }
+
+    .docs .page-head {
+        padding-right: 0;
+      }
+
+      .docs-avatar {
+        position: static;
+        width: 88px;
+        margin-bottom: 12px;
+      }
+
+      .props th {
+        white-space: normal;
+      }
+
+    }
+  }
+}
