@@ -4,6 +4,7 @@
  * Subscribers measure first and draw second, so layout reads never interleave
  * with DOM writes. The loop sleeps once no subscriber needs frames (every
  * avatar is still, or under reduced motion with its easing settled).
+ * Subscribers that ask to wait are skipped until their time comes.
  */
 
 export interface Pointer {
@@ -15,23 +16,37 @@ export interface FrameSubscriber {
   measure?: () => void;
   /**
    * `time` is the animation clock in seconds, `pointer` the last pointer
-   * position in viewport pixels (null when there is none). Return true while
-   * the subscriber still needs frames.
+   * position in viewport pixels (null when there is none). Return true for
+   * the next frame, a number of seconds to skip (neither measured nor drawn
+   * until then), or false once no more frames are needed.
    */
-  draw: (time: number, pointer: Pointer | null) => boolean;
+  draw: (time: number, pointer: Pointer | null) => boolean | number;
 }
 
 const subscribers = new Set<FrameSubscriber>();
 let frame = 0;
+/** Animation time before which a subscriber that asked to wait is skipped (neither measured nor drawn). */
+const due = new WeakMap<FrameSubscriber, number>();
 let pointer: Pointer | null = null;
 const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 
 function tick(now: number) {
   frame = 0;
   const time = (now - startedAt) / 1000;
-  for (const s of subscribers) s.measure?.();
   let busy = false;
-  for (const s of subscribers) busy = s.draw(time, pointer) || busy;
+  const ready: FrameSubscriber[] = [];
+  for (const s of subscribers) {
+    const at = due.get(s);
+    if (at !== undefined && at > time) busy = true;
+    else ready.push(s);
+  }
+  for (const s of ready) s.measure?.();
+  for (const s of ready) {
+    const next = s.draw(time, pointer);
+    if (typeof next === 'number') due.set(s, time + next);
+    else due.delete(s);
+    busy = next !== false || busy;
+  }
   if (busy) wake();
 }
 
@@ -44,8 +59,8 @@ export function subscribeFrames(subscriber: FrameSubscriber): () => void {
   wake();
   return () => {
     subscribers.delete(subscriber);
-    if (subscribers.size === 0 && frame) {
-      cancelAnimationFrame(frame);
+    if (subscribers.size === 0) {
+      if (frame) cancelAnimationFrame(frame);
       frame = 0;
     }
   };
