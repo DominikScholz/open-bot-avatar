@@ -57,6 +57,7 @@ interface Scene {
   motion: HTMLElement;
   view: HTMLElement;
   stacks: Record<'z' | 'x', HTMLElement>;
+  slices: Record<'z' | 'x', HTMLElement[]>;
   eyes: { root: HTMLElement; pill: HTMLElement; arc: HTMLElement }[];
   last: Record<string, string>;
 }
@@ -64,12 +65,14 @@ interface Scene {
 function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number | undefined): Scene {
   el.innerHTML = renderAvatarScene(definition, { depth });
   const q = (s: string) => el.querySelector(s) as HTMLElement;
+  const stacks = { z: q('[data-stack="z"]'), x: q('[data-stack="x"]') };
   return {
     key: q('[data-avatar-scene]').dataset.avatarScene ?? '',
     geometry: geometryKey(definition),
     motion: q('[data-motion]'),
     view: q('[data-view]'),
-    stacks: { z: q('[data-stack="z"]'), x: q('[data-stack="x"]') },
+    stacks,
+    slices: { z: [...stacks.z.children] as HTMLElement[], x: [...stacks.x.children] as HTMLElement[] },
     eyes: [0, 1].map((i) => {
       const root = q(`[data-eye="${i}"]`);
       return { root, pill: root.querySelector('i') as HTMLElement, arc: root.querySelector('svg') as unknown as HTMLElement };
@@ -88,8 +91,11 @@ function put(m: Scene, key: string, el: HTMLElement, prop: 'transform' | 'visibi
 function apply(m: Scene, frame: SceneFrame) {
   put(m, 'motion', m.motion, 'transform', frame.motion);
   put(m, 'view', m.view, 'transform', frame.view);
-  put(m, 'z', m.stacks.z, 'visibility', frame.stack === 'z' ? 'visible' : 'hidden');
-  put(m, 'x', m.stacks.x, 'visibility', frame.stack === 'x' ? 'visible' : 'hidden');
+  // display:none, not visibility: hidden slices would still each hold a 3D layer.
+  put(m, 'z', m.stacks.z, 'display', frame.stack === 'z' ? 'block' : 'none');
+  put(m, 'x', m.stacks.x, 'display', frame.stack === 'x' ? 'block' : 'none');
+  const slices = m.slices[frame.stack];
+  frame.slices.forEach((shown, i) => slices[i] && put(m, `${frame.stack}${i}`, slices[i], 'display', shown ? 'block' : 'none'));
   frame.eyes.forEach((eye, i) => {
     const e = m.eyes[i];
     put(m, `e${i}`, e.root, 'transform', eye.transform);
@@ -118,6 +124,12 @@ function eyesOrigin(definition: AvatarDefinition): { x: number; y: number } {
   return { x: at(x), y: at(y) };
 }
 
+/** Avatars smaller than this (CSS px) redraw at SMALL_FPS: a frame of 3D layers costs the same at any size. */
+const SMALL_SIZE = 128;
+const SMALL_FPS = 30;
+/** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
+const FRAME_SLACK = 0.004;
+
 export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedAvatar {
   let opts: AvatarOptions = { ...initial };
   const animator = createAnimator();
@@ -127,6 +139,16 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   let failed = false;
   let dirty = true;
   let releasePointer: (() => void) | null = null;
+  let size = host.clientWidth;
+  const resize = typeof ResizeObserver === 'undefined'
+    ? null
+    : new ResizeObserver(([entry]) => {
+        const next = entry.contentRect.width;
+        if (next === size) return;
+        size = next;
+        requestFrame();
+      });
+  resize?.observe(host);
 
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
@@ -193,6 +215,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         depth: p.depth,
         motion: p.mood ?? 'idle',
         motionBlend: step.motionBlend,
+        size: size || undefined,
         time,
         gaze: step.gaze,
         view: p.view,
@@ -224,7 +247,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       // Stills only redraw after a change; live avatars every frame they ask for.
       if (opts.still && !dirty) return false;
       dirty = false;
-      return draw(time, pointer);
+      const more = draw(time, pointer);
+      return more && size > 0 && size < SMALL_SIZE ? 1 / SMALL_FPS - FRAME_SLACK : more;
     },
   });
 
@@ -237,6 +261,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     },
     destroy() {
       unsubscribe();
+      resize?.disconnect();
       releasePointer?.();
       releasePointer = null;
       clear();

@@ -46,6 +46,8 @@ interface Prepared {
   id: string;
   /** Stable SVG id per distinct cross-section path, assigned once. */
   ids: Map<string, string>;
+  /** Slices kept at a rendered size, per stack, keyed by stack and rounded size. */
+  detail: Map<string, boolean[]>;
 }
 
 const cache = new Map<string, Prepared>();
@@ -80,6 +82,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     seed: hashString(def.id),
     id,
     ids,
+    detail: new Map(),
   };
   if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
   cache.set(key, prepared);
@@ -197,15 +200,21 @@ const pivotOf = (b: Bounds): Point => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) 
 function drawnSlices(vol: Volume, v: ViewBasis, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
-  // Screen shift per unit of depth, and the smallest on-screen size of an in-plane inset.
-  const sweep = Math.hypot(v.sY, v.cY * v.sP);
-  const inset = Math.min(Math.abs(v.cY), Math.abs(v.cP));
+  const drawn = sliceCull(v);
   vol.parts.forEach((part, i) => {
     (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
-      if (stack === 'z' && s.inset > 0 && Math.abs(s.at) * sweep <= s.inset * inset) return;
+      if (!drawn(s)) return;
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
+}
+
+/** Whether a slice of the active stack shows: z-slices hidden behind the core are skipped. */
+function sliceCull(v: ViewBasis): (s: VolumeSlice) => boolean {
+  // Screen shift per unit of depth, and the smallest on-screen size of an in-plane inset.
+  const sweep = Math.hypot(v.sY, v.cY * v.sP);
+  const inset = Math.min(Math.abs(v.cY), Math.abs(v.cP));
+  return (s) => s.axis !== 'z' || s.inset <= 0 || Math.abs(s.at) * sweep > s.inset * inset;
 }
 
 // ---------------------------------------------------------------------------
@@ -420,7 +429,8 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
   });
   return (
     `<div data-avatar-scene="${p.id}" style="position:relative;width:100%;height:100%;container-type:size">` +
-    `<div data-motion style="${FILL}transform-origin:${u((b.minX + b.maxX) / 2)} ${u(b.maxY)}">` +
+    // will-change pins the slices' raster scale: without it every hop and squash re-rasterizes each slice.
+    `<div data-motion style="${FILL}will-change:transform;transform-origin:${u((b.minX + b.maxX) / 2)} ${u(b.maxY)}">` +
     `<div data-view style="${FILL}transform-style:preserve-3d;transform-origin:${u(cx)} ${u(cy)}">` +
     stack('z') + stack('x') + eyes.join('') +
     `</div></div></div>`
@@ -435,10 +445,41 @@ export interface SceneFrame {
   /** 3D view rotation about the body center. */
   view: string;
   stack: 'z' | 'x';
+  /** Per slice of the active stack, in markup order: whether it shows. Hidden ones need no layer. */
+  slices: boolean[];
   eyes: { visible: boolean; happy: boolean; transform: string; pill: string }[];
 }
 
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
+
+/** Closest on-screen spacing, CSS px, between cross-sections a small live avatar keeps. */
+const SLICE_GAP_PX = 0.75;
+
+/**
+ * Per slice of a stack, in markup order: whether it is kept at this rendered size. Within each part,
+ * slices closer than SLICE_GAP_PX to the last kept one are dropped; the outermost always stay, and
+ * so does the core, which sliceCull relies on to cover the inset slices it hides.
+ */
+function sliceDetail(p: Prepared, stack: 'z' | 'x', size: number | undefined): boolean[] {
+  const px = Number.isFinite(size) && (size as number) > 0 ? Math.round(size as number) : 0;
+  const key = `${stack}${px}`;
+  let keep = p.detail.get(key);
+  if (keep) return keep;
+  const gap = px ? (SLICE_GAP_PX * 100) / px : 0;
+  keep = p.vol.parts.flatMap((part) => {
+    const slices = stack === 'z' ? part.zSlices : part.xSlices;
+    let last = -Infinity;
+    return slices.map((s, j) => {
+      const core = s.axis === 'z' && s.at === 0 && s.inset === 0;
+      const kept = core || j === 0 || j === slices.length - 1 || s.at - last >= gap;
+      if (kept) last = s.at;
+      return kept;
+    });
+  });
+  if (p.detail.size >= 32) p.detail.clear();
+  p.detail.set(key, keep);
+  return keep;
+}
 
 /** Per-frame CSS for a mounted scene. Pure and cheap: no geometry is rebuilt. */
 export function sceneFrame(definition: AvatarDefinition, options: RenderOptions = {}): SceneFrame {
@@ -446,11 +487,16 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const pose = poseOf(p, options);
   const v = viewBasis(pose.yaw, pose.pitch);
   const states = eyeStates(p, pose);
+  const stack = activeStack(v);
+  const drawn = sliceCull(v);
+  const kept = sliceDetail(p, stack, options.size);
+  let k = 0;
   return {
     scene: p.id,
     motion: `translate(0,${u(pose.lift)}) rotate(${f(pose.roll)}deg) scale(${r4(pose.sx)},${r4(pose.sy)})`,
     view: `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
-    stack: activeStack(v),
+    stack,
+    slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
     eyes: states.map((e, i) => ({
       visible: eyeVisible(p.vol, v, i),
       happy: e.happy,

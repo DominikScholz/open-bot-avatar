@@ -214,6 +214,24 @@ describe('live scene', () => {
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: Math.PI, pitch: 0 } }).eyes.every((e) => !e.visible)).toBe(true);
     expect(sceneFrame(c, { motion: 'happy', time: 0.3 }).eyes.every((e) => e.happy)).toBe(true);
   });
+
+  it('keeps every part core when small sizes thin out the slices', () => {
+    const chat = getExample('chat')!;
+    expect(sceneFrame(chat, { size: 32, reducedMotion: true, view: { yaw: 0.3, pitch: -0.2 } }).slices.some(Boolean)).toBe(true);
+    for (const e of examples) {
+      const cores: number[] = [];
+      buildVolume(e).parts.reduce((at, part) => {
+        cores.push(at + part.zSlices.findIndex((s) => s.at === 0 && s.inset === 0));
+        return at + part.zSlices.length;
+      }, 0);
+      for (const size of [16, 32, 64]) {
+        for (const [yaw, pitch] of [[0.3, -0.2], [0.3, 0], [0, 0.2], [0.6, 0.3]]) {
+          const frame = sceneFrame(e, { size, reducedMotion: true, view: { yaw, pitch } });
+          if (frame.stack === 'z') for (const i of cores) expect(frame.slices[i], `${e.id} ${size}px`).toBe(true);
+        }
+      }
+    }
+  });
 });
 
 describe('face room', () => {

@@ -44,7 +44,10 @@ export interface RenderOptions {
   color?: string;
   /** Eye color as #rgb or #rrggbb. Defaults to a plain near-black ink. */
   eyeColor?: string;
-  /** Rendered width/height in CSS pixels. Omit for a fluid SVG. */
+  /**
+   * Rendered width/height in CSS pixels. Omit for a fluid SVG. In sceneFrame it lets small
+   * live avatars skip cross-sections that would sit less than a pixel apart.
+   */
   size?: number;
   /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. */
   depth?: number;
