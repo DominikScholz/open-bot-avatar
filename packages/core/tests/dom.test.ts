@@ -10,7 +10,7 @@ describe('mountAvatar', () => {
     document.body.innerHTML = '';
   });
 
-  it('mounts a live scene, updates it in place and cleans up', async () => {
+  it('falls back to a live scene without canvas support, updates it in place and cleans up', async () => {
     const el = document.createElement('div');
     document.body.append(el);
     const avatar = mountAvatar(el, { definition: examples[0], color: '#1f7cf2' });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { examples } from '../src/examples.ts';
-import { avatarFrame, renderAvatarSvg } from '../src/render.ts';
+import { flattenPath, parsePath } from '../src/path.ts';
+import { avatarFrame, liveFrame, renderAvatarSvg } from '../src/render.ts';
 
 const poses = [
   { time: 0, reducedMotion: true },
@@ -54,4 +55,36 @@ describe('avatarFrame', () => {
     for (const s of frame.shapes) expect(s.matrix.every(Number.isFinite)).toBe(true);
     expect(frame.root.every(Number.isFinite)).toBe(true);
   });
+
+  it('ignores size: custom renderers get every slice at any size', () => {
+    for (const d of examples) {
+      for (const o of poses) expect(avatarFrame(d, { ...o, size: 24 })).toEqual(avatarFrame(d, o));
+    }
+  });
+
+  it('bounds every path with its box', () => {
+    for (const d of examples) {
+      for (const path of avatarFrame(d, poses[3]).paths) {
+        // Curves are sampled: their control points may lie outside, the outline never does.
+        for (const [x, y] of flattenPath(parsePath(path.d)).flat()) {
+          expect(x).toBeGreaterThanOrEqual(path.box.x - 0.05);
+          expect(x).toBeLessThanOrEqual(path.box.x + path.box.w + 0.05);
+          expect(y).toBeGreaterThanOrEqual(path.box.y - 0.05);
+          expect(y).toBeLessThanOrEqual(path.box.y + path.box.h + 0.05);
+        }
+      }
+    }
+  });
 });
+
+describe('liveFrame', () => {
+  it('thins slices that would sit under a pixel apart, and only for small sizes', () => {
+    for (const d of examples) {
+      const all = avatarFrame(d, poses[0]).shapes.length;
+      expect(liveFrame(d, { ...poses[0], size: 36 }).shapes.length).toBeLessThan(all);
+      expect(liveFrame(d, { ...poses[0], size: 400 }).shapes.length).toBeGreaterThan(liveFrame(d, { ...poses[0], size: 36 }).shapes.length);
+      expect(liveFrame(d, poses[0])).toEqual(avatarFrame(d, poses[0]));
+    }
+  });
+});
+

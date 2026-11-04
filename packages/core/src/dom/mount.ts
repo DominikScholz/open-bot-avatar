@@ -5,27 +5,28 @@
  *   avatar.update({ mood: 'happy' });
  *   avatar.destroy();
  *
- * Live avatars are a CSS 3D scene: every cross-section of the inferred volume
- * is mounted once as its own small SVG, and each frame only writes a few CSS
- * transforms (view, hop/roll/squash, the eyes' gaze and blink). Changing the
- * color only changes CSS `color`. `renderer: 'canvas'` paints the same frames
- * to one canvas instead (see paint.ts). `still` avatars are a single static SVG
- * and never animate. Every avatar on the page shares one animation loop.
+ * Live avatars paint each frame to one canvas (see paint.ts): one compositor
+ * layer and a small bitmap per avatar. `renderer: 'scene'` mounts a CSS 3D scene
+ * instead, where every cross-section is its own small SVG and each frame only
+ * writes a few CSS transforms; it costs a compositor layer per visible slice,
+ * and is also the fallback where canvas is unavailable. `still` avatars are a
+ * single static SVG and never animate. Every avatar on the page shares one
+ * animation loop.
  */
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
-import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, avatarFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
+import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMotion, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
-import { mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
+import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
 export interface AvatarOptions {
   definition: AvatarDefinition;
-  /** Body color, #rgb or #rrggbb. */
+  /** Body color: #rgb or #rrggbb, or any CSS color (e.g. var(--brand)). */
   color?: string;
-  /** Eye color, #rgb or #rrggbb. Defaults to a near-black ink. */
+  /** Eye color: #rgb or #rrggbb, or any CSS color. Defaults to a near-black ink. */
   eyeColor?: string;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
@@ -43,10 +44,11 @@ export interface AvatarOptions {
   /** Render one static SVG and never animate (thumbnails, lists). */
   still?: boolean;
   /**
-   * How a live avatar draws. 'scene' (default) is a CSS 3D scene with a compositor layer per visible
-   * slice. 'canvas' paints to one canvas, far lighter when a page shows several avatars.
+   * How a live avatar draws. 'canvas' (default) paints each frame to one canvas: one compositor layer
+   * per avatar. 'scene' is a CSS 3D scene with a compositor layer per visible slice: more CPU and
+   * layers, but less video memory for a single avatar several hundred pixels wide.
    */
-  renderer?: 'scene' | 'canvas';
+  renderer?: 'canvas' | 'scene';
   /** Accessible name; defaults to the definition's name. "" marks the avatar decorative. */
   label?: string;
 }
@@ -113,6 +115,9 @@ function apply(m: Scene, frame: SceneFrame) {
   });
 }
 
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+const isHex = (c: string | undefined) => c === undefined || HEX.test(c);
+
 const keys = new WeakMap<object, string>();
 /** Everything in a definition the static scene markup depends on. */
 function geometryKey(definition: AvatarDefinition): string {
@@ -131,7 +136,7 @@ function eyesOrigin(definition: AvatarDefinition): { x: number; y: number } {
   return { x: at(x), y: at(y) };
 }
 
-/** Avatars smaller than this (CSS px) redraw at SMALL_FPS: a frame of 3D layers costs the same at any size. */
+/** Avatars smaller than this (CSS px) redraw at SMALL_FPS: the difference doesn't show, and pages often hold many. */
 const SMALL_SIZE = 128;
 const SMALL_FPS = 30;
 /** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
@@ -230,12 +235,17 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         view: p.view,
         reducedMotion,
       };
-      if (p.renderer === 'canvas') {
+      if (p.renderer !== 'scene' && canvasSupported()) {
         if (scene) clear();
-        const flat = avatarFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+        const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
         const key = `${geometryKey(p.definition)}|${p.depth}`;
         if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
-        paintCanvas(surface, flat, size);
+        // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
+        // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
+        const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
+        const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
+        const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
+        paintCanvas(surface, flat, size, fill, ink);
         failed = false;
         return !reducedMotion || step.moving;
       }

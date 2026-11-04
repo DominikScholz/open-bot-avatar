@@ -32,7 +32,7 @@ One SVG path in a `0 0 100 100` box, and the eyes.
 
 ## How it renders
 
-The volume is inferred from the outline as stacked cross-sections, drawn as SVG paths in a CSS 3D scene (or projected into one SVG for stills).
+The volume is inferred from the outline as stacked cross-sections. Live avatars project them and paint each frame to one canvas; stills are projected into one SVG. A CSS 3D scene with one SVG per cross-section is available as `renderer: "scene"`.
 
 ## Install
 

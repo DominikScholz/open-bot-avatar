@@ -11,8 +11,9 @@
  * - renderAvatarScene + sceneFrame: a CSS 3D scene. Every cross-section is its
  *   own small SVG placed once with a 3D transform; animating, turning and
  *   recoloring only change a few CSS transforms, and the browser's compositor
- *   does projection and occlusion. Each visible slice costs a compositor layer;
- *   mountAvatar's `renderer: 'canvas'` paints avatarFrame to one canvas instead.
+ *   does projection and occlusion. Each visible slice costs a compositor layer,
+ *   so mountAvatar paints live avatars to one canvas by default and only uses
+ *   the scene with `renderer: 'scene'`.
  */
 import { parseHex, toHex } from './color.ts';
 import type { Rgb } from './color.ts';
@@ -197,7 +198,10 @@ const pivotOf = (b: Bounds): Point => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) 
 const POSE_LIFT = 4;
 const POSE_SWAY = 0.2;
 
-/** A square of viewBox units that holds the avatar at every view and pose. Throws if invalid. */
+/**
+ * A square of viewBox units that holds the avatar at every view and pose. Throws if invalid. The
+ * canvas renderer uses it only as an upper bound: it sizes each bitmap to what is actually painted.
+ */
 export function avatarExtent(definition: AvatarDefinition, depth?: number): { x: number; y: number; size: number } {
   const { vol } = prepare(definition, depthOption({ depth }));
   const b = vol.bounds;
@@ -308,6 +312,14 @@ export type FrameShape =
     }
   | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark };
 
+/** One cross-section outline, shared by every shape that draws it. */
+export interface FramePath {
+  id: string;
+  d: string;
+  evenOdd: boolean;
+  box: { x: number; y: number; w: number; h: number };
+}
+
 /**
  * One frame of the avatar flattened onto the screen: every cross-section the
  * view draws with its projection, and the visible eyes, sorted back to front.
@@ -320,8 +332,11 @@ export interface AvatarFrame {
   name: string;
   color: string;
   ink: string;
-  /** Distinct cross-section paths this frame uses; ids are stable for equal geometry and depth. */
-  paths: { id: string; d: string; evenOdd: boolean }[];
+  /**
+   * Distinct cross-section paths this frame uses; ids are stable for equal geometry and depth.
+   * `box` bounds `d` in its own coordinates, before a shape's matrix.
+   */
+  paths: FramePath[];
   /** 2D motion (hop, roll, squash) about the base of the body, applied to every shape. */
   root: Matrix;
   /** Back to front. */
@@ -330,6 +345,19 @@ export interface AvatarFrame {
 
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
 export function avatarFrame(definition: AvatarDefinition, options: RenderOptions = {}): AvatarFrame {
+  return flatFrame(definition, options, undefined);
+}
+
+/**
+ * avatarFrame for a live avatar drawn `options.size` CSS pixels wide: like the scene, it skips
+ * cross-sections that would sit less than a pixel apart. Internal to the live renderers, so
+ * `size` never changes what avatarFrame returns to custom renderers.
+ */
+export function liveFrame(definition: AvatarDefinition, options: RenderOptions = {}): AvatarFrame {
+  return flatFrame(definition, options, options.size);
+}
+
+function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
   const b = vol.bounds;
@@ -341,12 +369,12 @@ export function avatarFrame(definition: AvatarDefinition, options: RenderOptions
   const eyesMid: Point = [p.def.eyes.x, p.def.eyes.y];
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
-  const paths = new Map<string, { id: string; d: string; evenOdd: boolean }>();
+  const paths = new Map<string, FramePath>();
   const items: { depth: number; shape: FrameShape }[] = [];
-  drawnSlices(p, v, options.size, (s, m, i, j) => {
+  drawnSlices(p, v, size, (s, m, i, j) => {
     let path = paths.get(s.d);
     if (!path) {
-      path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd };
+      path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
       paths.set(s.d, path);
     }
     // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
@@ -380,8 +408,7 @@ function eyeSvg(mark: EyeMark, ink: string): string {
 
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
-  // A still keeps every slice: `size` only sets its dimensions, and it may be scaled up later.
-  const frame = avatarFrame(definition, { ...options, size: undefined });
+  const frame = avatarFrame(definition, options);
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) => (s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>` : `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`))
