@@ -25,15 +25,22 @@ function segments(d: string): Segment[] {
 const holds = (s: Square, b: Bounds, pad = FIT_PAD) =>
   b.x0 - pad >= s.x - 1e-9 && b.y0 - pad >= s.y - 1e-9 && b.x1 + pad <= s.x + s.size + 1e-9 && b.y1 + pad <= s.y + s.size + 1e-9;
 
+const flattened = new Map<string, number[]>();
+
 /** Every corner of every polyline vertex and eye shape, placed: what the canvas actually paints. */
 function painted(o: RenderOptions, d = examples[0]) {
   const frame = avatarFrame(d, o);
   const { matrices, bounds } = framePlacement(frame);
   const paths = new Map(frame.paths.map((p) => [p.id, p.d]));
+  const flat = (d: string) => {
+    let pts = flattened.get(d);
+    if (!pts) flattened.set(d, (pts = flattenPath(segments(d)).flat(2)));
+    return pts;
+  };
   const points: [number, number][] = [];
   frame.shapes.forEach((s, i) => {
     const m = matrices[i];
-    const local: number[] = s.kind === 'slice' ? flattenPath(segments(paths.get(s.path) ?? '')).flat(2)
+    const local: number[] = s.kind === 'slice' ? flat(paths.get(s.path) ?? '')
       : s.mark.shape === 'pill' ? [s.mark.x, s.mark.y, s.mark.x + s.mark.width, s.mark.y + s.mark.height] : [];
     for (let k = 0; k < local.length; k += 2) points.push([m[0] * local[k] + m[2] * local[k + 1] + m[4], m[1] * local[k] + m[3] * local[k + 1] + m[5]]);
   });
@@ -50,17 +57,14 @@ for (const motion of ['idle', 'happy', 'thinking'] as const) {
 
 describe('framePlacement', () => {
   it('bounds everything a frame paints, to well within the antialiasing pad', () => {
+    let overshoot = 0;
     for (const d of examples) {
       for (const o of poses.slice(0, 18)) {
         const { bounds, points } = painted(o, d);
-        for (const [x, y] of points) {
-          expect(x).toBeGreaterThanOrEqual(bounds.x0 - 0.05);
-          expect(x).toBeLessThanOrEqual(bounds.x1 + 0.05);
-          expect(y).toBeGreaterThanOrEqual(bounds.y0 - 0.05);
-          expect(y).toBeLessThanOrEqual(bounds.y1 + 0.05);
-        }
+        for (const [x, y] of points) overshoot = Math.max(overshoot, bounds.x0 - x, x - bounds.x1, bounds.y0 - y, y - bounds.y1);
       }
     }
+    expect(overshoot).toBeLessThan(0.05);
   });
 });
 
