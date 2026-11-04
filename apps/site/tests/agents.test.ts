@@ -21,6 +21,7 @@ describe("agent links", () => {
     expect(agentLink("codex", "x")).toBe("codex://threads/new?prompt=x");
     expect(agentLink("cursor", "x")).toBe("cursor://anysphere.cursor-deeplink/prompt?text=x");
     expect(agentLink("t3code", "x")).toBe("t3code://new?prompt=x");
+    expect(agentLink("entoli", "x")).toBe("entoli://new?prompt=x");
   });
 
   it("leaves a bare base when there are no parameters", () => {

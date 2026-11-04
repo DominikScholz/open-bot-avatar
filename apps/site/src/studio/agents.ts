@@ -11,6 +11,7 @@ export const AGENT_TARGETS = {
   claude: { label: "Claude Code", link: (prompt: string) => deepLink("claude://code/new", { q: prompt }) },
   codex: { label: "Codex", link: (prompt: string) => deepLink("codex://threads/new", { prompt }) },
   cursor: { label: "Cursor", link: (prompt: string) => deepLink("cursor://anysphere.cursor-deeplink/prompt", { text: prompt }) },
+  entoli: { label: "Entoli", link: (prompt: string) => deepLink("entoli://new", { prompt }) },
 } as const;
 
 export type AgentTarget = keyof typeof AGENT_TARGETS;
