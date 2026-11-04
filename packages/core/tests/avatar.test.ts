@@ -98,6 +98,12 @@ describe('validateAvatar', () => {
     expect(errorsOf({ ...clone(controller), body: { path: 'M10 10Q50 50 90 10X' } }).join()).toMatch(/unsupported character/);
   });
 
+  it('rejects empty and whitespace-only paths', () => {
+    for (const path of ['', '  \n\t ']) {
+      expect(errorsOf({ ...clone(controller), body: { path } })).toEqual(['body.path: path is empty']);
+    }
+  });
+
   it('requires eyes on solid fill, not off-body or in a hole', () => {
     const off = clone(controller);
     off.eyes.y = 70;
