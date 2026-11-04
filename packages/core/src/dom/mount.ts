@@ -134,6 +134,8 @@ function eyesOrigin(definition: AvatarDefinition): { x: number; y: number } {
 /** Avatars smaller than this (CSS px) redraw at SMALL_FPS: a frame of 3D layers costs the same at any size. */
 const SMALL_SIZE = 128;
 const SMALL_FPS = 30;
+/** How far outside the viewport (CSS px) avatars keep animating, so they are already moving as they scroll in. */
+const VIEW_MARGIN = 100;
 /** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
 const FRAME_SLACK = 0.004;
 
@@ -157,6 +159,21 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         requestFrame();
       });
   resize?.observe(host);
+
+  /** Whether the host is in or near the viewport. Offscreen, a live avatar only redraws after a change. */
+  let visible = true;
+  const intersect = typeof IntersectionObserver === 'undefined'
+    ? null
+    : new IntersectionObserver(
+        (entries) => {
+          const next = entries[entries.length - 1].isIntersecting;
+          if (next === visible) return;
+          visible = next;
+          if (visible) requestFrame();
+        },
+        { rootMargin: `${VIEW_MARGIN}px` },
+      );
+  intersect?.observe(host);
 
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
@@ -260,13 +277,15 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   syncHost();
   const unsubscribe = subscribeFrames({
     measure: () => {
-      rect = opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
+      rect = visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
     },
     draw: (time, pointer) => {
-      // Stills only redraw after a change; live avatars every frame they ask for.
-      if (opts.still && !dirty) return false;
+      // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
+      // frame they ask for. A change still draws offscreen, so the content is current when printed.
+      if ((opts.still || !visible) && !dirty) return false;
       dirty = false;
       const more = draw(time, pointer);
+      if (!visible) return false;
       return more && size > 0 && size < SMALL_SIZE ? 1 / SMALL_FPS - FRAME_SLACK : more;
     },
   });
@@ -281,6 +300,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     destroy() {
       unsubscribe();
       resize?.disconnect();
+      intersect?.disconnect();
       releasePointer?.();
       releasePointer = null;
       clear();
