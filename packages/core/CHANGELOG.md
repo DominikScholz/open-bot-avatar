@@ -1,5 +1,16 @@
 # open-bot-avatar
 
+## 0.2.0
+
+### Minor Changes
+
+- 810fbcf: Live avatars paint to one canvas by default instead of a CSS 3D scene: one compositor layer and a small bitmap per avatar rather than a layer per visible slice, so pages with many avatars use far less CPU, memory and DOM and keep a steady frame rate. The bitmap covers what is actually painted. Pass `renderer: "scene"` to `mountAvatar` for the previous scene, which uses less video memory for a single avatar several hundred pixels wide; it is also the fallback without canvas support. `color` and `eyeColor` now accept any CSS color, and `avatarFrame` paths gain a `box`.
+
+### Patch Changes
+
+- 8dd0635: Live avatars outside the viewport stop animating until they scroll back into view. A change made while offscreen is still drawn once.
+- 857f487: `validateAvatar` now rejects an empty `body.path` instead of accepting a definition that makes the renderer throw.
+
 ## 0.1.2
 
 ### Patch Changes
