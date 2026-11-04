@@ -34,7 +34,7 @@ avatar.destroy();
 | Option | Behavior |
 | --- | --- |
 | `definition` | Required avatar definition. Validate imported data first. |
-| `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`. Defaults: `#ff6a1a`, `#151515`. |
+| `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
 | `mood` | `"idle"` (default), `"thinking"` or `"happy"`. Changes ease from the current pose. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
@@ -43,6 +43,7 @@ avatar.destroy();
 | `depth` | Volume amount from 0 to 14. Default: 6; 0 is flat. |
 | `reducedMotion` | `true`, `false` or `"system"` (default), which follows `prefers-reduced-motion`. |
 | `still` | Render a static SVG without animation. Default: `false`. |
+| `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
 | `label` | Accessible name. Defaults to the definition's name; `""` marks it decorative. |
 
 ## React
@@ -119,8 +120,7 @@ See the [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) 
 ## Other exports
 
 - `examples` and `getExample(id)` provide built-in definitions.
-- `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms, at one compositor layer per visible slice.
-- `mountAvatar(host, { renderer: 'canvas' })` paints `avatarFrame` to one canvas, which uses far less memory when a page shows several avatars. `avatarExtent` gives the square that canvas must cover.
+- `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms, at one compositor layer per visible slice; `mountAvatar` uses them with `renderer: "scene"`.
 - `computePose`, `createAnimator` and `pointerGaze` support custom animation hosts.
 
 ## License

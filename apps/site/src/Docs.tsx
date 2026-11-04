@@ -72,7 +72,7 @@ function Code({ snippet, language }: { snippet: keyof typeof snippets; language:
 
 const PROPS: [string, string][] = [
   ["definition", "The avatar. Required."],
-  ["color, eyeColor", "#rgb or #rrggbb. Default: #ff6a1a and #151515."],
+  ["color, eyeColor", "#rgb, #rrggbb or any CSS color. Default: #ff6a1a and #151515."],
   ["mood", '"idle" (default), "thinking" or "happy".'],
   ["followPointer", "Look at the mouse or finger. Default: false."],
   ["lookAt", "A fixed look direction, { x, y } from -1 to 1. Wins over the pointer."],
@@ -81,6 +81,7 @@ const PROPS: [string, string][] = [
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
   ["reducedMotion", 'true, false or "system" (default).'],
   ["still", "One static SVG, no animation. Default: false."],
+  ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],
   ["label", 'Accessible name. Default: the definition\'s name; "" for decorative.'],
 ];
 

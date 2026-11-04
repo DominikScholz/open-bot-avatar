@@ -9,7 +9,7 @@ export interface BotAvatarProps extends AvatarOptions {
 }
 
 /**
- * The site's React wrapper around mountAvatar: a live avatar (a CSS 3D scene that idles, blinks,
+ * The site's React wrapper around mountAvatar: a live avatar (painted to a canvas; it idles, blinks,
  * changes mood smoothly and, with `followPointer`, looks toward the cursor), or with `still` a
  * single static SVG. The Docs page shows the same pattern for other apps to copy.
  */
