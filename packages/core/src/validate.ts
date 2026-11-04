@@ -211,7 +211,7 @@ export function validateAvatar(input: unknown): ValidationResult {
     errors.push('name must be 1-40 printable characters without < or >');
   }
 
-  let path = '';
+  let path: string | null = null;
   if (!isRecord(input.body)) errors.push('body must be an object { "path": "..." }');
   else {
     for (const k of Object.keys(input.body)) if (k !== 'path') errors.push(`unknown field "body.${k}" (only "path" is allowed)`);
@@ -238,7 +238,7 @@ export function validateAvatar(input: unknown): ValidationResult {
 
   let normalized = '';
   let body: BodyAnalysis | null = null;
-  if (path) {
+  if (path !== null) {
     try {
       const segs = parsePath(path);
       normalized = serializePath(segs);
