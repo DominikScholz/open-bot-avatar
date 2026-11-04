@@ -1,6 +1,7 @@
 export type { AvatarDefinition, AvatarEyes, AvatarMotion, AvatarMotionBlend, RenderOptions, ValidationResult } from './types.ts';
 export { validateAvatar } from './validate.ts';
 export {
+  avatarExtent,
   avatarFrame,
   renderAvatarSvg,
   renderAvatarScene,

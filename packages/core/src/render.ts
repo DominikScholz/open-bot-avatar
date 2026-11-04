@@ -8,10 +8,11 @@
  *   for any vector renderer.
  * - renderAvatarSvg: a standalone still, serialized from avatarFrame. Cross-sections of the stack that
  *   faces the viewer are projected orthographically and painted back to front.
- * - renderAvatarScene + sceneFrame: a live CSS 3D scene. Every cross-section
- *   is its own small SVG placed once with a 3D transform; animating, turning
- *   and recoloring only change a few CSS transforms, and the browser's
- *   compositor does projection and occlusion.
+ * - renderAvatarScene + sceneFrame: a CSS 3D scene. Every cross-section is its
+ *   own small SVG placed once with a 3D transform; animating, turning and
+ *   recoloring only change a few CSS transforms, and the browser's compositor
+ *   does projection and occlusion. Each visible slice costs a compositor layer;
+ *   mountAvatar's `renderer: 'canvas'` paints avatarFrame to one canvas instead.
  */
 import { parseHex, toHex } from './color.ts';
 import type { Rgb } from './color.ts';
@@ -192,18 +193,35 @@ function rootMatrix(pose: Pose, b: Bounds): M {
 
 const pivotOf = (b: Bounds): Point => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
 
+/** The hop and the share of a point's distance from the base that roll and squash can move it. */
+const POSE_LIFT = 4;
+const POSE_SWAY = 0.2;
+
+/** A square of viewBox units that holds the avatar at every view and pose. Throws if invalid. */
+export function avatarExtent(definition: AvatarDefinition, depth?: number): { x: number; y: number; size: number } {
+  const { vol } = prepare(definition, depthOption({ depth }));
+  const b = vol.bounds;
+  const [cx, cy] = pivotOf(b);
+  const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
+  const half = radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy);
+  return { x: cx - half, y: cy - half, size: 2 * half };
+}
+
 /**
  * Every cross-section a view draws, with its projection: the stack facing the
  * viewer, minus z-slices hidden behind the core (they add nothing to the
  * silhouette or the paint). Their union is the silhouette on screen.
  */
-function drawnSlices(vol: Volume, v: ViewBasis, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
+function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
+  const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
   const drawn = sliceCull(v);
+  const kept = sliceDetail(p, stack, size);
+  let k = 0;
   vol.parts.forEach((part, i) => {
     (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
-      if (!drawn(s)) return;
+      if (!kept[k++] || !drawn(s)) return;
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
@@ -325,7 +343,7 @@ export function avatarFrame(definition: AvatarDefinition, options: RenderOptions
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, { id: string; d: string; evenOdd: boolean }>();
   const items: { depth: number; shape: FrameShape }[] = [];
-  drawnSlices(vol, v, (s, m, i, j) => {
+  drawnSlices(p, v, options.size, (s, m, i, j) => {
     let path = paths.get(s.d);
     if (!path) {
       path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd };
@@ -362,7 +380,8 @@ function eyeSvg(mark: EyeMark, ink: string): string {
 
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
-  const frame = avatarFrame(definition, options);
+  // A still keeps every slice: `size` only sets its dimensions, and it may be scaled up later.
+  const frame = avatarFrame(definition, { ...options, size: undefined });
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) => (s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>` : `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`))

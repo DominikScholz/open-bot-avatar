@@ -8,14 +8,16 @@
  * Live avatars are a CSS 3D scene: every cross-section of the inferred volume
  * is mounted once as its own small SVG, and each frame only writes a few CSS
  * transforms (view, hop/roll/squash, the eyes' gaze and blink). Changing the
- * color only changes CSS `color`. `still` avatars are a single static SVG and
- * never animate. Every avatar on the page shares one animation loop.
+ * color only changes CSS `color`. `renderer: 'canvas'` paints the same frames
+ * to one canvas instead (see paint.ts). `still` avatars are a single static SVG
+ * and never animate. Every avatar on the page shares one animation loop.
  */
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
-import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
+import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, avatarFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMotion, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
+import { mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
@@ -40,6 +42,11 @@ export interface AvatarOptions {
   reducedMotion?: boolean | 'system';
   /** Render one static SVG and never animate (thumbnails, lists). */
   still?: boolean;
+  /**
+   * How a live avatar draws. 'scene' (default) is a CSS 3D scene with a compositor layer per visible
+   * slice. 'canvas' paints to one canvas, far lighter when a page shows several avatars.
+   */
+  renderer?: 'scene' | 'canvas';
   /** Accessible name; defaults to the definition's name. "" marks the avatar decorative. */
   label?: string;
 }
@@ -135,6 +142,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   const animator = createAnimator();
   let rect: DOMRect | null = null;
   let scene: Scene | null = null;
+  let surface: CanvasSurface | null = null;
   let lastStill = '';
   let failed = false;
   let dirty = true;
@@ -176,6 +184,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   const clear = () => {
     host.textContent = '';
     scene = null;
+    surface = null;
     lastStill = '';
   };
 
@@ -185,7 +194,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const now = performance.now();
     try {
       if (p.still) {
-        if (scene) clear();
+        if (scene || surface) clear();
         const svg = renderAvatarSvg(p.definition, {
           color: p.color,
           eyeColor: p.eyeColor,
@@ -221,6 +230,16 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         view: p.view,
         reducedMotion,
       };
+      if (p.renderer === 'canvas') {
+        if (scene) clear();
+        const flat = avatarFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+        const key = `${geometryKey(p.definition)}|${p.depth}`;
+        if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+        paintCanvas(surface, flat, size);
+        failed = false;
+        return !reducedMotion || step.moving;
+      }
+      if (surface) clear();
       const frame = sceneFrame(p.definition, options);
       if (!scene || scene.key !== frame.scene || scene.geometry !== geometryKey(p.definition) || !host.contains(scene.view)) {
         scene = mountScene(host, p.definition, p.depth);
