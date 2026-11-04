@@ -119,7 +119,8 @@ See the [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) 
 ## Other exports
 
 - `examples` and `getExample(id)` provide built-in definitions.
-- `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms.
+- `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms, at one compositor layer per visible slice.
+- `mountAvatar(host, { renderer: 'canvas' })` paints `avatarFrame` to one canvas, which uses far less memory when a page shows several avatars. `avatarExtent` gives the square that canvas must cover.
 - `computePose`, `createAnimator` and `pointerGaze` support custom animation hosts.
 
 ## License
