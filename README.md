@@ -2,6 +2,8 @@
 
 Letter-shaped blob avatars with flowing gradients and eyes. Type a word to spell it in avatars, then give each letter its own color and emotion.
 
+**[Try it live](https://andersontsan.github.io/alphabet-avatar/)**
+
 This is a fork of [Open Bot Avatar](https://github.com/DominikScholz/open-bot-avatar) by Dominik Scholz, which provides the rendering engine. Both are MIT licensed; see [LICENSE](LICENSE).
 
 ## What's different from the original
