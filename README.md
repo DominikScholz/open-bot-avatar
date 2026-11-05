@@ -1,137 +1,62 @@
-<p><img src="assets/banner.png" width="100%" alt="Open Bot Avatar: colorful object avatars with eyes, such as a ghost, a controller, a sprout, a cat and a mug"></p>
+# Alphabet Avatar
 
-A JSON spec and renderer for interactive agent avatars.
+Letter-shaped blob avatars with flowing gradients and eyes. Type a word to spell it in avatars, then give each letter its own color and emotion.
 
-- Spec: one SVG path and where the eyes sit ([contract](docs/avatar-contract.md)).
-- Renderer: the `open-bot-avatar` package, no dependencies.
-- [Editor](https://dominikscholz.github.io/open-bot-avatar/): pick, color, generate and import avatars.
+This is a fork of [Open Bot Avatar](https://github.com/DominikScholz/open-bot-avatar) by Dominik Scholz, which provides the rendering engine. Both are MIT licensed; see [LICENSE](LICENSE).
 
-Open source, MIT licensed. [Docs](https://dominikscholz.github.io/open-bot-avatar/#/docs).
+## What's different from the original
 
-## Make an avatar
+- **Letters:** [`gallery/`](gallery) holds 26 letter shapes instead of the original bots.
+- **Liquid gradient:** a swirling WebGL fill, with a simpler fallback where WebGL isn't available.
+- **Embed script:** an `<alphabet-avatar>` element for putting a live word on any site.
+- **Site:** a letter editor replaces the original's editor, docs, and Generate and Import tabs.
+- **Engine changes in [`packages/core`](packages/core):**
+  - a `paint` option on `mountAvatar`, for filling a body with a gradient or pattern
+  - an `angry` mood
+  - an `eyeBoost` option for enlarging the eyes
+  - `paintFrame` and `framePlacement` for still exports
+  - happy letters that jump now and then, rather than constantly
 
-In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it returns into Import. The prompt is [system-prompt.md](skills/generate-avatar/references/system-prompt.md); agents with skills can use the [generate-avatar skill](skills/generate-avatar/SKILL.md).
+## Run it
 
-To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery).
-
-## Definition
-
-One SVG path in a `0 0 100 100` box, and the eyes.
-
-```json
-{
-  "version": 1,
-  "id": "box",
-  "name": "Box",
-  "body": { "path": "M20 20 H80 V80 H20 Z" },
-  "eyes": { "x": 50, "y": 46, "spacing": 15, "scale": 1 }
-}
-```
-
-`x`, `y`: the eyes' center; `spacing`: the distance between them; `scale`: their size. Check definitions you didn't write with `validateAvatar`, which returns `{ ok: true, value }` or `{ ok: false, errors }`. The rules are in the [contract](docs/avatar-contract.md).
-
-## How it renders
-
-The volume is inferred from the outline as stacked cross-sections. Live avatars project them and paint each frame to one canvas; stills are projected into one SVG. A CSS 3D scene with one SVG per cross-section is available as `renderer: "scene"`.
-
-## Install
-
-```sh
-pnpm add open-bot-avatar
-```
-
-## Mount an avatar
-
-`mountAvatar` fills a square element.
-
-```ts
-import { getExample } from "open-bot-avatar";
-import { mountAvatar } from "open-bot-avatar/dom";
-
-const avatar = mountAvatar(document.querySelector("#bot")!, {
-  definition: getExample("mug")!,
-  color: "#ff6a1a",
-  followPointer: true,
-});
-
-avatar.update({ mood: "happy" }); // any subset of the options
-avatar.destroy();
-```
-
-| Option | |
-| --- | --- |
-| `definition` | The avatar. Required. |
-| `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. |
-| `followPointer` | Look at the mouse or finger. Default: `false`. |
-| `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |
-| `holdGaze` | Keep looking where it looks now. Default: `false`. |
-| `view` | Extra rotation, `{ yaw, pitch }` in radians. |
-| `depth` | Volume, 0 (flat) to 14. Default: 6. |
-| `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `still` | One static SVG, no animation. Default: `false`. |
-| `label` | Accessible name. Default: the definition's name; `""` for decorative. |
-
-## SVG
-
-`renderAvatarSvg` returns an SVG string; `avatarFrame` returns the same frame as data, for drawing it yourself. Neither needs a DOM.
-
-```ts
-import { avatarFrame, renderAvatarSvg, validateAvatar } from "open-bot-avatar";
-
-const result = validateAvatar(JSON.parse(json));
-if (result.ok) {
-  const svg = renderAvatarSvg(result.value, { color: "#1fbf68", size: 256 });
-  const frame = avatarFrame(result.value, { color: "#1fbf68" });
-}
-```
-
-Both also take `time` (seconds), `motion` (the mood) and `gaze`.
-
-## React
-
-There's no React package; copy this component. Other frameworks work the same way.
-
-```tsx
-import { useEffect, useRef } from "react";
-import { mountAvatar, type AvatarOptions, type MountedAvatar } from "open-bot-avatar/dom";
-
-export function BotAvatar({ size = 96, ...options }: AvatarOptions & { size?: number }) {
-  const host = useRef<HTMLDivElement>(null);
-  const avatar = useRef<MountedAvatar | null>(null);
-  useEffect(() => {
-    avatar.current = mountAvatar(host.current!, options);
-    return () => avatar.current?.destroy();
-  }, []);
-  useEffect(() => avatar.current?.update(options));
-  return <div ref={host} style={{ width: size, aspectRatio: "1" }} />;
-}
-```
-
-## Repository layout
-
-```text
-packages/core/   npm package: engine and browser mount
-apps/site/       editor and documentation (Vite + React)
-gallery/         community avatar definitions
-skills/          design prompt and generation skill
-docs/            definition contract
-```
-
-## Development
+Needs Node 22.18 or newer and pnpm.
 
 ```sh
 pnpm install
-pnpm dev          # the site, with the package from source
-pnpm test         # Vitest: engine, DOM mount, editor and gallery checks
-pnpm typecheck
-pnpm build        # the package to dist/, the site to apps/site/dist/
-pnpm check        # typecheck, tests and build, in sequence
-node packages/core/scripts/avatar-validate.ts --strict my-avatar.json --svg my-avatar.svg
+pnpm dev          # the site
+pnpm check        # type checks, tests and a build
 ```
 
-Needs Node 22.18+ and pnpm.
+## Embed it
 
-## License
+The editor's **Copy embed code** button writes this for you:
 
-[MIT](LICENSE)
+```html
+<script src="https://andersontsan.github.io/alphabet-avatar/alphabet-avatar-v1.js"></script>
+<alphabet-avatar text="hello" spacing="tight" letters="H:angry, L2:happy:3"></alphabet-avatar>
+```
+
+| Attribute | Values |
+|---|---|
+| `text` | The word or words to show, A to Z |
+| `spacing` | `overlap`, `tight`, `normal`, `wide` |
+| `flow` | `still`, `slow`, `normal`, `fast` |
+| `glow` | `on`, `off` |
+| `emotion` | `idle`, `thinking`, `happy`, `angry`, for every letter |
+| `color` | A palette number 0 to 8, or `#rrggbb`, for every letter |
+| `letters` | Per-letter settings: `L2:happy:3` is the second L, happy, in palette 3 |
+| `label` | Text for screen readers; defaults to the word |
+
+The script respects each visitor's reduced-motion setting.
+
+## Layout
+
+```
+apps/site/        the letter editor
+gallery/          the 26 letter definitions
+packages/core/    the rendering engine, modified from the original
+scripts/          make-letters.mjs regenerates gallery/
+docs/             the definition format
+```
+
+To change a letter's shape, edit it in `scripts/make-letters.mjs`, then run `node scripts/make-letters.mjs`.

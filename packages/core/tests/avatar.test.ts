@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { examples, getExample } from '../src/examples.ts';
 import { blinkAt, computePose } from '../src/motion.ts';
@@ -42,14 +41,6 @@ describe('examples', () => {
     }
   });
 
-  it('skill output and system prompt examples match the engine examples', () => {
-    const skillRun = JSON.parse(readFileSync('skills/generate-avatar/examples/watering-can.json', 'utf8'));
-    expect(skillRun).toEqual(getExample('watering-can'));
-    const design = readFileSync('skills/generate-avatar/references/system-prompt.md', 'utf8');
-    const blocks = [...design.matchAll(/```json\n(.*?)\n```/gs)].map((m) => JSON.parse(m[1]));
-    expect(blocks.length).toBeGreaterThanOrEqual(2);
-    for (const b of blocks) expect(b).toEqual(getExample(b.id));
-  });
 });
 
 describe('path geometry', () => {

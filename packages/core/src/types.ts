@@ -28,7 +28,7 @@ export interface AvatarDefinition {
   eyes: AvatarEyes;
 }
 
-export type AvatarMotion = 'idle' | 'thinking' | 'happy';
+export type AvatarMotion = 'idle' | 'thinking' | 'happy' | 'angry';
 
 /**
  * A mood easing in over what was shown before it: a plain mood, or a mood that
@@ -68,6 +68,8 @@ export interface RenderOptions {
    * `t` reaches 1 (and under reduced motion).
    */
   motionBlend?: AvatarMotionBlend;
+  /** Multiplies the drawn eye size (e.g. 1.25 on hover). Default 1. */
+  eyeBoost?: number;
   /** Freeze body motion and blinking at a calm pose; gaze still applies. */
   reducedMotion?: boolean;
 }

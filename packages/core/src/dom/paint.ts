@@ -142,6 +142,27 @@ function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
   ctx.fill();
 }
 
+/** Draws one frame onto any canvas at `scale` device pixels per viewBox unit, with no layout: for still exports. */
+export function paintFrame(ctx: CanvasRenderingContext2D, frame: AvatarFrame, scale: number, fill: string | CanvasPattern | CanvasGradient = frame.color, ink = frame.ink) {
+  const { matrices } = framePlacement(frame);
+  const paths = new Map(frame.paths.map((p) => [p.id, p]));
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = fill;
+  frame.shapes.forEach((shape, i) => {
+    const m = matrices[i];
+    ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4], scale * m[5]);
+    if (shape.kind === 'slice') {
+      const path = paths.get(shape.path);
+      if (path) ctx.fill(new Path2D(path.d), path.evenOdd ? 'evenodd' : 'nonzero');
+    } else {
+      ctx.fillStyle = ink;
+      eye(ctx, shape.mark);
+      ctx.fillStyle = fill;
+    }
+  });
+}
+
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
 export interface CanvasSurface {
   key: string;
@@ -168,7 +189,7 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
 }
 
 /** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink) {
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill: string | CanvasPattern | CanvasGradient = frame.color, ink = frame.ink) {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;

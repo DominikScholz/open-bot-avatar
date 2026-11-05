@@ -5,23 +5,66 @@
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#111111" />
-    <title>Open Bot Avatar</title>
-    <meta name="description" content="A JSON spec and renderer for interactive agent avatars. Open source, MIT licensed." />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Open Bot Avatar" />
-    <meta property="og:title" content="Open Bot Avatar" />
-    <meta property="og:description" content="A JSON spec and renderer for interactive agent avatars. Open source, MIT licensed." />
-    <meta property="og:url" content="https://dominikscholz.github.io/open-bot-avatar/" />
-    <meta property="og:image" content="https://dominikscholz.github.io/open-bot-avatar/og.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Open Bot Avatar: the name next to nine colorful avatars with eyes, among them a ghost, a chat bubble and a game controller." />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:creator" content="@dom_scholz" />
+    <meta name="theme-color" content="#111214" />
+    <title>Alphabet Avatar</title>
+    <meta name="description" content="Letter-shaped blob avatars with flowing gradients and eyes. Type a word to spell it in avatars." />
   </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+  <body class="glow">
+<header><div id="logo"></div>Alphabet Avatar</header>
+<main>
+  <section class="left" aria-label="Preview">
+    <div id="stage" role="img"></div>
+    <div class="actions">
+      <button class="action" id="copyEmbed">Copy embed code</button>
+      <button class="action" id="savePng">Save PNG</button>
+      <button class="action" id="saveSvg">Save SVG</button>
+    </div>
+    <textarea id="embedCode" aria-label="Embed code" readonly rows="4" hidden></textarea>
+    <p id="status" aria-live="polite"></p>
+  </section>
+  <section class="panel" aria-label="Controls">
+    <div class="field">
+      <label for="text">Type a word</label>
+      <input id="text" maxlength="24" placeholder="hello" autocomplete="off" spellcheck="false">
+      <p id="note" aria-live="polite"></p>
+      <div class="setting" id="spacingRow" hidden>
+        <span class="rowLabel" id="spacingLabel">Letter spacing</span>
+        <div class="stops" id="spacingStops" role="group" aria-labelledby="spacingLabel">
+          <button class="chip" data-stop="overlap" aria-pressed="false">Overlap</button>
+          <button class="chip" data-stop="tight" aria-pressed="false">Tight</button>
+          <button class="chip" data-stop="normal" aria-pressed="true">Normal</button>
+          <button class="chip" data-stop="wide" aria-pressed="false">Wide</button>
+        </div>
+      </div>
+      <div class="setting">
+        <span class="rowLabel" id="flowLabel">Gradient flow</span>
+        <div class="stops" id="flowStops" role="group" aria-labelledby="flowLabel">
+          <button class="chip" data-flow="still" aria-pressed="false">Still</button>
+          <button class="chip" data-flow="slow" aria-pressed="false">Slow</button>
+          <button class="chip" data-flow="normal" aria-pressed="true">Normal</button>
+          <button class="chip" data-flow="fast" aria-pressed="false">Fast</button>
+        </div>
+      </div>
+      <div class="setting">
+        <span class="rowLabel" id="glowLabel">Glow</span>
+        <div class="stops" id="glowStops" role="group" aria-labelledby="glowLabel">
+          <button class="chip" data-glow="on" aria-pressed="true">On</button>
+          <button class="chip" data-glow="off" aria-pressed="false">Off</button>
+        </div>
+      </div>
+    </div>
+    <div id="grid" role="group" aria-label="Letters"></div>
+    <div class="colorHead">
+      <span id="colorTitle" class="editing"></span>
+      <div class="scope" role="group" aria-label="Apply color to">
+        <button class="chip" id="scopeOne" aria-pressed="true">This letter</button>
+        <button class="chip" id="scopeAll" aria-pressed="false">All letters</button>
+      </div>
+    </div>
+    <div class="section"><div class="labelRow"><span class="rowLabel" id="emotionLabel">Emotion</span><button class="chip small" id="randomMoods">Random for all letters</button></div><div class="stops" id="moods" role="group" aria-labelledby="emotionLabel"></div></div>
+    <div class="section"><span class="rowLabel" id="colorLabel">Color</span><div id="swatches" role="group" aria-labelledby="colorLabel"></div></div>
+  </section>
+</main>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

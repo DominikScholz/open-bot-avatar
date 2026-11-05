@@ -1,4 +1,5 @@
 export { mountAvatar } from './mount.ts';
+export { framePlacement, paintFrame } from './paint.ts';
 export type { AvatarOptions, MountedAvatar } from './mount.ts';
 export { requestFrame, setPointer, subscribeFrames } from './clock.ts';
 export type { FrameSubscriber, Pointer } from './clock.ts';

@@ -51,6 +51,10 @@ export interface AvatarOptions {
   renderer?: 'canvas' | 'scene';
   /** Accessible name; defaults to the definition's name. "" marks the avatar decorative. */
   label?: string;
+  /** Multiplies the drawn eye size. */
+  eyeBoost?: number;
+  /** Returns the body fill for each frame, such as a gradient or pattern. Canvas renderer only; overrides `color`. */
+  paint?: (ctx: CanvasRenderingContext2D) => CanvasPattern | CanvasGradient | string;
 }
 
 export interface MountedAvatar {
@@ -251,6 +255,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         gaze: step.gaze,
         view: p.view,
         reducedMotion,
+        eyeBoost: p.eyeBoost,
       };
       if (p.renderer !== 'scene' && canvasSupported()) {
         if (scene) clear();
@@ -262,7 +267,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
         const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
         const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
-        paintCanvas(surface, flat, size, fill, ink);
+        paintCanvas(surface, flat, size, p.paint && surface.ctx ? p.paint(surface.ctx) : fill, ink);
         failed = false;
         return !reducedMotion || step.moving;
       }

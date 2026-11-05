@@ -1,4 +1,14 @@
-# open-bot-avatar
+# open-bot-avatar (Alphabet Avatar's copy)
+
+This is a modified copy of [Open Bot Avatar](https://github.com/DominikScholz/open-bot-avatar) by Dominik Scholz, used by [Alphabet Avatar](https://github.com/andersontsan/alphabet-avatar). It isn't published to npm; the install steps below describe the original package.
+
+It adds:
+
+- a `paint` option on `mountAvatar`, which returns the body fill for each frame, such as a gradient or pattern (canvas renderer only)
+- an `angry` mood, whose eyes change angle, blink and glance around
+- an `eyeBoost` option that scales the drawn eyes
+- `paintFrame` and `framePlacement` from `open-bot-avatar/dom`, for still exports
+- happy avatars that jump now and then, easing in and out of each jump, rather than constantly
 
 Open Bot Avatar renders object avatars from an SVG silhouette and eye placement. The renderer adds volume, blinking, gaze and motion.
 
@@ -113,9 +123,7 @@ Parse JSON text first, then call `validateAvatar` before rendering imported defi
 
 ## Make an avatar
 
-In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe an avatar in Generate. Copy the prompt into a chat model or open it in an agent app. The editor does not run a model. Paste the returned JSON into Import or drop a JSON file. Import validates it before adding it. If validation fails, use the repair prompt to request a correction.
-
-See the [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) and [definition contract](https://github.com/dominikscholz/open-bot-avatar/blob/main/docs/avatar-contract.md).
+Write the JSON by hand or generate it with a script, as [`scripts/make-letters.mjs`](../../scripts/make-letters.mjs) does for the letters. See the [definition contract](../../docs/avatar-contract.md).
 
 ## Other exports
 

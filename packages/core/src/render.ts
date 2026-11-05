@@ -98,7 +98,7 @@ export function preparedVolume(definition: AvatarDefinition, depth?: number): { 
 }
 
 function poseOf(p: Prepared, options: RenderOptions): Pose {
-  const motion = options.motion === 'thinking' || options.motion === 'happy' ? options.motion : 'idle';
+  const motion = options.motion === 'thinking' || options.motion === 'happy' || options.motion === 'angry' ? options.motion : 'idle';
   return computePose({
     seed: p.seed,
     time: Number.isFinite(options.time) ? (options.time as number) : 0,
@@ -255,19 +255,30 @@ interface EyeState {
   open: number;
   shift: number;
   happy: boolean;
+  angry: boolean;
+  tilt: number;
+  side: 0 | 1;
 }
 
-function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
-  const s = p.vol.eyeScale;
+function eyeStates(p: Prepared, pose: Pose, boost = 1): [EyeState, EyeState] {
+  const s = p.vol.eyeScale * boost;
   const w = EYE_W * s, h = EYE_H * s;
   const r = p.range;
   const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
   const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
   const centers = eyeCenters(p.def.eyes);
+  // Wide eye shapes get extra room, so the pair never touches, including when enlarged.
+  if (pose.eyeShape !== 'pill') {
+    const half = pose.eyeShape === 'happy' ? w * (HAPPY_ARC.halfWidth + HAPPY_ARC.stroke / 2) : w * 1.145;
+    const mid = (centers[0][0] + centers[1][0]) / 2;
+    const apart = Math.max(Math.abs(centers[1][0] - centers[0][0]) / 2, half + w * 0.42);
+    centers[0] = [mid - apart, centers[0][1]];
+    centers[1] = [mid + apart, centers[1][1]];
+  }
   return ([0, 1] as const).map((i) => {
     const squint = i === 0 ? pose.squintL : pose.squintR;
     const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, happy: pose.eyeShape === 'happy' };
+    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, happy: pose.eyeShape === 'happy', angry: pose.eyeShape === 'angry', tilt: pose.eyeTilt, side: i };
   }) as [EyeState, EyeState];
 }
 
@@ -277,7 +288,16 @@ function happyArc(e: EyeState): string {
   return `M${f(ex - hw)} ${f(base)}Q${f(ex)} ${f(ey - e.h * HAPPY_ARC.peak)} ${f(ex + hw)} ${f(base)}`;
 }
 
+// Angry eyes are short bars slanting down toward the middle of the face.
+function angryBar(e: EyeState): string {
+  const ex = e.x + e.dx, ey = e.y + e.dy, reach = e.w * 0.72, angle = (30 * e.tilt * Math.PI) / 180;
+  const hw = reach * Math.cos(angle), rise = reach * Math.sin(angle);
+  const lift = e.side === 0 ? -rise : rise;
+  return `M${f(ex - hw)} ${f(ey + lift)}L${f(ex + hw)} ${f(ey - lift)}`;
+}
+
 function eyeMark(e: EyeState): EyeMark {
+  if (e.angry) return { shape: 'arc', d: angryBar(e), strokeWidth: e.w * 0.85 * Math.max(0.28, e.open / e.h) };
   if (e.happy) return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
   const cx = e.x + e.dx, cy = e.y + e.dy + e.shift;
   return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
@@ -383,7 +403,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: m } });
   });
   // Painted on the surface; each eye goes once the surface under it turns away.
-  eyeStates(p, pose).forEach((e, idx) => {
+  eyeStates(p, pose, options.eyeBoost).forEach((e, idx) => {
     if (eyeVisible(vol, v, idx)) {
       const z = vol.eyeZ[idx] + EYE_LIFT;
       items.push({
@@ -532,7 +552,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const p = prepare(definition, depthOption(options));
   const pose = poseOf(p, options);
   const v = viewBasis(pose.yaw, pose.pitch);
-  const states = eyeStates(p, pose);
+  const states = eyeStates(p, pose, options.eyeBoost);
   const stack = activeStack(v);
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, options.size);
