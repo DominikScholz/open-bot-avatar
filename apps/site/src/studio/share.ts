@@ -1,4 +1,4 @@
-import { validateAvatar, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
+import { isMotion, validateAvatar, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
 import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
 
 /**
@@ -6,7 +6,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *
  *   ?avatar=barbell          a starter, a gallery avatar or one of yours, by id
  *   &color=1f7cf2            a color: hex, with or without #, or a swatch name (blue)
- *   &mood=happy              idle, thinking or happy
+ *   &mood=happy              a mood (MOTIONS in open-bot-avatar), e.g. idle, happy or sad
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
@@ -20,7 +20,6 @@ export interface SharedLook {
 }
 
 const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
-const MOODS: AvatarMotion[] = ["idle", "thinking", "happy"];
 
 /** A definition as compact JSON in base64url (UTF-8 safe, no padding). */
 export function encodeDefinition(definition: AvatarDefinition): string {
@@ -71,8 +70,8 @@ export function readShare(search: string): SharedLook {
   if (avatar) shared.avatar = avatar;
   const color = readColor(params.get("color"));
   if (color) shared.color = color;
-  const mood = params.get("mood")?.trim().toLowerCase() as AvatarMotion | undefined;
-  if (mood && MOODS.includes(mood)) shared.mood = mood;
+  const mood = params.get("mood")?.trim().toLowerCase();
+  if (isMotion(mood)) shared.mood = mood;
   return shared;
 }
 

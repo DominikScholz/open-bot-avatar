@@ -229,6 +229,73 @@
       margin-top: 2px;
     }
 
+    /* Moods */
+
+    @media (min-width: 1000px) {
+      .page.moods-page {
+        padding-top: 88px;
+      }
+    }
+
+    .moods-pick {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-bottom: 20px;
+    }
+
+    .moods-pick-item {
+      width: 40px;
+      padding: 4px;
+      border-radius: 10px;
+      opacity: 0.55;
+    }
+
+    .moods-pick-item:hover {
+      opacity: 0.85;
+      background: var(--hover);
+    }
+
+    .moods-pick-item.is-on {
+      opacity: 1;
+      background: var(--hover);
+    }
+
+    .mood-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
+      gap: 12px;
+    }
+
+    .mood-card {
+      padding: 12px 16px 14px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+    }
+
+    .mood-avatar {
+      width: min(100%, 170px);
+      margin: 0 auto 6px;
+    }
+
+    .page .mood-card h2 {
+      margin: 0 0 4px;
+      font-size: 15px;
+    }
+
+    .mood-card h2 code {
+      margin-left: 6px;
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--faint);
+    }
+
+    .page .mood-card p {
+      margin: 0;
+      font-size: 13px;
+    }
+
     /* Docs */
 
     @media (min-width: 1000px) {

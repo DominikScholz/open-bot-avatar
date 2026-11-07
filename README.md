@@ -62,7 +62,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. |
+| `mood` | `"idle"` (default), `"thinking"`, `"happy"`, `"excited"`, `"celebrate"`, `"determined"`, `"surprised"`, `"angry"`, `"sad"` or `"sleepy"`. |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
 | `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |
 | `holdGaze` | Keep looking where it looks now. Default: `false`. |

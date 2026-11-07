@@ -67,7 +67,7 @@ interface Scene {
   view: HTMLElement;
   stacks: Record<'z' | 'x', HTMLElement>;
   slices: Record<'z' | 'x', HTMLElement[]>;
-  eyes: { root: HTMLElement; pill: HTMLElement; arc: HTMLElement }[];
+  eyes: { root: HTMLElement; path: SVGPathElement }[];
   last: Record<string, string>;
 }
 
@@ -84,7 +84,7 @@ function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number
     slices: { z: [...stacks.z.children] as HTMLElement[], x: [...stacks.x.children] as HTMLElement[] },
     eyes: [0, 1].map((i) => {
       const root = q(`[data-eye="${i}"]`);
-      return { root, pill: root.querySelector('i') as HTMLElement, arc: root.querySelector('svg') as unknown as HTMLElement };
+      return { root, path: root.querySelector('path') as SVGPathElement };
     }),
     last: {},
   };
@@ -107,11 +107,11 @@ function apply(m: Scene, frame: SceneFrame) {
   frame.slices.forEach((shown, i) => slices[i] && put(m, `${frame.stack}${i}`, slices[i], 'display', shown ? 'block' : 'none'));
   frame.eyes.forEach((eye, i) => {
     const e = m.eyes[i];
-    put(m, `e${i}`, e.root, 'transform', eye.transform);
     put(m, `v${i}`, e.root, 'visibility', eye.visible ? 'visible' : 'hidden');
-    put(m, `p${i}`, e.pill, 'transform', eye.pill);
-    put(m, `ph${i}`, e.pill, 'display', eye.happy ? 'none' : 'block');
-    put(m, `a${i}`, e.arc, 'display', eye.happy ? 'block' : 'none');
+    if (eye.visible && m.last[`d${i}`] !== eye.d) {
+      m.last[`d${i}`] = eye.d;
+      e.path.setAttribute('d', eye.d);
+    }
   });
 }
 

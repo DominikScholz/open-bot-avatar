@@ -15,12 +15,12 @@ describe('mood changes', () => {
     expect(mid.roll).toBeCloseTo((a.roll + b.roll) / 2, 9);
   });
 
-  it('swap eye shape inside a blink', () => {
+  it('morph eye shapes from one mood to the other', () => {
     const a = computePose({ ...base, motion: 'idle' });
     const b = computePose({ ...base, motion: 'happy' });
-    expect(blendPoses(a, b, 0.45).eyeShape).toBe('pill');
-    expect(blendPoses(a, b, 0.55).eyeShape).toBe('happy');
-    expect(blendPoses(a, b, 0.5).blink).toBeCloseTo(1, 9);
+    const mid = blendPoses(a, b, 0.5);
+    expect(mid.eyes[0].w).toBeCloseTo((a.eyes[0].w + b.eyes[0].w) / 2, 9);
+    expect(mid.eyes[1].arch).toBeCloseTo((a.eyes[1].arch + b.eyes[1].arch) / 2, 9);
   });
 
   it('ease in through computePose', () => {

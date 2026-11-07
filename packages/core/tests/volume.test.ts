@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { contourLoops, simplifyLoop } from '../src/contour.ts';
 import { examples, getExample } from '../src/examples.ts';
 import { filledArea, flattenPath, insideRow, isInside, parsePath, winding } from '../src/path.ts';
-import { activeStack, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
+import { MOTIONS } from '../src/motion.ts';
+import { activeStack, avatarFrame, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
 import { EYE_CLEARANCE, EYE_H, GAZE_X, GAZE_Y, analyzeBody, drawnEyesFit, gazeRange, validateAvatar } from '../src/validate.ts';
 import { EYE_BOOST, EYE_BOOST_PAD, FACE_ROOM_TARGET, type VolumePart, buildVolume, erosionAt, faceRoom, revolveAxis, surfaceZ } from '../src/volume.ts';
 import { SEAM_MAX, SEAM_MIN, silhouetteSeams } from '../src/seams.ts';
@@ -204,7 +205,7 @@ describe('live scene', () => {
     const html = renderAvatarScene(c);
     const vol = buildVolume(c);
     const slices = vol.parts.reduce((n, p) => n + p.zSlices.length + p.xSlices.length, 0);
-    expect((html.match(/<svg /g) ?? []).length).toBe(slices + 2); // + one happy-eye arc per eye
+    expect((html.match(/<svg /g) ?? []).length).toBe(slices + 2); // + one per eye
     expect(html).toContain('preserve-3d');
     expect(html).not.toMatch(/NaN|undefined|Infinity/);
     const a = sceneFrame(c, { time: 0.4 }), b = sceneFrame(c, { time: 2.9 });
@@ -212,7 +213,7 @@ describe('live scene', () => {
     expect(a.view).not.toBe(b.view);
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: 1.3, pitch: 0 } }).stack).toBe('x');
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: Math.PI, pitch: 0 } }).eyes.every((e) => !e.visible)).toBe(true);
-    expect(sceneFrame(c, { motion: 'happy', time: 0.3 }).eyes.every((e) => e.happy)).toBe(true);
+    expect(sceneFrame(c, { motion: 'happy', time: 0.3 }).eyes[0].d).not.toBe(sceneFrame(c, { time: 0.3 }).eyes[0].d);
   });
 
   it('keeps every part core when small sizes thin out the slices', () => {
@@ -371,7 +372,7 @@ describe('face room', () => {
 
 describe('eye visibility on curved hosts', () => {
   const eyesAt = (e: AvatarDefinition, yaw: number) =>
-    (renderAvatarSvg(e, { reducedMotion: true, view: { yaw, pitch: 0 } }).match(/<rect /g) ?? []).length;
+    (renderAvatarSvg(e, { reducedMotion: true, view: { yaw, pitch: 0 } }).match(/<g transform="[^"]*"><path /g) ?? []).length;
 
   it('drops the eye nearer the limb of a round part first instead of letting it hang past the edge', () => {
     for (const id of ['mug', 'lightbulb', 'sprout', 'watering-can']) {
@@ -423,5 +424,36 @@ describe('silhouette seams', () => {
     // The flush neck and base turn as one continuous round surface at their join.
     const [glass, base] = bulb.parts;
     expect(glass.height(50, 70)).toBeCloseTo(base.height(50, 70), 0);
+  });
+});
+
+describe('mood expressions', () => {
+  // A slot just tall enough for the eyes: big expressions have to give way here.
+  const slot: AvatarDefinition = { version: 1, id: 'slot', name: 'Slot', body: { path: 'M30 37 H70 V55 H30 Z' }, eyes: { x: 50, y: 46, spacing: 11, scale: 1 } };
+
+  it('keep every eye inside the body, in every mood, look and moment', () => {
+    for (const e of [...examples, slot]) {
+      const polys = analyzeBody(e.body.path).polys;
+      for (const motion of MOTIONS) {
+        for (const time of [0.2, 1.1, 2.3, 3.7]) {
+          for (const gaze of [undefined, { x: 1, y: 1 }, { x: -1, y: -1 }]) {
+            for (const s of avatarFrame(e, { motion, time, gaze }).shapes) {
+              if (s.kind !== 'eye') continue;
+              const n = (s.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+              for (let k = 0; k < n.length; k += 2) expect(isInside(polys, n[k], n[k + 1]), `${e.id} ${motion} t${time}`).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('scale back on a tight body instead of leaving it', () => {
+    const width = (motion: 'idle' | 'surprised') => {
+      const eye = avatarFrame(slot, { motion, reducedMotion: true }).shapes.find((s) => s.kind === 'eye');
+      const xs = (eye?.kind === 'eye' ? eye.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? [] : []).map(Number).filter((_, i) => i % 2 === 0);
+      return Math.max(...xs) - Math.min(...xs);
+    };
+    expect(width('surprised') / width('idle')).toBeLessThan(1.3);
   });
 });

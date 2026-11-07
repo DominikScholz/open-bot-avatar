@@ -35,7 +35,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | Required avatar definition. Validate imported data first. |
 | `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. Changes ease from the current pose. |
+| `mood` | `"idle"` (default), `"thinking"`, `"happy"`, `"excited"`, `"celebrate"`, `"determined"`, `"surprised"`, `"angry"`, `"sad"` or `"sleepy"`. Changes ease from the current pose, and the eyes morph. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
 | `holdGaze` | Keep the current look direction. Default: `false`. |
@@ -120,7 +120,8 @@ See the [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) 
 ## Other exports
 
 - `examples` and `getExample(id)` provide built-in definitions.
-- `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms, at one compositor layer per visible slice; `mountAvatar` uses them with `renderer: "scene"`.
+- `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms and eye outlines, at one compositor layer per visible slice; `mountAvatar` uses them with `renderer: "scene"`.
+- `MOTIONS` lists every mood and `isMotion` checks a value against it.
 - `computePose`, `createAnimator` and `pointerGaze` support custom animation hosts.
 
 ## License

@@ -3,6 +3,7 @@
  * gaze, reducedMotion): no wall clock, no Math.random, so any frame can be
  * reproduced exactly (tests, SSR, scrubbing).
  */
+import { eye, mixEyes, tameEye, type EyeParams } from './face.ts';
 import type { AvatarMotion, AvatarMotionBlend } from './types.ts';
 
 export interface Pose {
@@ -21,10 +22,11 @@ export interface Pose {
   gazeY: number;
   /** 0 = open, 1 = fully closed. */
   blink: number;
-  /** Extra lid narrowing per eye, 0..1. */
-  squintL: number;
-  squintR: number;
-  eyeShape: 'pill' | 'happy';
+  /** Shape of the left and right eye. */
+  eyes: [EyeParams, EyeParams];
+  /** Both eyes moved across the face, -1..1 of FACE_TRAVEL per axis (x right, y down). */
+  faceX: number;
+  faceY: number;
 }
 
 /** Resting view: turned a little and seen a little from above, so the volume reads without dominating. */
@@ -38,6 +40,15 @@ export const BASE_PITCH = 0.2;
 export const LOOK_YAW = 0.32;
 export const LOOK_PITCH = 0.18;
 export const LOOK_EYES = 0.7;
+
+/** Every mood, in the order hosts list them. */
+export const MOTIONS: readonly AvatarMotion[] = [
+  'idle', 'thinking', 'happy', 'excited', 'celebrate', 'determined', 'surprised', 'angry', 'sad', 'sleepy',
+];
+
+export function isMotion(value: unknown): value is AvatarMotion {
+  return MOTIONS.includes(value as AvatarMotion);
+}
 
 const TAU = Math.PI * 2;
 
@@ -102,27 +113,26 @@ export interface PoseInput {
   view?: { yaw: number; pitch: number };
   /** Easing in `motion` from the mood shown before (see blendPoses). */
   blend?: AvatarMotionBlend;
+  /**
+   * How much of each mood's expression the avatar has room for, 0..1 (default 1): eye growth,
+   * tilt and face travel scale down so tight silhouettes keep their eyes inside (see render.ts).
+   */
+  fit?: (motion: AvatarMotion) => number;
 }
 
 /**
  * Pose part way from `a` to `b`, both taken at the same moment so either
- * side's motion keeps running. A change of eye shape swaps halfway, inside a
- * blink: pills close toward the swap and open after it.
+ * side's motion keeps running. Eye shapes morph from one to the other.
  */
 export function blendPoses(a: Pose, b: Pose, t: number): Pose {
   const k = clamp(t, 0, 1);
   const mix = (x: number, y: number) => x + (y - x) * k;
-  const pose: Pose = {
+  return {
     yaw: mix(a.yaw, b.yaw), pitch: mix(a.pitch, b.pitch), roll: mix(a.roll, b.roll), lift: mix(a.lift, b.lift),
     sx: mix(a.sx, b.sx), sy: mix(a.sy, b.sy), gazeX: mix(a.gazeX, b.gazeX), gazeY: mix(a.gazeY, b.gazeY),
-    blink: mix(a.blink, b.blink), squintL: mix(a.squintL, b.squintL), squintR: mix(a.squintR, b.squintR),
-    eyeShape: b.eyeShape,
+    blink: mix(a.blink, b.blink), eyes: [mixEyes(a.eyes[0], b.eyes[0], k), mixEyes(a.eyes[1], b.eyes[1], k)],
+    faceX: mix(a.faceX, b.faceX), faceY: mix(a.faceY, b.faceY),
   };
-  if (a.eyeShape !== b.eyeShape) {
-    pose.eyeShape = k < 0.5 ? a.eyeShape : b.eyeShape;
-    pose.blink = Math.max(pose.blink, 1 - Math.abs(2 * k - 1));
-  }
-  return pose;
 }
 
 export function computePose(input: PoseInput): Pose {
@@ -133,10 +143,17 @@ export function computePose(input: PoseInput): Pose {
   return blendPoses(computePose({ ...input, motion: from.motion, blend: from.blend }), pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
-function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput): Pose {
+const both = (o: Partial<EyeParams> = {}): [EyeParams, EyeParams] => [eye(o), eye(o)];
+/** Position 0..1 within a repeating cycle. */
+const cycle = (t: number, period: number) => (((t % period) + period) % period) / period;
+
+function moodPose({ seed, time, motion, gaze, reducedMotion, view, fit }: PoseInput): Pose {
   // Per-avatar phase offset so several avatars on a page do not move in lockstep.
   const t = reducedMotion ? 0 : time + noise(seed, 7) * 10;
+  const live = reducedMotion ? 0 : 1;
   const wave = (period: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase));
+  const at = (period: number, still: number) => (reducedMotion ? still : cycle(t, period));
+  const blinks = (rate = 1) => (reducedMotion ? 0 : blinkAt(seed, t * rate));
   const given = gaze && Number.isFinite(gaze.x) && Number.isFinite(gaze.y)
     ? [clamp(gaze.x, -1, 1), clamp(gaze.y, -1, 1)] as [number, number]
     : null;
@@ -146,43 +163,162 @@ function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput):
 
   const pose: Pose = {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
-    gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0, eyeShape: 'pill',
+    gazeX: 0, gazeY: 0, blink: 0, eyes: both(), faceX: 0, faceY: 0,
   };
-
-  if (motion === 'happy') {
-    const period = 0.92;
-    const p = reducedMotion ? 0.5 : ((t % period) + period) % period / period;
+  const hop = (period: number, height: number, squash: number) => {
+    const p = at(period, 0.5);
     const air = 4 * p * (1 - p);
     const land = reducedMotion ? 0 : clamp(1 - Math.min(p, 1 - p) / 0.12, 0, 1);
-    pose.lift = reducedMotion ? 0 : -3.2 * air;
-    pose.sy = 1 - 0.09 * land + 0.03 * air * (reducedMotion ? 0 : 1);
-    pose.sx = 1 + 0.07 * land - 0.015 * air * (reducedMotion ? 0 : 1);
-    pose.roll = 4.5 * wave(period * 2);
-    pose.yaw += 0.1 * wave(period * 2, 0.6);
-    pose.eyeShape = 'happy';
-  } else if (motion === 'thinking') {
-    pose.yaw += 0.12 + 0.05 * sway * wave(7.3);
-    pose.pitch += 0.08;
-    pose.roll = -5 + 1.4 * wave(4.1);
-    pose.lift = -0.5 * (1 - Math.cos((TAU * t) / 5.2)) * (reducedMotion ? 0 : 1);
-    pose.gazeX = 0.55 + 0.3 * wave(5.6);
-    pose.gazeY = -0.8;
-    pose.squintL = 0.22;
-    pose.squintR = 0.32 + 0.1 * wave(3.1);
-    if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.7);
-  } else {
-    pose.yaw += 0.07 * sway * wave(6.1);
-    pose.pitch += 0.04 * sway * wave(4.7, 1);
-    pose.roll = 1.6 * wave(5.3, 2);
-    pose.lift = reducedMotion ? 0 : -0.45 * (1 - Math.cos((TAU * t) / 3.4));
-    const breath = wave(3.4, -Math.PI / 2);
-    pose.sy = 1 + 0.012 * breath;
-    pose.sx = 1 - 0.008 * breath;
-    if (!reducedMotion) {
-      pose.blink = blinkAt(seed, t);
-      [pose.gazeX, pose.gazeY] = wanderAt(seed, t);
+    pose.lift = -height * air * live;
+    pose.sy = 1 - squash * land + squash * 0.33 * air * live;
+    pose.sx = 1 + squash * 0.8 * land - squash * 0.17 * air * live;
+  };
+  const breathe = (period: number, amount: number) => {
+    const b = wave(period, -Math.PI / 2);
+    pose.sy *= 1 + amount * b;
+    pose.sx *= 1 - amount * 0.65 * b;
+  };
+
+  switch (motion) {
+    case 'happy': {
+      hop(0.92, 3.2, 0.09);
+      pose.roll = 4.5 * wave(1.84);
+      pose.yaw += 0.1 * wave(1.84, 0.6);
+      pose.eyes = both({ w: 2, h: 0.6, arch: 0.6 });
+      pose.faceY = -0.25;
+      break;
+    }
+    case 'excited': {
+      // Rapid hops and wiggles, eyes big and raised.
+      hop(0.5, 2.6, 0.08);
+      pose.roll = 6 * wave(1);
+      pose.yaw += 0.16 * wave(1, 0.8);
+      const pulse = 0.05 * wave(0.5);
+      pose.eyes = both({ w: 1.3 + pulse, h: 1.12 + pulse });
+      pose.faceY = -0.5;
+      break;
+    }
+    case 'celebrate': {
+      // A full spin, then a couple of happy hops.
+      const p = at(2.8, 0.7);
+      const spin = p < 0.4 ? smooth(p / 0.4) : 1;
+      pose.yaw += TAU * spin * live;
+      if (p >= 0.4) {
+        const q = (p - 0.4) / 0.6, hops = q * 2 - Math.floor(q * 2);
+        pose.lift = -3 * 4 * hops * (1 - hops) * live;
+        pose.sy = 1 + 0.04 * 4 * hops * (1 - hops) * live;
+      } else {
+        pose.lift = -1.5 * Math.sin(Math.PI * (p / 0.4)) * live;
+      }
+      pose.roll = 3 * wave(1.4);
+      pose.eyes = both({ w: 2, h: 0.6, arch: 0.6 });
+      pose.faceY = -0.3;
+      break;
+    }
+    case 'determined': {
+      // Leans in, steady and locked straight ahead; level eyes with the top lids lowered flat.
+      // Every few seconds a slow nod of resolve, the lids settling a little lower with it.
+      const p = at(3.4, 0);
+      const nod = p < 0.4 ? Math.sin(Math.PI * p / 0.4) : 0;
+      pose.pitch -= 0.08 + 0.06 * nod;
+      pose.yaw += 0.02 * sway * wave(7.7);
+      pose.sx = 1.02;
+      pose.sy = 0.98 - 0.015 * nod;
+      breathe(3.4, 0.008);
+      pose.eyes = both({ w: 1.2, h: 0.78, lid: 0.32 + 0.08 * nod, tilt: 0.06 });
+      pose.faceY = 0.1;
+      pose.blink = blinks(0.6);
+      break;
+    }
+    case 'surprised': {
+      // Startled upright and grown tall, then held still: the eyes do the work, slowly opening
+      // wider and then a quick double blink, a double take.
+      const p = at(3.6, 0.3);
+      const open = 0.5 - 0.5 * Math.cos(TAU * Math.min(p / 0.7, 1));
+      const blinkAround = (c: number) => Math.max(0, Math.sin(Math.PI * clamp((p - c) / 0.06, 0, 1)));
+      pose.pitch += 0.14;
+      pose.lift = -1.4 * (reducedMotion ? 0 : 1);
+      pose.sy = 1.08;
+      pose.sx = 1.04;
+      pose.eyes = both({ w: 1.5 + 0.12 * open, h: 1.3 + 0.1 * open });
+      pose.faceY = -0.35;
+      pose.blink = reducedMotion ? 0 : Math.max(blinkAround(0.78), blinkAround(0.87));
+      break;
+    }
+    case 'angry': {
+      // Leans in and glares, body held still: with each slow huff the lids narrow and the slant deepens.
+      const p = at(2.8, 0.5);
+      const huff = Math.max(0, Math.sin(Math.PI * clamp(p / 0.35, 0, 1)));
+      pose.pitch -= 0.1;
+      pose.yaw += 0.03 * sway * wave(5.2);
+      pose.lift = -0.3 * huff;
+      pose.sx = 1.03 + 0.02 * huff;
+      pose.sy = 0.98 - 0.02 * huff;
+      pose.eyes = both({ w: 1.9, h: 0.32 - 0.1 * huff, tilt: 0.3 + 0.12 * huff });
+      pose.faceY = 0.2;
+      pose.gazeX = 0.15 * wave(6.3);
+      pose.gazeY = 0.2;
+      break;
+    }
+    case 'sad': {
+      // Slumped and slow: squashed low, tipped forward, small drooping eyes low on the face.
+      pose.yaw += 0.05 * sway * wave(8.3);
+      pose.pitch -= 0.16;
+      pose.roll = -3 + 0.8 * wave(7.1);
+      pose.sy = 0.95;
+      pose.sx = 1.02;
+      breathe(5.8, 0.01);
+      pose.eyes = both({ w: 1.15, h: 0.75, tilt: 0.48 });
+      pose.faceY = 1;
+      pose.gazeX = -0.15 + 0.1 * wave(9.4);
+      pose.gazeY = 0.6;
+      pose.blink = blinks(0.5);
+      break;
+    }
+    case 'sleepy': {
+      // Heavy, sagging lids; drifts off with the head sinking and eyes closing, then jerks back up.
+      const p = at(5.6, 0.3);
+      const doze = p < 0.82 ? smooth(p / 0.82) : 1 - smooth((p - 0.82) / 0.06);
+      pose.pitch -= 0.06 + 0.12 * doze;
+      pose.roll = 5 + 3 * doze;
+      pose.sy = 1 - 0.035 * doze;
+      breathe(4.8, 0.02);
+      pose.eyes = both({ w: 1.7, h: 0.55, lid: 0.15, sag: 0.25 });
+      pose.faceY = 0.4 + 0.25 * doze;
+      pose.gazeY = 0.35;
+      pose.blink = 0.25 + 0.75 * doze * doze;
+      break;
+    }
+    case 'thinking': {
+      pose.yaw += 0.12 + 0.05 * sway * wave(7.3);
+      pose.pitch += 0.08;
+      pose.roll = -5 + 1.4 * wave(4.1);
+      pose.lift = -0.5 * (1 - Math.cos((TAU * t) / 5.2)) * live;
+      pose.gazeX = 0.55 + 0.3 * wave(5.6);
+      pose.gazeY = -0.8;
+      pose.eyes = [eye({ lid: 0.1 }), eye({ lid: 0.14 + 0.04 * wave(3.1) })];
+      pose.faceX = 0.3;
+      pose.faceY = -0.35;
+      pose.blink = blinks(0.7);
+      break;
+    }
+    default: {
+      pose.yaw += 0.07 * sway * wave(6.1);
+      pose.pitch += 0.04 * sway * wave(4.7, 1);
+      pose.roll = 1.6 * wave(5.3, 2);
+      pose.lift = -0.45 * (1 - Math.cos((TAU * t) / 3.4)) * live;
+      breathe(3.4, 0.012);
+      if (!reducedMotion) {
+        pose.blink = blinkAt(seed, t);
+        [pose.gazeX, pose.gazeY] = wanderAt(seed, t);
+      }
     }
   }
+
+  const k = fit ? clamp(fit(motion), 0, 1) : 1;
+  pose.eyes = [tameEye(pose.eyes[0], k), tameEye(pose.eyes[1], k)];
+  pose.faceX = clamp(pose.faceX, -1, 1) * k;
+  pose.faceY = clamp(pose.faceY, -1, 1) * k;
 
   if (given && weight > 0) {
     // A look target wins over idle wander. The body turns to face it: the resting
@@ -191,10 +327,8 @@ function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput):
     // still, so the eyes alone use their full (still small) range.
     const mix = (a: number, b: number) => a + (b - a) * weight;
     const share = reducedMotion ? 1 : LOOK_EYES;
-    if (pose.eyeShape === 'pill') {
-      pose.gazeX = mix(pose.gazeX, given[0] * share);
-      pose.gazeY = mix(pose.gazeY, given[1] * share);
-    }
+    pose.gazeX = mix(pose.gazeX, given[0] * share);
+    pose.gazeY = mix(pose.gazeY, given[1] * share);
     if (!reducedMotion) {
       // Positive yaw turns the front to the right, positive pitch tips it up.
       pose.yaw += weight * (given[0] * LOOK_YAW - BASE_YAW);

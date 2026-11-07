@@ -28,7 +28,8 @@ export interface AvatarDefinition {
   eyes: AvatarEyes;
 }
 
-export type AvatarMotion = 'idle' | 'thinking' | 'happy';
+export type AvatarMotion =
+  | 'idle' | 'thinking' | 'happy' | 'excited' | 'celebrate' | 'determined' | 'surprised' | 'angry' | 'sad' | 'sleepy';
 
 /**
  * A mood easing in over what was shown before it: a plain mood, or a mood that

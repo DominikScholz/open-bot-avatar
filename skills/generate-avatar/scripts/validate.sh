@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Validate an avatar definition with the repo engine.
-#   validate.sh <file.json|-> [--strict] [--svg out.svg] [--color #hex] [--motion idle|thinking|happy] [--time s]
+#   validate.sh <file.json|-> [--strict] [--svg out.svg] [--color #hex] [--motion <mood>] [--time s]
 # Resolves the repo through symlinked installs; override with AVATAR_REPO=/path/to/open-bot-avatar.
 set -eu
 here=$(dirname "$(readlink -f "$0")")

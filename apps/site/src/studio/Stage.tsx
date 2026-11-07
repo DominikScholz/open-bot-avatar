@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMotion } from "open-bot-avatar";
+import { MOTIONS, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
+import { moodLabel } from "../moodInfo";
 import { Icon } from "./ui";
 
 export type ViewAngle = { yaw: number; pitch: number };
@@ -21,11 +22,7 @@ interface StageProps {
   children?: ReactNode;
 }
 
-const MOODS: { value: AvatarMotion; label: string }[] = [
-  { value: "idle", label: "Idle" },
-  { value: "thinking", label: "Thinking" },
-  { value: "happy", label: "Happy" },
-];
+const MOODS = MOTIONS.map((value) => ({ value, label: moodLabel(value) }));
 
 const PITCH_LIMIT = 0.9;
 const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));

@@ -1,5 +1,5 @@
 /**
- * Mood changes (idle, thinking, happy) as pure functions a frame loop steps:
+ * Mood changes (see MOTIONS) as pure functions a frame loop steps:
  * the pose eases from the mood on screen into the new one (see blendPoses in
  * motion.ts), and a change during a change continues from where it is.
  */

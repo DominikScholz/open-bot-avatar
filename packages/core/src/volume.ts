@@ -18,6 +18,7 @@
  * the renderer shows whichever stack faces the viewer more, so no plane is
  * ever seen edge-on. Everything here is pure and cached by the renderer.
  */
+import { FACE_TRAVEL } from './face.ts';
 import { contourLoops, loopsToPath, simplifyLoop } from './contour.ts';
 import { bounds, insideRow, isInside } from './path.ts';
 import type { Bounds, Point } from './path.ts';
@@ -587,8 +588,8 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
     if (z > bestZ) { bestZ = z; eyePart = i; }
   });
   const host = parts[eyePart];
-  // Flat eye planes sit at the highest surface under the eye and its gaze travel, so the body never cuts them.
-  const w = (EYE_W * eyeScale) / 2 + GAZE_X * eyeScale, hh = (EYE_H * eyeScale) / 2 + GAZE_Y * eyeScale;
+  // Flat eye planes sit at the highest surface under the eye, its gaze and face travel, so the body never cuts them.
+  const w = (EYE_W * eyeScale) / 2 + (GAZE_X + FACE_TRAVEL) * eyeScale, hh = (EYE_H * eyeScale) / 2 + (GAZE_Y + FACE_TRAVEL) * eyeScale;
   const eyeZ = centers.map(([x, y]) => {
     let top = 0;
     for (const fx of [-1, -0.5, 0, 0.5, 1]) for (const fy of [-1, -0.5, 0, 0.5, 1]) top = Math.max(top, host ? host.height(x + fx * w, y + fy * hh) : 0);
