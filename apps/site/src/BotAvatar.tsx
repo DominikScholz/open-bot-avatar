@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties, type RefObject } from 'react';
 import { mountAvatar, type AvatarOptions, type MountedAvatar } from 'open-bot-avatar/dom';
 
 export interface BotAvatarProps extends AvatarOptions {
@@ -6,6 +6,10 @@ export interface BotAvatarProps extends AvatarOptions {
   size?: number | string;
   className?: string;
   style?: CSSProperties;
+  /** The host element, for hosts that need to reach into the mounted scene. */
+  hostRef?: RefObject<HTMLDivElement | null>;
+  /** Called with the mounted avatar once it is live, and with null when it goes away. */
+  onMount?: (mounted: MountedAvatar | null) => void;
 }
 
 /**
@@ -13,19 +17,24 @@ export interface BotAvatarProps extends AvatarOptions {
  * changes mood smoothly and, with `followPointer`, looks toward the cursor), or with `still` a
  * single static SVG. The Docs page shows the same pattern for other apps to copy.
  */
-export function BotAvatar({ size, className, style, ...options }: BotAvatarProps) {
-  const host = useRef<HTMLDivElement>(null);
+export function BotAvatar({ size, className, style, hostRef, onMount, ...options }: BotAvatarProps) {
+  const own = useRef<HTMLDivElement | null>(null);
+  const host: RefObject<HTMLDivElement | null> = hostRef ?? own;
   const avatar = useRef<MountedAvatar | null>(null);
   const latest = useRef(options);
   latest.current = options;
+  const mounted = useRef(onMount);
+  mounted.current = onMount;
 
   useEffect(() => {
     if (!host.current) return;
-    const mounted = mountAvatar(host.current, latest.current);
-    avatar.current = mounted;
+    const instance = mountAvatar(host.current, latest.current);
+    avatar.current = instance;
+    mounted.current?.(instance);
     return () => {
-      mounted.destroy();
+      instance.destroy();
       avatar.current = null;
+      mounted.current?.(null);
     };
   }, []);
 

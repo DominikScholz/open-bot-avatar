@@ -1,5 +1,6 @@
 import type { AvatarMotion } from "open-bot-avatar";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
+import { lifecycleMotion } from "./states";
 
 export type MotionPreference = "system" | "reduced" | "full";
 
@@ -72,7 +73,7 @@ export function reviveLook(raw: unknown): LookState | undefined {
       r.colors && typeof r.colors === "object"
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
-    motion: r.motion === "thinking" || r.motion === "happy" ? r.motion : "idle",
+    motion: lifecycleMotion(r.motion) ?? "idle",
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",
   };

@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMotion } from "open-bot-avatar";
+import { type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
+import { subscribeFrames, type MountedAvatar } from "open-bot-avatar/dom";
 import { BotAvatar } from "../BotAvatar";
+import { Band, type BandHandle, type BandMode } from "./Band";
+import { StatusGlyph } from "./Lifecycle";
+import { LIFECYCLE_STATES } from "./states";
 import { Icon } from "./ui";
 
 export type ViewAngle = { yaw: number; pitch: number };
@@ -21,12 +25,6 @@ interface StageProps {
   children?: ReactNode;
 }
 
-const MOODS: { value: AvatarMotion; label: string }[] = [
-  { value: "idle", label: "Idle" },
-  { value: "thinking", label: "Thinking" },
-  { value: "happy", label: "Happy" },
-];
-
 const PITCH_LIMIT = 0.9;
 const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
 /** Keep yaw in -π..π so a reset never spins the long way round. */
@@ -37,8 +35,51 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
   const turned = Math.abs(view.yaw) > 0.01 || Math.abs(view.pitch) > 0.01;
+  const band = useRef<BandHandle>(null);
+  const host = useRef<HTMLDivElement | null>(null);
+  const avatar = useRef<MountedAvatar | null>(null);
+  const faceTurn = useRef(0);
+  const bodyTurn = useRef(0);
+  const faceWhirl = useRef(0);
 
   useEffect(() => () => cancelAnimationFrame(easing.current), []);
+
+  /**
+   * One clock for the paint and the avatar: the band is a particle system whose
+   * orbits advance with the very spin that turns the face, so both move together.
+   */
+  useEffect(() => {
+    let last = -1;
+    const unsubscribe = subscribeFrames({
+      draw: (time) => {
+        const dt = last < 0 ? 0 : Math.min(0.05, time - last);
+        last = time;
+        const mode: BandMode | null = reduced
+          ? null
+          : mood === "working"
+            ? "working"
+            : mood === "done"
+              ? "done"
+              : null;
+        const state = band.current?.step(dt, mode);
+        if (!state) return false;
+        // The face turns with the turn, and the turn outlives the state that
+        // started it: the band finishes its sweep before the bot settles.
+        if (state.face !== faceTurn.current || state.bodyTurn !== bodyTurn.current || state.whirl !== faceWhirl.current) {
+          faceTurn.current = state.face;
+          bodyTurn.current = state.bodyTurn;
+          faceWhirl.current = state.whirl;
+          avatar.current?.update({ faceTurn: state.face, bodyTurn: state.bodyTurn, faceWhirl: state.whirl });
+        }
+        if (!mode) {
+          // The band that is still drawing back in needs its frames.
+          return state.painting;
+        }
+        return true;
+      },
+    });
+    return unsubscribe;
+  }, [mood, reduced]);
 
   const reset = () => {
     cancelAnimationFrame(easing.current);
@@ -114,17 +155,33 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
         onDoubleClick={reset}
         onKeyDown={onKeyDown}
       >
-        <BotAvatar
-          className="avatar-view stage-avatar"
-          definition={definition}
-          color={color}
-          mood={mood}
-          view={view}
-          followPointer={followCursor}
-          holdGaze={dragging}
-          reducedMotion={reducedMotion}
-          label=""
-        />
+        {mood === "blocked" || mood === "thinking" ? (
+          <StatusGlyph kind={mood} color={color} reducedMotion={reduced} />
+        ) : (
+          <div className="stage-figure">
+            <div className="stage-box">
+              {/* The paint: behind the body, and in front of it. */}
+              <Band ref={band} definition={definition} hostRef={host} />
+              <div className="stage-body">
+                <BotAvatar
+                  hostRef={host}
+                  onMount={(mounted) => {
+                    avatar.current = mounted;
+                  }}
+                  className="avatar-view stage-avatar"
+                  definition={definition}
+                  color={color}
+                  mood={mood}
+                  view={view}
+                  followPointer={followCursor}
+                  holdGaze={dragging}
+                  reducedMotion={reducedMotion}
+                  label=""
+                />
+              </div>
+            </div>
+          </div>
+        )}
         <button
           type="button"
           className="stage-reset"
@@ -138,8 +195,8 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
           <Icon name="rotate" />
         </button>
       </div>
-      <div className="moods" role="radiogroup" aria-label="Mood">
-        {MOODS.map((m) => (
+      <div className="moods" role="radiogroup" aria-label="State">
+        {LIFECYCLE_STATES.map((m) => (
           <button
             key={m.value}
             type="button"
