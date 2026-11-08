@@ -39,6 +39,12 @@ export interface AvatarOptions {
   holdGaze?: boolean;
   /** Extra view rotation in radians on top of the resting view (e.g. drag-to-turn). */
   view?: { yaw: number; pitch: number };
+  /** Turn of the face inside the head, in radians (see RenderOptions.faceTurn). */
+  faceTurn?: number;
+  /** The body's turn about its own vertical axis, in radians (see RenderOptions.bodyTurn). */
+  bodyTurn?: number;
+  /** The face's turn in the picture plane, in radians (see RenderOptions.faceWhirl). */
+  faceWhirl?: number;
   /** true or false to force; 'system' (default) follows prefers-reduced-motion. */
   reducedMotion?: boolean | 'system';
   /** Render one static SVG and never animate (thumbnails, lists). */
@@ -65,6 +71,7 @@ interface Scene {
   geometry: string;
   motion: HTMLElement;
   view: HTMLElement;
+  spin: HTMLElement;
   stacks: Record<'z' | 'x', HTMLElement>;
   slices: Record<'z' | 'x', HTMLElement[]>;
   eyes: { root: HTMLElement; pill: HTMLElement; arc: HTMLElement }[];
@@ -80,6 +87,7 @@ function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number
     geometry: geometryKey(definition),
     motion: q('[data-motion]'),
     view: q('[data-view]'),
+    spin: q('[data-spin]'),
     stacks,
     slices: { z: [...stacks.z.children] as HTMLElement[], x: [...stacks.x.children] as HTMLElement[] },
     eyes: [0, 1].map((i) => {
@@ -100,6 +108,7 @@ function put(m: Scene, key: string, el: HTMLElement, prop: 'transform' | 'visibi
 function apply(m: Scene, frame: SceneFrame) {
   put(m, 'motion', m.motion, 'transform', frame.motion);
   put(m, 'view', m.view, 'transform', frame.view);
+  put(m, 'spin', m.spin, 'transform', frame.spin);
   // display:none, not visibility: hidden slices would still each hold a 3D layer.
   put(m, 'z', m.stacks.z, 'display', frame.stack === 'z' ? 'block' : 'none');
   put(m, 'x', m.stacks.x, 'display', frame.stack === 'x' ? 'block' : 'none');
@@ -183,8 +192,10 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
   const syncHost = () => {
-    host.style.color = opts.color ?? DEFAULT_COLOR;
-    host.style.setProperty('--avatar-ink', opts.eyeColor ?? DEFAULT_EYE_COLOR);
+    const color = opts.color ?? DEFAULT_COLOR;
+    if (host.style.color !== color) host.style.color = color;
+    const ink = opts.eyeColor ?? DEFAULT_EYE_COLOR;
+    if (host.style.getPropertyValue('--avatar-ink') !== ink) host.style.setProperty('--avatar-ink', ink);
     const decorative = opts.label === '';
     if (decorative) {
       host.removeAttribute('role');
@@ -246,6 +257,10 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         depth: p.depth,
         motion: p.mood ?? 'idle',
         motionBlend: step.motionBlend,
+        motionAge: step.motionAge,
+        faceTurn: p.faceTurn,
+        bodyTurn: p.bodyTurn,
+        faceWhirl: p.faceWhirl,
         size: size || undefined,
         time,
         gaze: step.gaze,

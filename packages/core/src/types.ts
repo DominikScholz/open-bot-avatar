@@ -28,7 +28,11 @@ export interface AvatarDefinition {
   eyes: AvatarEyes;
 }
 
-export type AvatarMotion = 'idle' | 'thinking' | 'happy';
+/**
+ * The agent lifecycle a renderer can show. `happy` is the legacy celebration
+ * loop; `done` settles into a content, looking-around pose.
+ */
+export type AvatarMotion = 'idle' | 'working' | 'waiting' | 'blocked' | 'thinking' | 'done' | 'happy';
 
 /**
  * A mood easing in over what was shown before it: a plain mood, or a mood that
@@ -53,8 +57,34 @@ export interface RenderOptions {
   depth?: number;
   /** Extra view rotation in radians on top of the resting view (drag-to-turn). yaw turns left/right, pitch tips. */
   view?: { yaw: number; pitch: number };
+  /**
+   * Turn of the face inside the head, in radians: the eye pair rides the head's
+   * cross-section, so it swings around the head, narrows as it turns away from
+   * the viewer and disappears once it passes the back. The silhouette stays put.
+   * Defaults to 0.
+   */
+  faceTurn?: number;
+  /**
+   * The body's turn about its own vertical axis, in radians: the whole shape
+   * turns in depth around its centre, the way the Grok Bot spins inside its
+   * belt while it celebrates. The turn is a turn in depth, so the shape shows
+   * its side and its back and the face rides it. Defaults to 0.
+   */
+  bodyTurn?: number;
+  /**
+   * The face's turn in the picture plane, about the body's centre, in radians.
+   * The official turns its whole head this way while it celebrates, and the eyes
+   * ride the turn: the face swings around the head in a rosette instead of
+   * sliding across it. The body keeps its own turn in depth. Defaults to 0.
+   */
+  faceWhirl?: number;
   /** Animation clock in seconds. Same inputs always produce the same SVG. */
   time?: number;
+  /**
+   * Seconds since `motion` began. `happy` uses it to stay in phase; `done`
+   * ignores it and keeps looking around, so direct renders match the live one.
+   */
+  motionAge?: number;
   /**
    * Look target, each axis normalized -1..1 (x right, y down). Overrides idle eye
    * wander and turns the body toward it; `weight` (0..1, default 1) blends it in

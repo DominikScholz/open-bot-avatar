@@ -36,6 +36,42 @@ describe('mood changes', () => {
     expect(moodProgress(MOOD_MS / 2)).toBeCloseTo(0.5, 9);
   });
 
+  it('gives each lifecycle state its own finite pose', () => {
+    const states = ['idle', 'working', 'waiting', 'blocked', 'thinking', 'done'] as const;
+    const poses = states.map((motion) => computePose({ ...base, motion }));
+    for (const pose of poses) {
+      expect(Object.values(pose).every((v) => typeof v === 'string' || Number.isFinite(v))).toBe(true);
+    }
+    expect(new Set(poses.map((p) => JSON.stringify(p))).size).toBe(states.length);
+    expect(poses[states.indexOf('waiting')].eyeShape).toBe('flat');
+    expect(poses[states.indexOf('done')].eyeShape).toBe('pill');
+    expect(poses[states.indexOf('thinking')].eyeShape).toBe('pill');
+  });
+
+  it('holds the lifecycle states still under reduced motion', () => {
+    for (const motion of ['working', 'waiting', 'blocked', 'done'] as const) {
+      const a = computePose({ ...base, time: 0.3, motion, reducedMotion: true });
+      const b = computePose({ ...base, time: 8.1, motion, reducedMotion: true });
+      expect(a).toEqual(b);
+    }
+  });
+
+  it('keeps done looking around while the paint dries', () => {
+    // Done ignores `motionAge`, so a direct render and the live one agree.
+    expect(computePose({ ...base, motion: 'done', motionAge: 7 })).toEqual(computePose({ ...base, motion: 'done' }));
+    expect(computePose({ ...base, motion: 'done' }).eyeShape).toBe('pill');
+
+    const a = computePose({ ...base, motion: 'done', time: 3.2 });
+    const b = computePose({ ...base, motion: 'done', time: 5.7 });
+    expect(a.roll).not.toBe(b.roll);
+    expect(a.lift).toBeLessThanOrEqual(0);
+
+    // `happy` keeps looping.
+    const happyA = computePose({ ...base, motion: 'happy', time: 3.2 });
+    const happyB = computePose({ ...base, motion: 'happy', time: 3.2 + 0.92 });
+    expect(happyA.lift).toBeCloseTo(happyB.lift, 9);
+  });
+
   it('never grows the chain of interrupted changes', () => {
     let state: MoodState = { motion: 'idle' };
     const moods = ['thinking', 'happy', 'idle'] as const;
@@ -76,6 +112,13 @@ describe('animator', () => {
     const held = a.step({ now: 516, motion: 'idle', target: { x: -1, y: -1 }, hold: true, reducedMotion: false });
     const later = a.step({ now: 900, motion: 'idle', target: { x: -1, y: -1 }, hold: true, reducedMotion: false });
     expect(later.gaze).toEqual(held.gaze);
+  });
+
+  it('reports how long the current mood has run', () => {
+    const a = createAnimator();
+    expect(a.step({ now: 1000, motion: 'done', target: null, reducedMotion: false }).motionAge).toBe(0);
+    expect(a.step({ now: 1950, motion: 'done', target: null, reducedMotion: false }).motionAge).toBeCloseTo(0.95, 9);
+    expect(a.step({ now: 2000, motion: 'idle', target: null, reducedMotion: false }).motionAge).toBe(0);
   });
 
   it('snaps under reduced motion', () => {

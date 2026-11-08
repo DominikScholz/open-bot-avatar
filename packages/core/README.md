@@ -24,7 +24,7 @@ const avatar = mountAvatar(document.querySelector("#bot")!, {
   followPointer: true,
 });
 
-avatar.update({ mood: "happy" });
+avatar.update({ mood: "working" });
 // When the avatar is no longer needed:
 avatar.destroy();
 ```
@@ -35,7 +35,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | Required avatar definition. Validate imported data first. |
 | `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. Changes ease from the current pose. |
+| `mood` | `"idle"` (default), `"working"`, `"waiting"`, `"blocked"`, `"thinking"`, `"done"` or `"happy"` (legacy celebration loop). Changes ease from the current pose. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
 | `holdGaze` | Keep the current look direction. Default: `false`. |
@@ -92,6 +92,7 @@ Both functions accept `RenderOptions`:
 - `size` sets the SVG width and height in pixels. Omit it for a fluid SVG.
 - `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion and blinking; gaze still applies. It does not read system preferences.
 - `motionBlend` lets a custom animation host blend from another mood: `{ from, t }`, with `t` from 0 to 1. `from` can be a mood or `{ motion, blend? }` for an interrupted transition.
+- `motionAge` is the seconds since `motion` began. `happy` uses it to keep its loop in phase; `done` ignores it and keeps looking around, so a direct render matches the live one.
 
 ## Definitions and validation
 

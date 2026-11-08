@@ -2,14 +2,20 @@ export type { AvatarDefinition, AvatarEyes, AvatarMotion, AvatarMotionBlend, Ren
 export { validateAvatar } from './validate.ts';
 export {
   avatarFrame,
+  preparedVolume,
+  projectPoint,
   renderAvatarSvg,
   renderAvatarScene,
   sceneFrame,
+  viewBasis,
   DEFAULT_COLOR,
   DEFAULT_DEPTH,
   DEFAULT_EYE_COLOR,
 } from './render.ts';
-export type { AvatarFrame, EyeMark, FramePath, FrameShape, Matrix, SceneFrame } from './render.ts';
+export type { AvatarFrame, EyeMark, FramePath, FrameShape, Matrix, SceneFrame, ViewBasis } from './render.ts';
+export { spanAt } from './volume.ts';
+export type { Volume } from './volume.ts';
+export type { Point } from './path.ts';
 export { BASE_PITCH, BASE_YAW, blendPoses, computePose } from './motion.ts';
 export type { Pose, PoseInput } from './motion.ts';
 export { MOOD_MS, moodProgress, settleMood } from './mood.ts';

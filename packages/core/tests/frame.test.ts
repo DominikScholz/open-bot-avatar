@@ -75,6 +75,34 @@ describe('avatarFrame', () => {
       }
     }
   });
+
+  it('turns the body in depth, around its own vertical axis', () => {
+    const turn = Math.PI / 2;
+    for (const d of examples) {
+      const still = avatarFrame(d, { reducedMotion: true });
+      const turned = avatarFrame(d, { reducedMotion: true, bodyTurn: turn });
+      // The turn is in depth, not in the picture: the cross-sections are seen
+      // from another side, exactly as if the camera had turned by the same
+      // angle about the body's own centre.
+      const asCamera = avatarFrame(d, { reducedMotion: true, view: { yaw: turn, pitch: 0 } });
+      expect(turned.shapes.map((s) => s.matrix)).toEqual(asCamera.shapes.map((s) => s.matrix));
+      expect(turned.root).toEqual(asCamera.root);
+      expect(turned.shapes.map((s) => s.matrix)).not.toEqual(still.shapes.map((s) => s.matrix));
+      // The root carries the 2D motion only; the turn is in the projection.
+      expect(turned.root[0]).toBeCloseTo(1, 6);
+      expect(turned.root[1]).toBeCloseTo(0, 6);
+      expect(turned.root[4]).toBeCloseTo(0, 6);
+      expect(turned.root[5]).toBeCloseTo(0, 6);
+      // The face rides the turn: the eyes keep their place on the face, and the
+      // body carries them around (an eye that turns out of sight is simply gone).
+      const marks = (f: typeof still) =>
+        new Map(f.shapes.filter((s) => s.kind === 'eye').map((s) => [s.key, s.kind === 'eye' ? s.mark : null]));
+      const turnedMarks = marks(turned);
+      for (const [key, mark] of marks(still)) {
+        if (turnedMarks.has(key)) expect(turnedMarks.get(key)).toEqual(mark);
+      }
+    }
+  });
 });
 
 describe('liveFrame', () => {
