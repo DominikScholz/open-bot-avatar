@@ -12,6 +12,8 @@ Open source, MIT licensed. [Docs](https://dominikscholz.github.io/open-bot-avata
 
 In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it returns into Import. The prompt is [system-prompt.md](skills/generate-avatar/references/system-prompt.md); agents with skills can use the [generate-avatar skill](skills/generate-avatar/SKILL.md).
 
+![the avatar picker, with the French Bulldog selected](docs/media/gallery.png)
+
 To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery).
 
 ## Definition
@@ -54,7 +56,7 @@ const avatar = mountAvatar(document.querySelector("#bot")!, {
   followPointer: true,
 });
 
-avatar.update({ mood: "happy" }); // any subset of the options
+avatar.update({ mood: "working" }); // any subset of the options
 avatar.destroy();
 ```
 
@@ -62,7 +64,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. |
+| `mood` | `"idle"` (default), `"working"`, `"waiting"`, `"blocked"`, `"thinking"`, `"done"` or `"happy"` (legacy celebration loop). |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
 | `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |
 | `holdGaze` | Keep looking where it looks now. Default: `false`. |
@@ -71,6 +73,18 @@ avatar.destroy();
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
 | `still` | One static SVG, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
+
+## Agent states
+
+The six moods are motion, not assets: each drives the same body through yaw and turn, so the volume stays readable from any angle.
+
+![idle, working, waiting, blocked, thinking and done, one after another](docs/media/states.gif)
+
+`working` emits paint strokes in the avatar's color; `done` spins the body while the eyes orbit in the same direction.
+
+| Working | Done |
+| --- | --- |
+| ![paint strokes while working](docs/media/working.gif) | ![a full spin on done](docs/media/done.gif) |
 
 ## SVG
 
@@ -113,9 +127,10 @@ export function BotAvatar({ size = 96, ...options }: AvatarOptions & { size?: nu
 ```text
 packages/core/   npm package: engine and browser mount
 apps/site/       editor and documentation (Vite + React)
+apps/grok-bot/   standalone study of the Grok Bot states (React, CSS)
 gallery/         community avatar definitions
 skills/          design prompt and generation skill
-docs/            definition contract
+docs/            definition contract and demo media
 ```
 
 ## Development
