@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contourLoops, simplifyLoop } from '../src/contour.ts';
+import { contourLoops, loopsToPath, simplifyLoop } from '../src/contour.ts';
 import { examples, getExample } from '../src/examples.ts';
 import { FLATNESS, filledArea, flattenPath, insideRow, isInside, parsePath, winding } from '../src/path.ts';
 import { activeStack, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
@@ -461,6 +461,11 @@ describe('cross-section outlines', () => {
     }
     all.sort((a, b) => a - b);
     expect(all[Math.floor(all.length * 0.9)]).toBeLessThan(0.08);
+  });
+
+  it('keep gentle corners between long edges sharp', () => {
+    // Edges 40 units long turning 0.4 rad: curves through their midpoints would leave the outline by 2 units.
+    expect(loopsToPath([[[10, 30], [50, 22], [90, 30], [90, 70], [50, 62], [10, 70]]])).toBe('M30 26l20-4 40 8 0 40-40-8-40 8 0-40Z');
   });
 
   it('flatten curves to within FLATNESS of the path', () => {

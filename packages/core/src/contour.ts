@@ -127,6 +127,12 @@ const num = (k: number) => {
 const CORNER = 0.6;
 
 /**
+ * A gentle turn between long edges is a corner of the outline too, not a facet of a traced curve:
+ * it stays sharp once its curve would leave the traced loop by more than this (viewBox units).
+ */
+const SAG = 0.1;
+
+/**
  * Compact closed path from loops (draw with fill-rule evenodd). Traced loops are polylines, so
  * gentle turns are drawn as quadratics between edge midpoints, which hides their facets at large
  * sizes; real corners stay sharp. Relative commands, smooth t segments and implicit repeats keep
@@ -149,7 +155,10 @@ export function loopsToPath(loops: Point[][]): string {
     const v = loop.map(([x, y]) => [2 * Math.round(x * UNIT / 2), 2 * Math.round(y * UNIT / 2)]);
     const corner = loop.map((p, k) => {
       const a = loop[(k + n - 1) % n], b = loop[(k + 1) % n];
-      return Math.abs(Math.atan2((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]), (p[0] - a[0]) * (b[0] - p[0]) + (p[1] - a[1]) * (b[1] - p[1]))) > CORNER;
+      const cross = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]);
+      // The curve passes a quarter of p's height over the chord a-b away from p.
+      return Math.abs(Math.atan2(cross, (p[0] - a[0]) * (b[0] - p[0]) + (p[1] - a[1]) * (b[1] - p[1]))) > CORNER
+        || Math.abs(cross) > 4 * SAG * Math.hypot(b[0] - a[0], b[1] - a[1]);
     });
     const mid = (k: number) => [(v[k % n][0] + v[(k + 1) % n][0]) / 2, (v[k % n][1] + v[(k + 1) % n][1]) / 2];
     let [cx, cy] = mid(0);
