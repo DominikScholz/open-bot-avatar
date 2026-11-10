@@ -1,4 +1,4 @@
-import { isMood, isState, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
 
 /**
@@ -75,9 +75,9 @@ export function readShare(search: string): SharedLook {
   if (color) shared.color = color;
   const state = params.get("state")?.trim().toLowerCase();
   const mood = params.get("mood")?.trim().toLowerCase();
-  if (isState(state)) shared.state = state;
-  else if (mood === "thinking") shared.state = "thinking";
-  if (isMood(mood)) shared.mood = mood;
+  // A link that names a state or a mood sets both: the one it leaves out is at its default. Before
+  // the two were separate, `mood` was idle, thinking or happy, and those links open as they did.
+  if (isState(state) || isMood(mood) || mood === "idle" || mood === "thinking") Object.assign(shared, resolveLook({ state, mood, motion: mood }));
   return shared;
 }
 

@@ -99,10 +99,16 @@ describe("share links", () => {
   });
 
   it("still open links from before state and mood were separate", () => {
-    expect(readShare("?avatar=mug&mood=happy")).toEqual({ avatar: "mug", mood: "happy" });
-    expect(readShare("?avatar=mug&mood=thinking")).toEqual({ avatar: "mug", state: "thinking" });
-    expect(readShare("?avatar=mug&mood=idle")).toEqual({ avatar: "mug" });
+    expect(readShare("?avatar=mug&mood=happy")).toEqual({ avatar: "mug", state: "idle", mood: "happy" });
+    expect(readShare("?avatar=mug&mood=thinking")).toEqual({ avatar: "mug", state: "thinking", mood: "neutral" });
+    expect(readShare("?avatar=mug&mood=idle")).toEqual({ avatar: "mug", state: "idle", mood: "neutral" });
     expect(readShare("?state=nope&mood=cheerful")).toEqual({});
+  });
+
+  it("set both state and mood when a link names either, and neither when it names none", () => {
+    expect(readShare("?state=blocked")).toEqual({ state: "blocked", mood: "neutral" });
+    expect(readShare("?mood=sad")).toEqual({ state: "idle", mood: "sad" });
+    expect(readShare("?avatar=mug")).toEqual({ avatar: "mug" });
   });
 
   it("leave out an avatar's own color", () => {

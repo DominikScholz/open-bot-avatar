@@ -317,6 +317,19 @@ describe('animator states', () => {
     expect(change.motionBlend).toEqual({ from: { state: 'done', mood: 'neutral', age: 0.3, blend: { from: { state: 'idle', mood: 'neutral', age: Infinity }, t: expect.any(Number) } }, t: 0 });
   });
 
+  it('turns once without a jump when the mood changes mid-turn', () => {
+    const a = createAnimator();
+    step(a, 0, 'idle');
+    let last: number | null = null;
+    for (let now = 100; now < 1700; now += 16) {
+      const s = step(a, now, 'done', now < 600 ? 'neutral' : now < 900 ? 'happy' : 'sad');
+      const yaw = computePose({ seed: 5, time: now / 1000, reducedMotion: false, state: 'done', mood: now < 600 ? 'neutral' : now < 900 ? 'happy' : 'sad', stateAge: s.stateAge, blend: s.motionBlend }).yaw;
+      // Compared as directions, so a full turn counts as no change.
+      if (last !== null) expect(Math.abs(Math.atan2(Math.sin(yaw - last), Math.cos(yaw - last)))).toBeLessThan(0.25);
+      last = yaw;
+    }
+  });
+
   it('keeps asking for frames while done is still turning', () => {
     const a = createAnimator();
     step(a, 0, 'idle');

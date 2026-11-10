@@ -185,7 +185,10 @@ export function computePose(input: PoseInput): Pose {
   const blend = input.blend;
   if (!blend || !(blend.t < 1)) return pose;
   const from = typeof blend.from === 'string' ? { motion: blend.from } : blend.from;
-  const before = computePose({ ...input, state: from.state, mood: from.mood, motion: from.motion, stateAge: from.age, blend: from.blend });
+  // A change of mood alone keeps the state's clock running on both sides, so a turn under way
+  // stays one turn; a state that was left is held at the age it had.
+  const stateAge = resolveLook(from).state === resolveLook(input).state ? input.stateAge : from.age;
+  const before = computePose({ ...input, state: from.state, mood: from.mood, motion: from.motion, stateAge, blend: from.blend });
   return blendPoses(before, pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
