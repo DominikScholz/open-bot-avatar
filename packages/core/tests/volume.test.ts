@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { contourLoops, simplifyLoop } from '../src/contour.ts';
+import { contourLoops, loopsToPath, simplifyLoop } from '../src/contour.ts';
 import { examples, getExample } from '../src/examples.ts';
-import { filledArea, flattenPath, insideRow, isInside, parsePath, winding } from '../src/path.ts';
+import { FLATNESS, filledArea, flattenPath, insideRow, isInside, parsePath, winding } from '../src/path.ts';
 import { MOTIONS } from '../src/motion.ts';
 import { activeStack, avatarFrame, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
 import { EYE_CLEARANCE, EYE_H, GAZE_X, GAZE_Y, analyzeBody, drawnEyesFit, gazeRange, validateAvatar } from '../src/validate.ts';
@@ -14,7 +14,7 @@ const def = (path: string, eyes = { x: 50, y: 50, spacing: 14, scale: 1 }): Avat
   if (!r.ok) throw new Error(r.errors.join('; '));
   return r.value;
 };
-const numbers = (d: string) => (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+const numbers = (d: string) => (d.match(/-?(?:\d+\.?\d*|\.\d+)/g) ?? []).map(Number);
 const pathPolys = (d: string) => flattenPath(parsePath(d));
 
 describe('buildVolume', () => {
@@ -65,10 +65,7 @@ describe('buildVolume', () => {
     const outer = part.zSlices[part.zSlices.length - 1];
     expect(outer.inset).toBeGreaterThan(2);
     const core = pathPolys(part.d);
-    for (let k = 0; k < numbers(outer.d).length; k += 2) {
-      const [x, y] = numbers(outer.d).slice(k, k + 2);
-      expect(isInside(core, x, y)).toBe(true);
-    }
+    for (const [x, y] of pathPolys(outer.d).flat()) expect(isInside(core, x, y)).toBe(true);
   });
 
   it('handles concavity and holes: the controller notch and the mug handle loop stay empty', () => {
@@ -455,5 +452,60 @@ describe('mood expressions', () => {
       return Math.max(...xs) - Math.min(...xs);
     };
     expect(width('surprised') / width('idle')).toBeLessThan(1.3);
+  });
+});
+
+describe('cross-section outlines', () => {
+  // How far each point's distance to the outline departs from its neighbours' average: stair steps
+  // and zigzags from contouring on the grid show up here, while smooth inset curves stay near 0.
+  const roughness = (loop: [number, number][], polys: [number, number][][]) => {
+    const ds = loop.map(([x, y]) => {
+      let m = Infinity;
+      for (const p of polys) {
+        for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+          const [ax, ay] = p[j], [bx, by] = p[i], dx = bx - ax, dy = by - ay;
+          const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+          m = Math.min(m, Math.hypot(x - ax - t * dx, y - ay - t * dy));
+        }
+      }
+      return m;
+    });
+    const r = ds.map((v, i) => Math.abs(v - (ds[(i + ds.length - 1) % ds.length] + ds[(i + 1) % ds.length]) / 2)).sort((a, b) => a - b);
+    return r[Math.floor(r.length * 0.95)];
+  };
+
+  it('follow the outline smoothly instead of the sampling grid', () => {
+    const all: number[] = [];
+    for (const e of examples) {
+      for (const part of buildVolume(e).parts) {
+        if (part.kind !== 'inflate') continue;
+        const area = (part.bounds.maxX - part.bounds.minX) * (part.bounds.maxY - part.bounds.minY);
+        for (const s of part.zSlices) {
+          if (s.at <= 0) continue;
+          for (const loop of s.loops) {
+            const xs = loop.map((p) => p[0]), ys = loop.map((p) => p[1]);
+            // Full cross-sections only: thin-part slices are clipped to small boxes with straight edges.
+            if ((Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)) < 0.1 * area) continue;
+            all.push(roughness(loop, part.polys));
+          }
+        }
+      }
+    }
+    all.sort((a, b) => a - b);
+    expect(all[Math.floor(all.length * 0.9)]).toBeLessThan(0.08);
+  });
+
+  it('keep gentle corners between long edges sharp', () => {
+    // Edges 40 units long turning 0.4 rad: curves through their midpoints would leave the outline by 2 units.
+    expect(loopsToPath([[[10, 30], [50, 22], [90, 30], [90, 70], [50, 62], [10, 70]]])).toBe('M30 26l20-4 40 8 0 40-40-8-40 8 0-40Z');
+  });
+
+  it('flatten curves to within FLATNESS of the path', () => {
+    // A radius-29 circle as two arcs: every chord's midpoint stays within FLATNESS of the circle.
+    const [poly] = flattenPath(parsePath('M21 50A29 29 0 0 1 79 50A29 29 0 0 1 21 50Z'));
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      expect(29 - Math.hypot((a[0] + b[0]) / 2 - 50, (a[1] + b[1]) / 2 - 50)).toBeLessThanOrEqual(FLATNESS + 1e-9);
+    }
   });
 });

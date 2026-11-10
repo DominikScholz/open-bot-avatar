@@ -100,8 +100,6 @@ export const EYE_BOOST_PAD = 3;
  * Advisory (validate.sh --strict); v1 imports below it still render.
  */
 export const FACE_ROOM_TARGET = 4.5;
-/** Steepness of the outline term in the contour field, so cross-sections hug the outline. */
-const OUTLINE_SLOPE = 4;
 const MAX_X_SLICES = 40;
 /**
  * Thin regions get refinement slices (see thinBoxes): where no inscribed circle
@@ -116,13 +114,17 @@ const THIN_MARGIN = 2;
 /** Depth spacing of refinement slices, units. */
 const FINE_Z = 0.6;
 
-function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const dx = bx - ax, dy = by - ay;
   const len = dx * dx + dy * dy;
   let t = len > 0 ? ((px - ax) * dx + (py - ay) * dy) / len : 0;
   t = t < 0 ? 0 : t > 1 ? 1 : t;
   const ex = ax + t * dx - px, ey = ay + t * dy - py;
-  return Math.sqrt(ex * ex + ey * ey);
+  return ex * ex + ey * ey;
+}
+
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  return Math.sqrt(segDist2(px, py, ax, ay, bx, by));
 }
 
 /** Distance from a point to the nearest edge of the polygons. */
@@ -149,6 +151,15 @@ export function erosionAt(part: Pick<VolumePart, 'depth' | 'rxy' | 'rz'>, z: num
   const u = (Math.abs(z) - (half - part.rz)) / part.rz;
   if (u <= 0) return 0;
   return part.rxy * (1 - Math.sqrt(Math.max(0, 1 - Math.min(1, u) ** 2)));
+}
+
+/** How far inside the outline an inflated part's surface reaches `level` (inverse of surfaceZ). */
+export function insetAt(part: Pick<VolumePart, 'depth' | 'rxy' | 'rz'>, level: number): number {
+  const half = part.depth / 2;
+  if (part.rxy <= 0 || part.rz <= 0 || level <= half - part.rz) return 0;
+  if (level >= half) return part.rxy;
+  const s = (level - (half - part.rz)) / part.rz;
+  return part.rxy * (1 - Math.sqrt(Math.max(0, 1 - s * s)));
 }
 
 /** Front surface depth of an inflated part at a point `dist` units inside the outline. */
@@ -249,7 +260,7 @@ interface Grid { x0: number; y0: number; step: number; nx: number; ny: number; s
 
 /** Edges bucketed on a coarse grid, for nearest-edge queries that only visit nearby buckets. */
 class EdgeIndex {
-  private readonly cell = 3;
+  private readonly cell = 6;
   private readonly buckets = new Map<number, number[]>();
   private readonly e: number[] = [];
   private readonly ox: number;
@@ -292,15 +303,15 @@ class EdgeIndex {
           const list = this.buckets.get(cy * this.span + cx);
           if (!list) continue;
           for (const k of list) {
-            const d = segDist(x, y, e[k], e[k + 1], e[k + 2], e[k + 3]);
+            const d = segDist2(x, y, e[k], e[k + 1], e[k + 2], e[k + 3]);
             if (d < best) best = d;
           }
         }
       }
-      // Every bucket outside ring r is at least r cells away.
-      if (best <= r * this.cell) break;
+      // Every bucket outside ring r is at least r cells away (best is squared).
+      if (best <= (r * this.cell) ** 2) break;
     }
-    return best;
+    return Math.sqrt(best);
   }
 }
 
@@ -336,8 +347,16 @@ interface CellBox { i0: number; i1: number; j0: number; j1: number }
 /** A thin region's box, and the highest surface over the thin samples themselves. */
 interface ThinBox extends CellBox { top: number }
 
-/** Cross-section {h ≥ level} clipped to the outline (and to `box`, if given), as loops. */
-function levelLoops(g: Grid, level: number, box?: CellBox): Point[][] {
+/**
+ * A part's cross-section at `level` as a field that is positive inside it, zero on its edge and
+ * roughly a distance in viewBox units: smooth across the rim, so contours interpolated between grid
+ * samples follow the real edge instead of the grid. (Height itself is steep at the rim and zero
+ * outside, and contouring it left the outline faceted and stair-stepped.)
+ */
+type LevelField = (x: number, y: number, sd: number, level: number) => number;
+
+/** Cross-section at `level` clipped to the outline (and to `box`, if given), as loops. */
+function levelLoops(g: Grid, level: number, field: LevelField, box?: CellBox): Point[][] {
   // A box is contoured on its own samples plus one ring outside it, where the clip is negative.
   const i0 = box ? Math.max(0, box.i0 - 1) : 0, i1 = box ? Math.min(g.nx - 1, box.i1 + 1) : g.nx - 1;
   const j0 = box ? Math.max(0, box.j0 - 1) : 0, j1 = box ? Math.min(g.ny - 1, box.j1 + 1) : g.ny - 1;
@@ -346,8 +365,10 @@ function levelLoops(g: Grid, level: number, box?: CellBox): Point[][] {
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const k = (j + j0) * g.nx + i + i0;
-      let v = Math.min(g.h[k] - level, OUTLINE_SLOPE * g.sd[k]);
-      if (box) v = Math.min(v, OUTLINE_SLOPE * g.step * Math.min(i + i0 - box.i0, box.i1 - i - i0, j + j0 - box.j0, box.j1 - j - j0));
+      const sd = g.sd[k];
+      // Both terms are continuous across the outline, so the min is too.
+      let v = Math.min(field(g.x0 + (i + i0) * g.step, g.y0 + (j + j0) * g.step, sd, level), sd);
+      if (box) v = Math.min(v, g.step * Math.min(i + i0 - box.i0, box.i1 - i - i0, j + j0 - box.j0, box.j1 - j - j0));
       values[j * nx + i] = v;
     }
   }
@@ -502,6 +523,7 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
 
     let thickness: number, depth: number, rxy = 0, rz = 0;
     let heightOf: (x: number, y: number, sd: number) => number;
+    let levelField: LevelField;
     if (kind === 'inflate' || !profile) {
       const coarse = sampleGrid(polys, b, Math.max(step, 0.6), () => 0);
       thickness = 2 * coarse.sd.reduce((m, d) => Math.max(m, d), 0);
@@ -510,6 +532,8 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       rz = (depth / 2) * 0.85;
       const shape = { depth, rxy, rz };
       heightOf = (_x, _y, sd) => surfaceZ(shape, sd);
+      // Height grows with distance from the outline, so a level is reached at a fixed inset.
+      levelField = (_x, _y, sd, level) => sd - insetAt(shape, level);
     } else {
       const p = profile;
       const axis = kind === 'revolve-x' ? (xAxis as number) : center[0];
@@ -519,6 +543,11 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       heightOf = kind === 'revolve-x'
         ? (x, y) => v * Math.sqrt(Math.max(0, radiusAt(p, x) ** 2 - (y - axis) ** 2))
         : (x, y) => v * Math.sqrt(Math.max(0, radiusAt(p, y) ** 2 - (x - axis) ** 2));
+      // Height ≥ level where t² ≤ R² - (level / v)²: that difference over 2R is about a distance.
+      levelField = (x, y, _sd, level) => {
+        const r = radiusAt(p, kind === 'revolve-x' ? x : y), t = kind === 'revolve-x' ? y - axis : x - axis;
+        return (r * r - t * t - (level / Math.max(v, 1e-6)) ** 2) / (2 * Math.max(r, 0.5));
+      };
     }
     const height = (x: number, y: number) =>
       isInside(polys, x, y) ? heightOf(x, y, kind === 'inflate' ? edgeDistance(polys, x, y) : 0) : 0;
@@ -538,7 +567,7 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       // Inflated parts keep a straight wall up to half - rz; one slice at its end carries it.
       const ls = kind === 'inflate' ? [half - rz, ...levels(half - rz, rz, steps)] : levels(0, half, steps);
       const addLevel = (level: number, box?: CellBox) => {
-        const loops = levelLoops(g, level, box);
+        const loops = levelLoops(g, level, levelField, box);
         if (!loops.length) return false;
         const sample = loops.flat().filter((_, k) => k % 3 === 0);
         const inset = Math.min(...sample.map(([x, y]) => edgeDistance(polys, x, y)));
