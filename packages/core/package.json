@@ -1,6 +1,6 @@
 {
   "name": "open-bot-avatar",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Small object characters with eyes: validate a silhouette + eyes definition and render it with implied 3D volume, idle motion, moods and gaze. No dependencies.",
   "keywords": ["avatar", "bot", "svg", "character", "animation", "css-3d", "mascot"],
   "license": "MIT",
