@@ -30,12 +30,13 @@ export interface AvatarDefinition {
 
 /**
  * What the bot is doing. `thinking` and `blocked` replace the body with a mark (three dots, an
- * exclamation mark); `working` adds ribbons that circle the body; `done` turns once and settles.
+ * exclamation mark); `working` adds ribbons that circle the body; `done` celebrates: it turns a
+ * few times with ribbons flying, rests, and after a while does it again.
  */
 export type AvatarState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done';
 
 /** How the bot feels. It shapes the eyes on top of any state; in `idle` a happy bot also hops. */
-export type AvatarMood = 'neutral' | 'happy' | 'surprised' | 'angry' | 'sad';
+export type AvatarMood = 'neutral' | 'happy';
 
 /**
  * The single option that came before `state` and `mood`, still accepted: `idle` and `thinking`
@@ -92,8 +93,9 @@ export interface RenderOptions {
   /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
   /**
-   * Seconds since `state` began. `done` turns once as it begins, so hosts that animate pass this
-   * (createAnimator returns it); without it the state is drawn as settled.
+   * Seconds since `state` began. `done` celebrates from the moment it begins, so hosts that
+   * animate pass this (createAnimator returns it); without it `done` celebrates on the
+   * animation clock (`time`).
    */
   stateAge?: number;
   /**

@@ -7,7 +7,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *   ?avatar=barbell          a starter, a gallery avatar or one of yours, by id
  *   &color=1f7cf2            a color: hex, with or without #, or a swatch name (blue)
  *   &state=working           idle, thinking, working, waiting, blocked or done
- *   &mood=happy              neutral, happy, surprised, angry or sad; an older link's mood=thinking
+ *   &mood=happy              neutral or happy; an older link's mood=thinking
  *                            still opens the thinking state
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected

@@ -107,7 +107,7 @@ describe("share links", () => {
 
   it("set both state and mood when a link names either, and neither when it names none", () => {
     expect(readShare("?state=blocked")).toEqual({ state: "blocked", mood: "neutral" });
-    expect(readShare("?mood=sad")).toEqual({ state: "idle", mood: "sad" });
+    expect(readShare("?state=waiting&mood=happy")).toEqual({ state: "waiting", mood: "happy" });
     expect(readShare("?avatar=mug")).toEqual({ avatar: "mug" });
   });
 
@@ -151,7 +151,7 @@ describe("avatar colors", () => {
   it("revives a look saved before state and mood were separate", () => {
     expect(reviveLook({ motion: "thinking" })).toMatchObject({ state: "thinking", mood: "neutral" });
     expect(reviveLook({ motion: "happy" })).toMatchObject({ state: "idle", mood: "happy" });
-    expect(reviveLook({ state: "blocked", mood: "sad", motion: "happy" })).toMatchObject({ state: "blocked", mood: "sad" });
+    expect(reviveLook({ state: "blocked", mood: "neutral", motion: "happy" })).toMatchObject({ state: "blocked", mood: "neutral" });
     expect(reviveLook({})).toMatchObject({ state: "idle", mood: "neutral" });
     expect(reviveLook({ motion: "happy" })).not.toHaveProperty("motion");
   });

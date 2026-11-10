@@ -74,7 +74,7 @@ const PROPS: [string, string][] = [
   ["definition", "The avatar. Required."],
   ["color, eyeColor", "#rgb, #rrggbb or any CSS color. Default: #ff6a1a and #151515."],
   ["state", 'What the bot is doing: "idle" (default), "thinking", "working", "waiting", "blocked" or "done".'],
-  ["mood", 'How it feels: "neutral" (default), "happy", "surprised", "angry" or "sad". It shapes the eyes on any state.'],
+  ["mood", 'How it feels: "neutral" (default) or "happy". It shapes the eyes on any state.'],
   ["followPointer", "Look at the mouse or finger. Default: false."],
   ["lookAt", "A fixed look direction, { x, y } from -1 to 1. Wins over the pointer."],
   ["holdGaze", "Keep looking where it looks now. Default: false."],

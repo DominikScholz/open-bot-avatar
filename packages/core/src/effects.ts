@@ -26,35 +26,46 @@ export interface RibbonPiece {
   box: Box;
 }
 
-/** Each ribbon's hoop: how flat it looks, how far it is rolled, how fast it runs, how long it is. */
+/**
+ * Each ribbon's hoop: how flat it looks, how far it is rolled, how fast it runs, how long it is.
+ * The last two only join a celebration (presence above 1).
+ */
 const HOOPS = [
-  { flat: 0.26, roll: -0.7, period: 1.55, reach: 1, length: 2.3 },
-  { flat: 0.2, roll: 0.5, period: 1.9, reach: 1.06, length: 1.9 },
-  { flat: 0.3, roll: 1.3, period: 1.3, reach: 1.12, length: 1.6 },
+  { flat: 0.26, roll: -0.7, period: 1.55, reach: 1, length: 2.3, extra: false },
+  { flat: 0.2, roll: 0.5, period: 1.9, reach: 1.06, length: 1.9, extra: false },
+  { flat: 0.3, roll: 1.3, period: 1.3, reach: 1.12, length: 1.6, extra: false },
+  { flat: 0.34, roll: -1.25, period: 1.7, reach: 1.03, length: 2.1, extra: true },
+  { flat: 0.16, roll: 0.05, period: 1.45, reach: 1.09, length: 2.5, extra: true },
 ] as const;
+const REACH = Math.max(...HOOPS.map((hoop) => hoop.reach));
 const SAMPLES = 24;
 
 /** Radius of the widest hoop and the widest a ribbon gets, for a body this size. */
 export function ribbonReach(b: Bounds): { radius: number; width: number } {
   const bw = b.maxX - b.minX, bh = b.maxY - b.minY;
   // Wide enough that a rolled hoop still clears the body's corners.
+  // The width is a ribbon's own; a celebration draws them a third as wide again.
   return { radius: Math.hypot(bw, bh) / 2 + 1, width: clamp(Math.max(bw, bh) * 0.045, 1.6, 3.6) };
 }
 
 /**
  * The ribbons at one moment. Each one runs round its own tilted hoop about the body's centre:
  * thin at the tail, full near the head, and split where the hoop passes from behind the body to
- * in front of it (the lower half is the near side). `presence` 0..1 draws them out and back in.
+ * in front of it (the lower half is the near side). `presence` 0..1 draws them out and back in;
+ * from 1 to 2 it adds two more and makes them all bolder. `sweep` (radians) moves every ribbon
+ * that much further round, on top of its own steady pace.
  */
-export function ribbonPieces(b: Bounds, presence: number, seed: number, time: number): RibbonPiece[] {
-  const k = clamp(presence, 0, 1);
-  if (k <= 0.01) return [];
+export function ribbonPieces(b: Bounds, presence: number, seed: number, time: number, sweep = 0): RibbonPiece[] {
+  const all = clamp(presence, 0, 2), more = clamp(all - 1, 0, 1);
+  if (all <= 0.01) return [];
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const { radius, width } = ribbonReach(b);
   const pieces: RibbonPiece[] = [];
   HOOPS.forEach((hoop, i) => {
-    const r = (radius * hoop.reach) / HOOPS[HOOPS.length - 1].reach;
-    const head = noise(seed, 400 + i) * TAU + (TAU * time) / hoop.period;
+    const k = hoop.extra ? more : Math.min(all, 1);
+    if (k <= 0.01) return;
+    const r = (radius * hoop.reach) / REACH;
+    const head = noise(seed, 400 + i) * TAU + (TAU * time) / hoop.period + sweep;
     const length = hoop.length * k * (1 + 0.25 * Math.sin(time * 1.1 + i * 2));
     const cr = Math.cos(hoop.roll), sr = Math.sin(hoop.roll);
     // Both edges of the ribbon at each sample, tail to head, and which side of the body it is on.
@@ -62,7 +73,7 @@ export function ribbonPieces(b: Bounds, presence: number, seed: number, time: nu
     for (let j = 0; j <= SAMPLES; j++) {
       const s = j / SAMPLES;
       const a = head - length * (1 - s);
-      const half = (width / 2) * k * Math.pow(s, 0.7) * Math.sqrt(clamp((1 - s) / 0.12, 0, 1));
+      const half = (width / 2) * k * (1 + 0.3 * more) * Math.pow(s, 0.7) * Math.sqrt(clamp((1 - s) / 0.12, 0, 1));
       // On the hoop before its roll: position, and the unit normal of the ellipse there.
       const ex = Math.cos(a) * r, ey = Math.sin(a) * r * hoop.flat;
       const nx = Math.cos(a) * hoop.flat, ny = Math.sin(a);

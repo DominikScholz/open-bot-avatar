@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { createAnimator } from '../src/animator.ts';
 import { ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
-import { DONE_TURN_S, MOODS, STATES, computePose, resolveLook } from '../src/motion.ts';
+import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, computePose, resolveLook } from '../src/motion.ts';
+import { MOOD_MS } from '../src/mood.ts';
 import { isInside } from '../src/path.ts';
 import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
 import { analyzeBody } from '../src/validate.ts';
@@ -30,7 +31,8 @@ describe('state and mood', () => {
     expect(resolveLook({})).toEqual({ state: 'idle', mood: 'neutral' });
     expect(resolveLook({ motion: 'thinking' })).toEqual({ state: 'thinking', mood: 'neutral' });
     expect(resolveLook({ motion: 'happy' })).toEqual({ state: 'idle', mood: 'happy' });
-    expect(resolveLook({ motion: 'happy', state: 'working', mood: 'sad' })).toEqual({ state: 'working', mood: 'sad' });
+    expect(resolveLook({ motion: 'thinking', state: 'working', mood: 'happy' })).toEqual({ state: 'working', mood: 'happy' });
+    expect(resolveLook({ mood: 'sad' })).toEqual({ state: 'idle', mood: 'neutral' });
     expect(resolveLook({ state: 'nope', mood: 7 })).toEqual({ state: 'idle', mood: 'neutral' });
   });
 
@@ -46,7 +48,7 @@ describe('state and mood', () => {
 
   it('keeps a mood on any state: a happy bot has its arcs while it works, waits and finishes', () => {
     for (const state of ['idle', 'working', 'waiting', 'done'] as const) {
-      const marks = eyesOf(avatarFrame(mug, { state, mood: 'happy', time: 1.1 }));
+      const marks = eyesOf(avatarFrame(mug, { state, mood: 'happy', time: 1.1, stateAge: DONE_TURN_S + 1 }));
       expect(marks.length).toBe(2);
       expect(marks.every((m) => m.shape === 'arc')).toBe(true);
     }
@@ -90,12 +92,12 @@ describe('eyes', () => {
     for (const d of everyone) {
       const { polys } = analyzeBody(preparedVolume(d).def.body.path);
       for (const mood of MOODS) {
-        // Lids only take ink away, so two states cover the shapes: open eyes, and half-closed ones.
+        // Two states cover the shapes: the pill (or the arc), and the slit.
         for (const state of ['idle', 'waiting'] as const) {
           for (const gaze of looks) {
             for (const time of [0.9]) {
               // Seen square on, so face-plane coordinates are the body's own.
-              const options: RenderOptions = { state, mood, gaze, time, motionBlend: { from: { state: 'idle', mood: 'surprised' }, t: 0.5 } };
+              const options: RenderOptions = { state, mood, gaze, time, motionBlend: { from: { state: state === 'idle' ? 'waiting' : 'idle', mood: 'happy' }, t: 0.5 } };
               for (const frame of [avatarFrame(d, { state, mood, gaze, time }), avatarFrame(d, options)]) {
                 let outside = 0;
                 for (const mark of eyesOf(frame)) {
@@ -120,30 +122,21 @@ describe('eyes', () => {
     }
   }, 30_000);
 
-  it('open wide when surprised and lower a slanted lid when sad or angry', () => {
-    const box = (mood: RenderOptions['mood'], eye: number) => {
-      const mark = eyesOf(avatarFrame(mug, { mood, reducedMotion: true }))[eye];
-      if (mark.shape === 'pill') return { x0: mark.x, x1: mark.x + mark.width, y0: mark.y, y1: mark.y + mark.height, pts: [] as number[] };
-      const n = mark.shape === 'path' ? numbers(mark.d) : [];
+  it('flatten to parallel slits while waiting, unless the bot is happy', () => {
+    const marks = eyesOf(avatarFrame(mug, { state: 'waiting', reducedMotion: true }));
+    const boxes = marks.map((mark) => {
+      if (mark.shape !== 'path') throw new Error('expected an outline');
+      const n = numbers(mark.d);
       const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-      return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), pts: n };
-    };
-    const plain = box('neutral', 0), wide = box('surprised', 0);
-    expect(wide.x1 - wide.x0).toBeGreaterThan(plain.x1 - plain.x0);
-    expect(wide.y1 - wide.y0).toBeGreaterThan(plain.y1 - plain.y0);
-    // Top of the outline at the eye's outer and inner edge: sad is lower outside, angry lower inside.
-    const tops = (mood: RenderOptions['mood']) => {
-      const b = box(mood, 0), mid = (b.x0 + b.x1) / 2;
-      let outer = Infinity, inner = Infinity;
-      for (let i = 0; i < b.pts.length; i += 2) {
-        if (b.pts[i] < mid - 0.5) outer = Math.min(outer, b.pts[i + 1]);
-        if (b.pts[i] > mid + 0.5) inner = Math.min(inner, b.pts[i + 1]);
-      }
-      return { outer, inner };
-    };
-    expect(tops('sad').outer).toBeGreaterThan(tops('sad').inner + 0.5);
-    expect(tops('angry').inner).toBeGreaterThan(tops('angry').outer + 0.5);
-    expect(box('sad', 0).y1).toBeCloseTo(plain.y1, 1);
+      // The slope of the slit: where its left end and its right end sit.
+      const left = ys[xs.indexOf(Math.min(...xs))], right = ys[xs.indexOf(Math.max(...xs))];
+      return { w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), slope: right - left };
+    });
+    expect(boxes.length).toBe(2);
+    for (const b of boxes) expect(b.w).toBeGreaterThan(2 * b.h);
+    expect(boxes[0].slope).toBeGreaterThan(0.2);
+    expect(boxes[1].slope).toBeCloseTo(boxes[0].slope, 1);
+    expect(eyesOf(avatarFrame(mug, { state: 'waiting', mood: 'happy', reducedMotion: true })).every((m) => m.shape === 'arc')).toBe(true);
   });
 });
 
@@ -214,7 +207,7 @@ describe('ribbons', () => {
     }
     expect(front).toBeGreaterThan(0);
     expect(back).toBeGreaterThan(0);
-    for (const state of ['idle', 'thinking', 'waiting', 'blocked', 'done'] as const) expect(ribbons(avatarFrame(mug, { state, time: 1 })).length).toBe(0);
+    for (const state of ['idle', 'thinking', 'waiting', 'blocked', 'done'] as const) expect(ribbons(avatarFrame(mug, { state, time: 1, stateAge: 60 * DONE_CYCLE_S - 1 })).length).toBe(0);
     expect(ribbons(avatarFrame(mug, { state: 'working', time: 1, reducedMotion: true })).length).toBe(0);
   });
 
@@ -243,12 +236,12 @@ describe('ribbons', () => {
       const extent = avatarExtent(d);
       const { radius, width } = ribbonReach(b);
       for (let i = 0; i < 40; i++) {
-        for (const piece of ribbonPieces(b, 1, 11, i * 0.21)) {
+        for (const piece of ribbonPieces(b, 2, 11, i * 0.21, i * 0.4)) {
           expect(piece.box.x).toBeGreaterThanOrEqual(extent.x);
           expect(piece.box.y).toBeGreaterThanOrEqual(extent.y);
           expect(piece.box.x + piece.box.w).toBeLessThanOrEqual(extent.x + extent.size);
           expect(piece.box.y + piece.box.h).toBeLessThanOrEqual(extent.y + extent.size);
-          expect(Math.max(piece.box.w, piece.box.h)).toBeLessThanOrEqual(2 * (radius + width));
+          expect(Math.max(piece.box.w, piece.box.h)).toBeLessThanOrEqual(2 * (radius + width * 1.3));
         }
       }
     }
@@ -259,39 +252,61 @@ describe('ribbons', () => {
     expect(ribbonPieces(b, 0, 3, 1)).toEqual([]);
     const area = (k: number) => ribbonPieces(b, k, 3, 1).reduce((n, p) => n + p.box.w * p.box.h, 0);
     expect(area(0.3)).toBeLessThan(area(1));
+    // A celebration has more of them, and a sweep carries them further round.
+    expect(area(2)).toBeGreaterThan(area(1));
+    expect(ribbonPieces(b, 1, 3, 1, 0.5)).not.toEqual(ribbonPieces(b, 1, 3, 1));
+    expect(ribbonPieces(b, 1, 3, 1, 2 * Math.PI).map((p) => p.front)).toEqual(ribbonPieces(b, 1, 3, 1).map((p) => p.front));
   });
 });
 
 describe('done', () => {
   const base = { seed: 5, time: 4, reducedMotion: false, state: 'done' as const };
+  const resting = computePose({ ...base, stateAge: DONE_TURN_S + 1 });
 
-  it('turns once as it begins, with ribbons, and is settled after', () => {
-    const settled = computePose(base);
-    expect(computePose({ ...base, stateAge: DONE_TURN_S })).toEqual(settled);
-    expect(computePose({ ...base, stateAge: 60 })).toEqual(settled);
-    expect(settled.ribbons).toBe(0);
-    const early = computePose({ ...base, stateAge: DONE_TURN_S * 0.25 });
-    expect(early.yaw).toBeGreaterThan(settled.yaw + 0.5);
-    expect(early.ribbons).toBeGreaterThan(0.5);
-    expect(early.lift).toBeLessThan(settled.lift);
-    // The turn starts and ends where the settled pose is.
-    for (const age of [0, DONE_TURN_S - 1e-6]) {
+  it('celebrates as it begins: a few turns with more ribbons than a working bot has, then a rest', () => {
+    expect(resting.ribbons).toBe(0);
+    expect(computePose({ ...base, stateAge: DONE_CYCLE_S - 0.01 })).toEqual(computePose({ ...base, stateAge: DONE_TURN_S }));
+    const mid = computePose({ ...base, stateAge: DONE_TURN_S / 2 });
+    expect(mid.ribbons).toBeGreaterThan(1);
+    expect(mid.lift).toBeLessThan(resting.lift);
+    // The body faces every way in turn, and ends where it rests.
+    let turned = 0, last = 0;
+    for (let u = 0; u <= 1.0001; u += 0.002) {
+      const yaw = computePose({ ...base, stateAge: Math.min(u, 0.999999) * DONE_TURN_S }).yaw - resting.yaw;
+      turned += Math.atan2(Math.sin(yaw - last), Math.cos(yaw - last));
+      last = yaw;
+    }
+    expect(turned / (2 * Math.PI)).toBeCloseTo(3, 1);
+    // It winds up the other way first.
+    expect(computePose({ ...base, stateAge: 0.15 }).yaw).toBeLessThan(resting.yaw);
+  });
+
+  it('celebrates again after a rest, the other way round', () => {
+    const first = computePose({ ...base, stateAge: 1 }).yaw - resting.yaw;
+    const second = computePose({ ...base, stateAge: DONE_CYCLE_S + 1 }).yaw - resting.yaw;
+    expect(second).toBeCloseTo(-first, 9);
+  });
+
+  it('never unwinds: the angle stays the short way round from the resting one', () => {
+    for (let u = 0.01; u < 1; u += 0.01) {
+      const p = computePose({ ...base, stateAge: u * DONE_TURN_S });
+      expect(Math.abs(p.yaw - resting.yaw)).toBeLessThanOrEqual(Math.PI + 1e-9);
+      expect(Math.abs(p.sweep)).toBeLessThanOrEqual(Math.PI + 1e-9);
+    }
+    // Neither angle wraps while the state is still easing in.
+    for (let age = 0; age < MOOD_MS / 1000; age += 0.01) {
       const p = computePose({ ...base, stateAge: age });
-      expect(Math.cos(p.yaw - settled.yaw)).toBeCloseTo(1, 4);
-      expect(p.ribbons).toBeCloseTo(0, 2);
+      expect(Math.abs(p.yaw - resting.yaw)).toBeLessThan(3);
+      expect(Math.abs(p.sweep)).toBeLessThan(3);
     }
   });
 
-  it('never unwinds: past the half turn the angle counts down to the settled one', () => {
-    const settled = computePose(base).yaw;
-    for (let u = 0.02; u < 1; u += 0.02) {
-      const yaw = computePose({ ...base, stateAge: u * DONE_TURN_S }).yaw - settled;
-      expect(Math.abs(yaw)).toBeLessThanOrEqual(Math.PI + 1e-9);
-    }
-  });
-
-  it('does not turn under reduced motion', () => {
-    expect(computePose({ ...base, reducedMotion: true, stateAge: 0.3 })).toEqual(computePose({ ...base, reducedMotion: true }));
+  it('celebrates on the animation clock when no age is given, and not at all under reduced motion', () => {
+    const yaws = new Set<number>();
+    for (let time = 0; time < DONE_CYCLE_S; time += 0.25) yaws.add(Math.round(computePose({ ...base, time }).ribbons * 10));
+    expect(yaws.size).toBeGreaterThan(2);
+    expect(computePose({ ...base, reducedMotion: true, stateAge: 1 })).toEqual(computePose({ ...base, reducedMotion: true }));
+    expect(computePose({ ...base, reducedMotion: true, stateAge: 1 }).ribbons).toBe(0);
   });
 });
 
@@ -313,28 +328,21 @@ describe('animator states', () => {
     const a = createAnimator();
     step(a, 0, 'idle');
     step(a, 1000, 'done');
-    const change = step(a, 1300, 'idle', 'sad');
+    const change = step(a, 1300, 'idle', 'happy');
     expect(change.motionBlend).toEqual({ from: { state: 'done', mood: 'neutral', age: 0.3, blend: { from: { state: 'idle', mood: 'neutral', age: Infinity }, t: expect.any(Number) } }, t: 0 });
   });
 
-  it('turns once without a jump when the mood changes mid-turn', () => {
+  it('turns without a jump when the mood changes mid-turn', () => {
     const a = createAnimator();
     step(a, 0, 'idle');
     let last: number | null = null;
-    for (let now = 100; now < 1700; now += 16) {
-      const s = step(a, now, 'done', now < 600 ? 'neutral' : now < 900 ? 'happy' : 'sad');
-      const yaw = computePose({ seed: 5, time: now / 1000, reducedMotion: false, state: 'done', mood: now < 600 ? 'neutral' : now < 900 ? 'happy' : 'sad', stateAge: s.stateAge, blend: s.motionBlend }).yaw;
+    for (let now = 100; now < 3800; now += 16) {
+      const mood = now < 900 || (now > 1500 && now < 2300) ? 'neutral' : 'happy';
+      const s = step(a, now, 'done', mood);
+      const yaw = computePose({ seed: 5, time: now / 1000, reducedMotion: false, state: 'done', mood, stateAge: s.stateAge, blend: s.motionBlend }).yaw;
       // Compared as directions, so a full turn counts as no change.
       if (last !== null) expect(Math.abs(Math.atan2(Math.sin(yaw - last), Math.cos(yaw - last)))).toBeLessThan(0.25);
       last = yaw;
     }
-  });
-
-  it('keeps asking for frames while done is still turning', () => {
-    const a = createAnimator();
-    step(a, 0, 'idle');
-    step(a, 100, 'done');
-    expect(step(a, 100 + 700, 'done').moving).toBe(true);
-    expect(step(a, 100 + DONE_TURN_S * 1000 + 10, 'done').moving).toBe(false);
   });
 });

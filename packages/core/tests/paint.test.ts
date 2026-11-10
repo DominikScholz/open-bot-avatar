@@ -58,7 +58,7 @@ for (const motion of ['idle', 'happy', 'thinking'] as const) {
 
 for (const state of ['working', 'waiting', 'blocked', 'thinking', 'done'] as const) {
   for (let t = 0; t < 8; t++) {
-    poses.push({ state, mood: t % 2 ? 'surprised' : 'sad', time: t * 0.43, stateAge: t * 0.2, gaze: t % 3 ? { x: Math.cos(t), y: Math.sin(t) } : undefined });
+    poses.push({ state, mood: t % 2 ? 'happy' : 'neutral', time: t * 0.43, stateAge: t * 0.2, gaze: t % 3 ? { x: Math.cos(t), y: Math.sin(t) } : undefined });
     poses.push({ state, time: t * 0.29, stateAge: t * 0.17, motionBlend: { from: { state: 'working', mood: 'happy' }, t: t / 8 }, view: { yaw: t - 4, pitch: Math.cos(t) } });
   }
 }

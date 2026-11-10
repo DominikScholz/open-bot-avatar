@@ -222,7 +222,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const [cx, cy] = pivotOf(b);
   const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
   const ribbons = ribbonReach(b);
-  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), ribbons.radius + ribbons.width);
+  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), ribbons.radius + ribbons.width * 1.3);
   return { x: cx - half, y: cy - half, size: 2 * half };
 }
 
@@ -270,35 +270,28 @@ interface EyeState {
   open: number;
   shift: number;
   look: EyeLook;
-  /** The plain pill or the plain happy arc, drawn as such; null for every look in between (a path). */
+  /** The plain pill or the plain happy arc, drawn as such; null for every other look (a path). */
   plain: 'pill' | 'arc' | null;
-  /** Room a wide-open eye grows into, per axis, and which way this eye's outer side lies. */
-  roomX: number;
-  roomY: number;
-  outer: 1 | -1;
 }
 
 function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
   const s = p.vol.eyeScale;
   const w = EYE_W * s, h = EYE_H * s;
   const r = p.range;
-  // A wide-open eye fills the room its gaze would travel, so it looks straight ahead.
-  const travel = 1 - Math.min(1, Math.max(0, pose.eyes.wide));
-  const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s * travel;
-  const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s * travel;
-  const roomX = Math.min(r.left, r.right) * GAZE_X * s, roomY = Math.min(r.up, r.down) * GAZE_Y * s;
+  const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
+  const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
   const centers = eyeCenters(p.def.eyes);
   const plain = plainLook(pose.eyes);
   return ([0, 1] as const).map((i) => {
     const squint = i === 0 ? pose.squintL : pose.squintR;
     const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, look: pose.eyes, plain, roomX, roomY, outer: i === 0 ? -1 : 1 };
+    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, look: pose.eyes, plain };
   }) as [EyeState, EyeState];
 }
 
 /** Where an eye is drawn: with its gaze offset, or without it where a transform applies the gaze. */
 function eyeSpot(e: EyeState, gaze: boolean): EyeSpot {
-  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, open: e.open, shift: e.shift, roomX: e.roomX, roomY: e.roomY, outer: e.outer };
+  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, open: e.open, shift: e.shift };
 }
 
 function happyArc(e: EyeState): string {
@@ -329,7 +322,8 @@ export type Matrix = [number, number, number, number, number, number];
 
 /**
  * How one eye is drawn, in its face plane's coordinates (viewBox units): the plain pill, the
- * plain happy arc (stroked, round caps), or for every look in between a filled outline.
+ * plain happy arc (stroked, round caps), or for every other look a filled outline (a waiting
+ * bot's slits, and every shape on the way from one look to the next).
  */
 export type EyeMark =
   | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number }
@@ -431,7 +425,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const [cx, cy] = pivotOf(b);
   return {
     body: bodyScale(pose.bang, pose.dots),
-    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time),
+    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep),
     marks: markParts(b, pose.bang, pose.dots, p.seed, time, still).map((part) => {
       const turn: M = [Math.cos(part.turn), Math.sin(part.turn), -Math.sin(part.turn), Math.cos(part.turn), 0, 0];
       return {

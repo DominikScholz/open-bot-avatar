@@ -12,12 +12,8 @@ import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from '.
 export interface EyeLook {
   /** 0 = the plain pill, 1 = the happy arc. */
   arc: number;
-  /** Top lid lowered by this share of the eye's height. */
-  lid: number;
-  /** Slope of the lid, -1..1: positive lowers its outer end (sad), negative its inner end (angry). */
-  slant: number;
-  /** 0..1 of the free room around the eye it opens into (surprised). */
-  wide: number;
+  /** 0 = the plain pill, 1 = the flat slit of a waiting bot. Never more than `1 - arc`. */
+  slit: number;
 }
 
 export interface Pose {
@@ -40,8 +36,10 @@ export interface Pose {
   squintL: number;
   squintR: number;
   eyes: EyeLook;
-  /** Presence of the ribbons that circle the body, 0..1. */
+  /** Presence of the ribbons that circle the body: 0..1 draws them out, up to 2 adds more of them, bolder. */
   ribbons: number;
+  /** How far the ribbons have run ahead of their own steady pace, radians (they fly with a turn). */
+  sweep: number;
   /** How far the body has given way to a mark, 0..1 each: the exclamation mark and the three dots. */
   bang: number;
   dots: number;
@@ -49,7 +47,7 @@ export interface Pose {
 
 /** Every state and mood, in the order hosts list them. */
 export const STATES: readonly AvatarState[] = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
-export const MOODS: readonly AvatarMood[] = ['neutral', 'happy', 'surprised', 'angry', 'sad'];
+export const MOODS: readonly AvatarMood[] = ['neutral', 'happy'];
 
 export function isState(value: unknown): value is AvatarState {
   return STATES.includes(value as AvatarState);
@@ -152,7 +150,7 @@ export interface PoseInput {
   mood?: AvatarMood;
   /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
-  /** Seconds since `state` began; `done` turns once as it begins. Without it the state is settled. */
+  /** Seconds since `state` began: `done` celebrates from then on. Without it, it celebrates on the animation clock. */
   stateAge?: number;
   /** Look target, -1..1 per axis (x right, y down); `weight` 0..1 fades it in over the idle pose (default 1). */
   gaze?: { x: number; y: number; weight?: number };
@@ -175,8 +173,8 @@ export function blendPoses(a: Pose, b: Pose, t: number): Pose {
     yaw: m(a.yaw, b.yaw), pitch: m(a.pitch, b.pitch), roll: m(a.roll, b.roll), lift: m(a.lift, b.lift),
     sx: m(a.sx, b.sx), sy: m(a.sy, b.sy), gazeX: m(a.gazeX, b.gazeX), gazeY: m(a.gazeY, b.gazeY),
     blink: m(a.blink, b.blink), squintL: m(a.squintL, b.squintL), squintR: m(a.squintR, b.squintR),
-    eyes: { arc: m(a.eyes.arc, b.eyes.arc), lid: m(a.eyes.lid, b.eyes.lid), slant: m(a.eyes.slant, b.eyes.slant), wide: m(a.eyes.wide, b.eyes.wide) },
-    ribbons: m(a.ribbons, b.ribbons), bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
+    eyes: { arc: m(a.eyes.arc, b.eyes.arc), slit: m(a.eyes.slit, b.eyes.slit) },
+    ribbons: m(a.ribbons, b.ribbons), sweep: m(a.sweep, b.sweep), bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
   };
 }
 
@@ -192,17 +190,23 @@ export function computePose(input: PoseInput): Pose {
   return blendPoses(before, pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
-/** Seconds `done` takes to turn once before it settles. */
-export const DONE_TURN_S = 1.3;
+/** Done celebrates in cycles: this many turns over DONE_TURN_S seconds, then a rest until DONE_CYCLE_S. */
+export const DONE_TURN_S = 3.2;
+export const DONE_CYCLE_S = 7;
+const DONE_TURNS = 3;
+/** How many times the ribbons go round for each turn of the body. */
+const DONE_SWEEP = 2.5;
 
-/** What each mood does to the eyes. A happy bot's arcs are the whole eye, so lids do not apply to them. */
-const MOOD_EYES: Record<AvatarMood, EyeLook> = {
-  neutral: { arc: 0, lid: 0, slant: 0, wide: 0 },
-  happy: { arc: 1, lid: 0, slant: 0, wide: 0 },
-  surprised: { arc: 0, lid: 0, slant: 0, wide: 1 },
-  angry: { arc: 0, lid: 0.2, slant: -1, wide: 0 },
-  sad: { arc: 0, lid: 0.2, slant: 1, wide: 0 },
-};
+/** An angle as the nearest way round to it, -π..π, so a blend never unwinds whole turns. */
+const near = (angle: number) => angle - TAU * Math.round(angle / TAU);
+
+/**
+ * How far a celebration has turned by `u` (0..1 of its length), radians: it winds up a little
+ * the other way, runs, and eases to a stop having made DONE_TURNS turns.
+ */
+function celebration(u: number): number {
+  return DONE_TURNS * TAU * smooth(u) - 0.45 * Math.sin(Math.PI * clamp(u / 0.16, 0, 1));
+}
 
 function statePose(input: PoseInput): Pose {
   const { seed, time, gaze, reducedMotion, view } = input;
@@ -221,7 +225,7 @@ function statePose(input: PoseInput): Pose {
   const pose: Pose = {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
-    eyes: { ...MOOD_EYES[mood] }, ribbons: 0, bang: 0, dots: 0,
+    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, sweep: 0, bang: 0, dots: 0,
   };
   /** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
   const rest = (pace: number) => {
@@ -281,8 +285,8 @@ function statePose(input: PoseInput): Pose {
     }
     pose.ribbons = live;
   } else if (state === 'waiting') {
-    // Leans to one side with its lids half down, glancing off at whatever it is waiting on.
-    // Now and then it sighs.
+    // Leans to one side, eyes flattened to slits, glancing off at whatever it is waiting on.
+    // Now and then it sighs. A happy bot keeps its arcs.
     const p = reducedMotion ? 0 : ((t % 6.5) + 6.5) % 6.5 / 6.5;
     // One breath in and out over the first third of the cycle.
     const sigh = Math.sin(TAU * clamp(p / 0.33, 0, 1));
@@ -294,7 +298,7 @@ function statePose(input: PoseInput): Pose {
     pose.sx = 1 - 0.012 * sigh;
     pose.gazeX = 0.5 + 0.15 * wave(8.2);
     pose.gazeY = 0.1;
-    pose.eyes.lid += 0.42;
+    pose.eyes.slit = 1 - pose.eyes.arc;
     if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.6);
   } else if (state === 'blocked') {
     // Stops still while it gives way to the exclamation mark.
@@ -302,23 +306,26 @@ function statePose(input: PoseInput): Pose {
     pose.sx = 0.99;
     pose.bang = 1;
   } else if (state === 'done') {
-    // Turns once as it finishes, ribbons flying, then settles: content, and a little slower than idle.
+    // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
+    // slower than idle, and after a while again, the other way round.
     rest(1.25);
-    const age = reducedMotion || !Number.isFinite(input.stateAge) ? Infinity : Math.max(0, input.stateAge as number);
-    if (age < DONE_TURN_S) {
-      const u = age / DONE_TURN_S;
+    // Counted from when the state began; a bot that has been done all along (no age given)
+    // celebrates on its own clock, so several of them on a page do not turn together.
+    const age = Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : t;
+    const cycle = Math.floor(age / DONE_CYCLE_S), since = age - cycle * DONE_CYCLE_S;
+    if (!reducedMotion && since < DONE_TURN_S) {
+      const u = since / DONE_TURN_S;
       const swell = Math.sin(Math.PI * u);
-      // Past the half turn the angle counts down to zero, so a change mid-turn finishes it the short way.
-      const turn = TAU * smooth(u);
-      pose.yaw += turn > Math.PI ? turn - TAU : turn;
-      pose.lift -= 2.4 * swell;
+      const turn = celebration(u) * (cycle % 2 ? -1 : 1);
+      pose.yaw += near(turn);
+      pose.lift -= 2.2 * swell;
       pose.sy += 0.04 * swell;
-      pose.ribbons = Math.sqrt(swell);
+      pose.ribbons = clamp(2.6 * swell, 0, 2);
+      pose.sweep = near(DONE_SWEEP * turn);
     }
   } else {
     rest(1);
   }
-  pose.eyes.lid = clamp(pose.eyes.lid, 0, 0.7);
 
   if (given && weight > 0) {
     // A look target wins over idle wander. The body turns to face it: the resting

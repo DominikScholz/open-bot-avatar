@@ -6,7 +6,7 @@
  * frame and whether it is still easing.
  */
 import { REST, followGaze, followStep, type FollowState } from './follow.ts';
-import { DONE_TURN_S, resolveLook } from './motion.ts';
+import { resolveLook } from './motion.ts';
 import { moodProgress, settleMood, type MoodState } from './mood.ts';
 import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
@@ -30,7 +30,7 @@ export interface AnimatorStep {
   motionBlend?: AvatarMotionBlend;
   /** Seconds since the state began (a change of mood alone does not restart it). */
   stateAge: number;
-  /** True while the look or a change of state or mood is still easing, or the state is still arriving. */
+  /** True while the look or a change of state or mood is still easing. */
   moving: boolean;
 }
 
@@ -70,16 +70,14 @@ export function createAnimator(): Animator {
           began: state === shown.state ? shown.began : now,
         };
       }
-      // An avatar that mounts in a state has been in it all along: nothing arrives.
+      // An avatar that mounts in a state has been in it all along.
       shown ??= { state, mood, since: now, began: -Infinity };
       const t = reducedMotion ? 1 : moodProgress(now - shown.since);
       let motionBlend: AvatarMotionBlend | undefined;
       if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };
       else shown.blend = undefined;
 
-      const stateAge = (now - shown.began) / 1000;
-      const arriving = !reducedMotion && state === 'done' && stateAge < DONE_TURN_S;
-      return { gaze: followGaze(follow), motionBlend, stateAge, moving: moving || motionBlend !== undefined || arriving };
+      return { gaze: followGaze(follow), motionBlend, stateAge: (now - shown.began) / 1000, moving: moving || motionBlend !== undefined };
     },
     reset() {
       follow = REST;

@@ -32,9 +32,6 @@ const variants: [string, RenderOptions][] = [
   ['working', { state: 'working', time: 0.8 }],
   ['waiting', { state: 'waiting', time: 0.8 }],
   ['happy', { mood: 'happy', time: 0.25 }],
-  ['sad', { mood: 'sad', reducedMotion: true }],
-  ['angry', { mood: 'angry', reducedMotion: true }],
-  ['surprised', { mood: 'surprised', reducedMotion: true }],
 ];
 
 const rows = defs.map((def, i) => {

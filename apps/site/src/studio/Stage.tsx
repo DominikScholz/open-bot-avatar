@@ -27,17 +27,14 @@ const STATES: Choice<AvatarState>[] = [
   { value: "idle", label: "Idle", hint: "Calm, looking around" },
   { value: "thinking", label: "Thinking", hint: "Three dots, taking turns" },
   { value: "working", label: "Working", hint: "Busy, with ribbons circling" },
-  { value: "waiting", label: "Waiting", hint: "Leaning, lids half down" },
+  { value: "waiting", label: "Waiting", hint: "Leaning, eyes flat" },
   { value: "blocked", label: "Blocked", hint: "An exclamation mark" },
-  { value: "done", label: "Done", hint: "One turn, then content" },
+  { value: "done", label: "Done", hint: "Spins with ribbons, then rests" },
 ];
 
 const MOODS: Choice<AvatarMood>[] = [
   { value: "neutral", label: "Neutral", hint: "Plain eyes" },
   { value: "happy", label: "Happy", hint: "Smiling arcs; hops when idle" },
-  { value: "surprised", label: "Surprised", hint: "Eyes wide open" },
-  { value: "angry", label: "Angry", hint: "Lids slanting inward" },
-  { value: "sad", label: "Sad", hint: "Lids drooping outward" },
 ];
 
 const PITCH_LIMIT = 0.9;

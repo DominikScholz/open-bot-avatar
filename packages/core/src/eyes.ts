@@ -1,9 +1,8 @@
 /**
- * The outline of one eye for any look. The plain pill and the happy arc are each walked as a
- * closed outline from the top centre, clockwise, at even steps; mixing the two point by point
- * gives every shape in between, so a change of mood morphs the eyes instead of swapping them.
- * Lids cut the pill from above. Nothing here reaches past the room validation leaves around an
- * eye: lids only remove ink, and a wide-open eye grows into the room its gaze would travel.
+ * The outline of one eye for any look. The plain pill, the happy arc and the flat slit of a
+ * waiting bot are each walked as a closed outline from the top centre, clockwise, at even steps;
+ * mixing them point by point gives every shape in between, so a change of state or mood morphs
+ * the eyes instead of swapping them. The slit lies inside the room validation keeps for the arc.
  */
 import type { EyeLook } from './motion.ts';
 import type { Point } from './path.ts';
@@ -20,17 +19,12 @@ export interface EyeSpot {
   /** Height of the pill after blink and squint, and how far that moves it down. */
   open: number;
   shift: number;
-  /** Room around the eye, per axis, that a wide-open eye grows into. */
-  roomX: number;
-  roomY: number;
-  /** Which way the outer side lies: -1 for the left eye, 1 for the right. */
-  outer: 1 | -1;
 }
 
 /** Points per outline. */
 const STEPS = 40;
-/** How much of the eye's height the lid's slope adds at one end and takes off at the other. */
-const SLANT = 0.24;
+/** The slit: as long as the happy arc is wide, this thick (both as shares of the eye's width), tipped this far. */
+const SLIT = { length: 1.9, thick: 0.5, tip: 0.2 } as const;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -108,29 +102,32 @@ function arc(e: EyeSpot): Point[] {
   return [...edge(0.5, 1, 1), ...end(1), ...edge(1, 0, -1), ...end(0), ...edge(0, 0.5, 1)];
 }
 
+/** The slit: a thin capsule lying almost flat, both eyes tipped the same way; a blink thins it. */
+function slit(e: EyeSpot): Point[] {
+  const length = e.w * SLIT.length, thick = e.w * SLIT.thick * clamp(e.open / e.h, 0.3, 1);
+  const cos = Math.cos(SLIT.tip), sin = Math.sin(SLIT.tip);
+  return pill(0, 0, length, thick).map(([x, y]) => [e.x + x * cos - y * sin, e.y + x * sin + y * cos]);
+}
+
 /** Whether a look is exactly the plain pill or exactly the happy arc: those are drawn as before. */
 export function plainLook(look: EyeLook): 'pill' | 'arc' | null {
   if (look.arc >= 1) return 'arc';
-  return look.arc <= 0 && look.lid <= 0 && look.slant === 0 && look.wide <= 0 ? 'pill' : null;
+  return look.arc <= 0 && look.slit <= 0 ? 'pill' : null;
 }
 
-/** The outline of one eye, closed, clockwise from the top. */
+/** The outline of one eye, closed, clockwise from the top: the pill, the arc and the slit mixed by the look. */
 export function eyeOutline(look: EyeLook, e: EyeSpot): Point[] {
-  const wide = clamp(look.wide, 0, 1), k = clamp(look.arc, 0, 1);
-  const w = e.w + 2 * e.roomX * wide, h = e.open + 2 * e.roomY * wide;
-  const cy = e.y + e.shift;
-  const top = cy - h / 2;
-  // The lid never closes the eye past a slit as tall as the eye is wide.
-  const floor = cy + h / 2 - Math.min(h, w);
-  const lid = clamp(look.lid, 0, 1), slant = clamp(look.slant, -1, 1) * SLANT;
-  const pts = resample(pill(e.x, cy, w, h), STEPS).map(([x, y]): Point => {
-    const across = clamp((x - e.x) / (w / 2), -1, 1) * e.outer;
-    const cut = top + h * Math.max(0, lid + slant * across);
-    return [x, Math.max(y, Math.min(cut, floor))];
-  });
-  if (k <= 0) return pts;
-  const happy = resample(arc(e), STEPS);
-  return pts.map(([x, y], i) => [x + (happy[i][0] - x) * k, y + (happy[i][1] - y) * k]);
+  const a = clamp(look.arc, 0, 1), s = clamp(look.slit, 0, 1 - a);
+  const shapes: [number, Point[]][] = [[1 - a - s, pill(e.x, e.y + e.shift, e.w, e.open)], [a, arc(e)], [s, slit(e)]];
+  const out: Point[] = Array.from({ length: STEPS }, () => [0, 0]);
+  for (const [weight, shape] of shapes) {
+    if (weight <= 0) continue;
+    resample(shape, STEPS).forEach(([x, y], i) => {
+      out[i][0] += x * weight;
+      out[i][1] += y * weight;
+    });
+  }
+  return out;
 }
 
 const f = (n: number) => {
