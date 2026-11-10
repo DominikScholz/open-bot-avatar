@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Stage packages/core on npm when a push changes its version (the merged "Version packages" pull
+ * Publish packages/core to npm when a push changes its version (the merged "Version packages" pull
  * request); otherwise do nothing. CI runs this (via `pnpm release`) on every push to main. In CI npm
- * authenticates with trusted publishing (OIDC), so no token is stored anywhere, and the trusted
- * publisher may only stage: a staged version goes live once the owner approves it with 2FA, on
- * npmjs.com or with `npm stage approve <id>` (`npm stage list open-bot-avatar` shows the id).
+ * authenticates with trusted publishing (OIDC), so no token is stored anywhere and the package gets
+ * provenance. The trusted publisher for release.yml may publish, so merging that pull request is the
+ * release: nothing is left to approve on npm.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -31,9 +31,9 @@ try {
 if (live === version) {
   console.log(`${name}@${version} is already on npm.`);
 } else if (versionAt('HEAD~1') === version) {
-  // Staged versions aren't visible until approved: don't stage the same version on every push.
-  console.log(`${name}@${version} didn't change in this push; if it's staged, approve it on npm.`);
+  // Only the push that changes the version publishes it; re-run that push's Release job to retry.
+  console.log(`${name}@${version} didn't change in this push, so it isn't published from here.`);
 } else {
-  execFileSync('npm', ['stage', 'publish', '.', '--access', 'public'], { cwd: dir, stdio: 'inherit' });
-  console.log(`Staged ${name}@${version}: approve it on npm with 2FA to publish it.`);
+  execFileSync('npm', ['publish', '.', '--access', 'public'], { cwd: dir, stdio: 'inherit' });
+  console.log(`Published ${name}@${version}.`);
 }
