@@ -1,4 +1,4 @@
-import type { AvatarMotion } from "open-bot-avatar";
+import { resolveLook, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
@@ -6,7 +6,9 @@ export type MotionPreference = "system" | "reduced" | "full";
 export interface LookState {
   /** Colors picked for avatars, by library key; an avatar not in here shows its default color. */
   colors: Record<string, string>;
-  motion: AvatarMotion;
+  /** What the bot is doing, and how it feels. */
+  state: AvatarState;
+  mood: AvatarMood;
   followCursor: boolean;
   motionPreference: MotionPreference;
 }
@@ -30,7 +32,8 @@ export const PALETTE = [
 
 export const DEFAULT_LOOK: LookState = {
   colors: {},
-  motion: "idle",
+  state: "idle",
+  mood: "neutral",
   followCursor: true,
   motionPreference: "system",
 };
@@ -66,13 +69,14 @@ export function withColor(look: LookState, key: string, id: string, color: strin
 /** Revive a stored look; anything missing or invalid falls back to the default. */
 export function reviveLook(raw: unknown): LookState | undefined {
   if (!raw || typeof raw !== "object") return undefined;
-  const r = raw as Partial<Record<keyof LookState, unknown>>;
+  // `motion` is what a look saved before state and mood existed: idle, thinking or happy.
+  const r = raw as Partial<Record<keyof LookState | "motion", unknown>>;
   return {
     colors:
       r.colors && typeof r.colors === "object"
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
-    motion: r.motion === "thinking" || r.motion === "happy" ? r.motion : "idle",
+    ...resolveLook({ state: r.state, mood: r.mood, motion: r.motion }),
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",
   };

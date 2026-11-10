@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMotion } from "open-bot-avatar";
+import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
-import { Icon } from "./ui";
+import { ChoiceMenu, Icon, type Choice } from "./ui";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
 interface StageProps {
   definition: AvatarDefinition;
   color: string;
-  mood: AvatarMotion;
+  state: AvatarState;
+  mood: AvatarMood;
   followCursor: boolean;
   /** Forced on or off, or "system" to follow prefers-reduced-motion. */
   reducedMotion: boolean | "system";
@@ -16,15 +17,27 @@ interface StageProps {
   reduced: boolean;
   view: ViewAngle;
   onView: (view: ViewAngle) => void;
-  onMotion: (motion: AvatarMotion) => void;
-  /** Shown under the moods (the avatar's actions). */
+  onState: (state: AvatarState) => void;
+  onMood: (mood: AvatarMood) => void;
+  /** Shown under the state and mood (the avatar's actions). */
   children?: ReactNode;
 }
 
-const MOODS: { value: AvatarMotion; label: string }[] = [
-  { value: "idle", label: "Idle" },
-  { value: "thinking", label: "Thinking" },
-  { value: "happy", label: "Happy" },
+const STATES: Choice<AvatarState>[] = [
+  { value: "idle", label: "Idle", hint: "Calm, looking around" },
+  { value: "thinking", label: "Thinking", hint: "Three dots, taking turns" },
+  { value: "working", label: "Working", hint: "Busy, with ribbons circling" },
+  { value: "waiting", label: "Waiting", hint: "Leaning, lids half down" },
+  { value: "blocked", label: "Blocked", hint: "An exclamation mark" },
+  { value: "done", label: "Done", hint: "One turn, then content" },
+];
+
+const MOODS: Choice<AvatarMood>[] = [
+  { value: "neutral", label: "Neutral", hint: "Plain eyes" },
+  { value: "happy", label: "Happy", hint: "Smiling arcs; hops when idle" },
+  { value: "surprised", label: "Surprised", hint: "Eyes wide open" },
+  { value: "angry", label: "Angry", hint: "Lids slanting inward" },
+  { value: "sad", label: "Sad", hint: "Lids drooping outward" },
 ];
 
 const PITCH_LIMIT = 0.9;
@@ -32,7 +45,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, mood, followCursor, reducedMotion, reduced, view, onView, onMotion, children }: StageProps) {
+export function Stage({ definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -118,6 +131,7 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
           className="avatar-view stage-avatar"
           definition={definition}
           color={color}
+          state={state}
           mood={mood}
           view={view}
           followPointer={followCursor}
@@ -138,19 +152,22 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
           <Icon name="rotate" />
         </button>
       </div>
-      <div className="moods" role="radiogroup" aria-label="Mood">
-        {MOODS.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            role="radio"
-            aria-checked={mood === m.value}
-            className={mood === m.value ? "mood is-on" : "mood"}
-            onClick={() => onMotion(m.value)}
-          >
-            {m.label}
-          </button>
-        ))}
+      <div className="stage-picks">
+        {/* Each choice is shown on this avatar, live: a state in the mood picked, a mood on the idle state. */}
+        <ChoiceMenu
+          label="State"
+          value={state}
+          options={STATES}
+          onChange={onState}
+          preview={(value) => <BotAvatar definition={definition} color={color} state={value} mood={mood} reducedMotion={reducedMotion} label="" />}
+        />
+        <ChoiceMenu
+          label="Mood"
+          value={mood}
+          options={MOODS}
+          onChange={onMood}
+          preview={(value) => <BotAvatar definition={definition} color={color} state="idle" mood={value} reducedMotion={reducedMotion} label="" />}
+        />
       </div>
       {children}
     </section>

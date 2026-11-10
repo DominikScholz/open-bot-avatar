@@ -190,3 +190,89 @@ export function MenuButton({ icon, label, items, done, placement = "top" }: { ic
     </div>
   );
 }
+
+export interface Choice<T extends string> {
+  value: T;
+  label: string;
+  /** One line on what it shows. */
+  hint: string;
+}
+
+/**
+ * A button naming one choice (e.g. "State: Working") that opens a menu of all of them, each with
+ * a picture from `preview` beside its name. Arrow keys move between them; choosing one closes it.
+ */
+export function ChoiceMenu<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  preview,
+  placement = "top",
+}: {
+  label: string;
+  value: T;
+  options: readonly Choice<T>[];
+  onChange: (value: T) => void;
+  preview: (value: T) => ReactNode;
+  placement?: "top" | "bottom";
+}) {
+  const { open, setOpen, root, trigger } = usePopover();
+  const list = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (open) (list.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? list.current?.querySelector<HTMLButtonElement>("button"))?.focus();
+  }, [open]);
+  const onKey = (event: KeyboardEvent) => {
+    const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    buttons[(at + step + buttons.length) % buttons.length]?.focus();
+  };
+  const current = options.find((o) => o.value === value) ?? options[0];
+  return (
+    <div className="menu" ref={root}>
+      <button
+        ref={trigger}
+        type="button"
+        className="btn btn-sm choice"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="choice-kind">{label}</span>
+        {current.label}
+        <Icon name="chevron" />
+      </button>
+      {open ? (
+        <div ref={list} id={id} className={`popover popover-${placement} choice-list`} role="menu" aria-label={label} onKeyDown={onKey}>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option.value === value}
+              className="menu-item choice-item"
+              onClick={() => {
+                setOpen(false);
+                trigger.current?.focus();
+                onChange(option.value);
+              }}
+            >
+              <span className="choice-preview" aria-hidden="true">
+                {preview(option.value)}
+              </span>
+              <span className="choice-text">
+                <span>{option.label}</span>
+                <small>{option.hint}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -33,6 +33,31 @@ describe('mountAvatar', () => {
     expect(el.innerHTML).toBe('');
   });
 
+  it('shows ribbons, marks and morphing eyes in the scene, and still takes the old mood values', async () => {
+    const el = document.createElement('div');
+    document.body.append(el);
+    const avatar = mountAvatar(el, { definition: examples[0], state: 'working', reducedMotion: false });
+    await frame();
+    const fx = (side: string) => el.querySelector(`[data-fx="${side}"]`) as Element;
+    expect(fx('back').children.length + fx('front').children.length).toBeGreaterThan(0);
+
+    avatar.update({ state: 'idle', mood: 'happy' });
+    await frame();
+    await frame();
+    await frame();
+    // Part way from the pill to the arc, an eye is its morphing outline.
+    const morph = el.querySelector('[data-morph]') as HTMLElement;
+    expect(morph.style.display).toBe('block');
+    expect(morph.querySelector('path')?.getAttribute('d')).toMatch(/^M/);
+
+    // `mood: 'thinking'` meant the thinking state before `state` existed. Reduced motion switches at once.
+    avatar.update({ state: undefined, mood: 'thinking', reducedMotion: true });
+    await frame();
+    expect(fx('front').querySelectorAll('path').length).toBe(3);
+    expect((el.querySelector('[data-view]') as HTMLElement).style.display).toBe('none');
+    avatar.destroy();
+  });
+
   it('renders a still as one SVG and can be decorative', async () => {
     const el = document.createElement('div');
     document.body.append(el);

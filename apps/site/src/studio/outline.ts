@@ -36,7 +36,7 @@ function build(definition: AvatarDefinition): string {
   let svg: string;
   try {
     // The options an AvatarView still uses, minus color.
-    svg = renderAvatarSvg(definition, { motion: "idle", time: 0, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK });
+    svg = renderAvatarSvg(definition, { time: 0, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK });
   } catch {
     return "";
   }

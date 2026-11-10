@@ -29,8 +29,12 @@ const variants: [string, RenderOptions][] = [
   ['turned 60°', { reducedMotion: true, view: { yaw: 1.35, pitch: -0.1 } }],
   ['side', { reducedMotion: true, view: { yaw: 1.87, pitch: -0.2 } }],
   ['back', { reducedMotion: true, view: { yaw: 3.4, pitch: -0.1 } }],
-  ['thinking', { motion: 'thinking', time: 0.8 }],
-  ['happy', { motion: 'happy', time: 0.25 }],
+  ['working', { state: 'working', time: 0.8 }],
+  ['waiting', { state: 'waiting', time: 0.8 }],
+  ['happy', { mood: 'happy', time: 0.25 }],
+  ['sad', { mood: 'sad', reducedMotion: true }],
+  ['angry', { mood: 'angry', reducedMotion: true }],
+  ['surprised', { mood: 'surprised', reducedMotion: true }],
 ];
 
 const rows = defs.map((def, i) => {

@@ -92,20 +92,27 @@ describe("briefs", () => {
 describe("share links", () => {
   const mug = examples.find((e) => e.id === "mug")!;
 
-  it("round-trip a starter, color and mood", () => {
-    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: "#ec4899", motion: "happy" });
-    expect(link).toBe("https://example.test/?avatar=mug&color=pink&mood=happy");
-    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", mood: "happy" });
+  it("round-trip a starter, color, state and mood", () => {
+    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: "#ec4899", state: "working", mood: "happy" });
+    expect(link).toBe("https://example.test/?avatar=mug&color=pink&state=working&mood=happy");
+    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", state: "working", mood: "happy" });
+  });
+
+  it("still open links from before state and mood were separate", () => {
+    expect(readShare("?avatar=mug&mood=happy")).toEqual({ avatar: "mug", mood: "happy" });
+    expect(readShare("?avatar=mug&mood=thinking")).toEqual({ avatar: "mug", state: "thinking" });
+    expect(readShare("?avatar=mug&mood=idle")).toEqual({ avatar: "mug" });
+    expect(readShare("?state=nope&mood=cheerful")).toEqual({});
   });
 
   it("leave out an avatar's own color", () => {
-    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), motion: "idle" });
+    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), state: "idle", mood: "neutral" });
     expect(link).toBe("https://example.test/?avatar=mug");
   });
 
   it("carry a definition of yours whole, and validate it on the way in", () => {
     const own = { ...mug, id: "my-mug", name: "My Mug" };
-    const link = shareLink("https://example.test/", { source: "yours", definition: own }, { color: "#ff6a1a", motion: "idle" });
+    const link = shareLink("https://example.test/", { source: "yours", definition: own }, { color: "#ff6a1a", state: "idle", mood: "neutral" });
     const valid = validateAvatar(own);
     expect(valid.ok && readShare(new URL(link).search).definition).toEqual(valid.ok && valid.value);
     expect(readShare("?def=bm90LWpzb24").problem).toMatch(/JSON/);
@@ -133,6 +140,14 @@ describe("avatar colors", () => {
     const blue = withColor(DEFAULT_LOOK, "starter:barbell", "barbell", "#1F7CF2");
     expect(blue.colors).toEqual({ "starter:barbell": "#1f7cf2" });
     expect(withColor(blue, "starter:barbell", "barbell", defaultColor("barbell")).colors).toEqual({});
+  });
+
+  it("revives a look saved before state and mood were separate", () => {
+    expect(reviveLook({ motion: "thinking" })).toMatchObject({ state: "thinking", mood: "neutral" });
+    expect(reviveLook({ motion: "happy" })).toMatchObject({ state: "idle", mood: "happy" });
+    expect(reviveLook({ state: "blocked", mood: "sad", motion: "happy" })).toMatchObject({ state: "blocked", mood: "sad" });
+    expect(reviveLook({})).toMatchObject({ state: "idle", mood: "neutral" });
+    expect(reviveLook({ motion: "happy" })).not.toHaveProperty("motion");
   });
 
   it("drops invalid stored colors", () => {

@@ -194,7 +194,7 @@ describe('motion', () => {
     for (const motion of ['idle', 'thinking', 'happy'] as const) {
       for (let t = 0; t < 6; t += 0.37) {
         const q = computePose({ seed: 9, time: t, motion, reducedMotion: false });
-        expect(Object.values(q).every((v) => typeof v === 'string' || Number.isFinite(v))).toBe(true);
+        expect([...Object.values(q), ...Object.values(q.eyes)].every((v) => typeof v === 'object' || Number.isFinite(v))).toBe(true);
         expect(Math.abs(q.roll)).toBeLessThan(10);
         expect(q.lift).toBeLessThanOrEqual(0);
       }

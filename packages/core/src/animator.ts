@@ -1,18 +1,22 @@
 /**
  * The per-avatar state a live renderer keeps between frames, independent of
  * any platform: the eased look toward a target (follow.ts) and the eased
- * change between moods (mood.ts). Feed it once per frame; it returns the
- * `gaze` and `motionBlend` render options for that frame and whether it is
- * still easing.
+ * change between states and moods (mood.ts). Feed it once per frame; it
+ * returns the `gaze`, `motionBlend` and `stateAge` render options for that
+ * frame and whether it is still easing.
  */
 import { REST, followGaze, followStep, type FollowState } from './follow.ts';
+import { DONE_TURN_S, resolveLook } from './motion.ts';
 import { moodProgress, settleMood, type MoodState } from './mood.ts';
-import type { AvatarMotion, AvatarMotionBlend } from './types.ts';
+import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 export interface AnimatorInput {
   /** Wall clock, ms (e.g. performance.now()). Easing runs on it even when the animation clock stops. */
   now: number;
-  motion: AvatarMotion;
+  state?: AvatarState;
+  mood?: AvatarMood;
+  /** @deprecated Use `state` and `mood`; they win when given. */
+  motion?: AvatarMotion;
   /** Look target, -1..1 per axis (x right, y down), e.g. from pointerGaze; null eases back to rest. */
   target: { x: number; y: number } | null;
   /** Keep the current look as it is (e.g. while the user drags the view). */
@@ -24,46 +28,63 @@ export interface AnimatorInput {
 export interface AnimatorStep {
   gaze?: { x: number; y: number; weight: number };
   motionBlend?: AvatarMotionBlend;
-  /** True while the look or a mood change is still easing. */
+  /** Seconds since the state began (a change of mood alone does not restart it). */
+  stateAge: number;
+  /** True while the look or a change of state or mood is still easing, or the state is still arriving. */
   moving: boolean;
 }
 
 export interface Animator {
   step(input: AnimatorInput): AnimatorStep;
-  /** Back to rest with no mood history, e.g. when the avatar is remounted. */
+  /** Back to rest with no history, e.g. when the avatar is remounted. */
   reset(): void;
 }
 
 export function createAnimator(): Animator {
   let follow: FollowState = REST;
   let last: number | null = null;
-  // The mood on screen and when its change began.
-  let mood: (MoodState & { since: number }) | null = null;
+  // What is on screen, when its change began and when its state began.
+  let shown: { state: AvatarState; mood: AvatarMood; blend?: AvatarMotionBlend; since: number; began: number } | null = null;
 
   return {
-    step({ now, motion, target, hold = false, reducedMotion }) {
+    step({ now, target, hold = false, reducedMotion, ...given }) {
       const dt = last === null ? 0 : (now - last) / 1000;
       last = now;
       let moving = false;
       if (!hold) ({ state: follow, moving } = followStep(follow, target, dt, reducedMotion));
 
-      // A new mood eases in from the pose on screen (a change under way included); reduced motion switches at once.
-      if (mood && motion !== mood.motion) {
-        const shown: MoodState = { motion: mood.motion, blend: mood.blend && { from: mood.blend.from, t: moodProgress(now - mood.since) } };
-        mood = { motion, blend: reducedMotion ? undefined : { from: settleMood(shown), t: 0 }, since: now };
+      // A new state or mood eases in from the pose on screen (a change under way included); reduced motion switches at once.
+      const { state, mood } = resolveLook(given);
+      if (shown && (state !== shown.state || mood !== shown.mood)) {
+        const before: MoodState = {
+          state: shown.state,
+          mood: shown.mood,
+          age: (now - shown.began) / 1000,
+          blend: shown.blend && { from: shown.blend.from, t: moodProgress(now - shown.since) },
+        };
+        shown = {
+          state,
+          mood,
+          blend: reducedMotion ? undefined : { from: settleMood(before), t: 0 },
+          since: now,
+          began: state === shown.state ? shown.began : now,
+        };
       }
-      mood ??= { motion, since: now };
-      const t = reducedMotion ? 1 : moodProgress(now - mood.since);
+      // An avatar that mounts in a state has been in it all along: nothing arrives.
+      shown ??= { state, mood, since: now, began: -Infinity };
+      const t = reducedMotion ? 1 : moodProgress(now - shown.since);
       let motionBlend: AvatarMotionBlend | undefined;
-      if (mood.blend && t < 1) motionBlend = { from: mood.blend.from, t };
-      else mood.blend = undefined;
+      if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };
+      else shown.blend = undefined;
 
-      return { gaze: followGaze(follow), motionBlend, moving: moving || motionBlend !== undefined };
+      const stateAge = (now - shown.began) / 1000;
+      const arriving = !reducedMotion && state === 'done' && stateAge < DONE_TURN_S;
+      return { gaze: followGaze(follow), motionBlend, stateAge, moving: moving || motionBlend !== undefined || arriving };
     },
     reset() {
       follow = REST;
       last = null;
-      mood = null;
+      shown = null;
     },
   };
 }

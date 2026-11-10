@@ -41,6 +41,7 @@ function painted(o: RenderOptions, d = examples[0]) {
   frame.shapes.forEach((s, i) => {
     const m = matrices[i];
     const local: number[] = s.kind === 'slice' ? flat(paths.get(s.path) ?? '')
+      : s.kind === 'ribbon' ? [s.box.x, s.box.y, s.box.x + s.box.w, s.box.y + s.box.h]
       : s.mark.shape === 'pill' ? [s.mark.x, s.mark.y, s.mark.x + s.mark.width, s.mark.y + s.mark.height] : [];
     for (let k = 0; k < local.length; k += 2) points.push([m[0] * local[k] + m[2] * local[k + 1] + m[4], m[1] * local[k] + m[3] * local[k + 1] + m[5]]);
   });
@@ -52,6 +53,13 @@ for (const motion of ['idle', 'happy', 'thinking'] as const) {
   for (let t = 0; t < 12; t++) {
     poses.push({ motion, time: t * 0.61, gaze: t % 3 ? { x: Math.sin(t), y: Math.cos(t * 1.3) } : undefined });
     poses.push({ motion, time: t * 0.37, view: { yaw: t * 0.9 - 5, pitch: Math.sin(t) * 1.4 } });
+  }
+}
+
+for (const state of ['working', 'waiting', 'blocked', 'thinking', 'done'] as const) {
+  for (let t = 0; t < 8; t++) {
+    poses.push({ state, mood: t % 2 ? 'surprised' : 'sad', time: t * 0.43, stateAge: t * 0.2, gaze: t % 3 ? { x: Math.cos(t), y: Math.sin(t) } : undefined });
+    poses.push({ state, time: t * 0.29, stateAge: t * 0.17, motionBlend: { from: { state: 'working', mood: 'happy' }, t: t / 8 }, view: { yaw: t - 4, pitch: Math.cos(t) } });
   }
 }
 

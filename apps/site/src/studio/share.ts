@@ -1,4 +1,4 @@
-import { validateAvatar, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
+import { isMood, isState, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
 
 /**
@@ -6,7 +6,9 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *
  *   ?avatar=barbell          a starter, a gallery avatar or one of yours, by id
  *   &color=1f7cf2            a color: hex, with or without #, or a swatch name (blue)
- *   &mood=happy              idle, thinking or happy
+ *   &state=working           idle, thinking, working, waiting, blocked or done
+ *   &mood=happy              neutral, happy, surprised, angry or sad; an older link's mood=thinking
+ *                            still opens the thinking state
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
@@ -14,13 +16,13 @@ export interface SharedLook {
   avatar?: string;
   definition?: AvatarDefinition;
   color?: string;
-  mood?: AvatarMotion;
+  state?: AvatarState;
+  mood?: AvatarMood;
   /** Why `def` was left out, if it didn't decode or validate. */
   problem?: string;
 }
 
 const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
-const MOODS: AvatarMotion[] = ["idle", "thinking", "happy"];
 
 /** A definition as compact JSON in base64url (UTF-8 safe, no padding). */
 export function encodeDefinition(definition: AvatarDefinition): string {
@@ -71,19 +73,23 @@ export function readShare(search: string): SharedLook {
   if (avatar) shared.avatar = avatar;
   const color = readColor(params.get("color"));
   if (color) shared.color = color;
-  const mood = params.get("mood")?.trim().toLowerCase() as AvatarMotion | undefined;
-  if (mood && MOODS.includes(mood)) shared.mood = mood;
+  const state = params.get("state")?.trim().toLowerCase();
+  const mood = params.get("mood")?.trim().toLowerCase();
+  if (isState(state)) shared.state = state;
+  else if (mood === "thinking") shared.state = "thinking";
+  if (isMood(mood)) shared.mood = mood;
   return shared;
 }
 
 /**
  * A link to this avatar in this look: a starter or gallery avatar by id, one of yours with its
- * definition. The color and mood are left out at their defaults (the avatar's own color, idle).
+ * definition. The color, state and mood are left out at their defaults (the avatar's own color,
+ * idle, neutral).
  */
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { color: string; motion: LookState["motion"] },
+  look: { color: string; state: LookState["state"]; mood: LookState["mood"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);
@@ -93,6 +99,7 @@ export function shareLink(
     const swatch = PALETTE.find((c) => c.value === color);
     params.set("color", swatch ? swatch.name.toLowerCase() : color.replace(/^#/, ""));
   }
-  if (look.motion !== DEFAULT_LOOK.motion) params.set("mood", look.motion);
+  if (look.state !== DEFAULT_LOOK.state) params.set("state", look.state);
+  if (look.mood !== DEFAULT_LOOK.mood) params.set("mood", look.mood);
   return `${base}?${params}`;
 }
