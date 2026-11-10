@@ -194,13 +194,22 @@ function sampleArc(x0: number, y0: number, s: Extract<Segment, { c: 'A' }>, out:
   let dt = ang((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
   if (!s.sweep && dt > 0) dt -= 2 * Math.PI;
   if (s.sweep && dt < 0) dt += 2 * Math.PI;
-  const steps = Math.max(4, Math.ceil((Math.abs(dt) / (Math.PI / 2)) * 6));
+  // Chords within FLATNESS of the arc: a chord over angle θ sags r(1 - cos(θ/2)).
+  const step = 2 * Math.acos(Math.max(-1, 1 - FLATNESS / Math.max(rx, ry)));
+  const steps = Math.min(256, Math.max(4, Math.ceil(Math.abs(dt) / step)));
   for (let k = 1; k <= steps; k++) {
     const t = t1 + (dt * k) / steps;
     const ex = rx * Math.cos(t), ey = ry * Math.sin(t);
     out.push([cos * ex - sin * ey + cx, sin * ex + cos * ey + cy]);
   }
 }
+
+/**
+ * Largest gap, viewBox units, between a curve and the polygon that stands for it. Volume slices
+ * follow that polygon while the flat core draws the real curve, so coarser chords show as facets
+ * and teeth along the rim of large avatars.
+ */
+export const FLATNESS = 0.02;
 
 /** Flatten into closed polygons, one per subpath. */
 export function flattenPath(segs: Segment[]): Point[][] {
@@ -214,7 +223,9 @@ export function flattenPath(segs: Segment[]): Point[][] {
         cur = [[s.x, s.y]]; px = s.x; py = s.y; break;
       case 'L': cur.push([s.x, s.y]); px = s.x; py = s.y; break;
       case 'C': {
-        const n = 12;
+        // Wang's bound: this many chords keep within FLATNESS of the curve.
+        const m = Math.max(Math.hypot(px - 2 * s.x1 + s.x2, py - 2 * s.y1 + s.y2), Math.hypot(s.x1 - 2 * s.x2 + s.x, s.y1 - 2 * s.y2 + s.y));
+        const n = Math.min(128, Math.max(2, Math.ceil(Math.sqrt((0.75 * m) / FLATNESS))));
         for (let k = 1; k <= n; k++) {
           const t = k / n, u = 1 - t;
           cur.push([
@@ -225,7 +236,7 @@ export function flattenPath(segs: Segment[]): Point[][] {
         px = s.x; py = s.y; break;
       }
       case 'Q': {
-        const n = 8;
+        const n = Math.min(128, Math.max(2, Math.ceil(Math.sqrt((0.25 * Math.hypot(px - 2 * s.x1 + s.x, py - 2 * s.y1 + s.y)) / FLATNESS))));
         for (let k = 1; k <= n; k++) {
           const t = k / n, u = 1 - t;
           cur.push([u * u * px + 2 * u * t * s.x1 + t * t * s.x, u * u * py + 2 * u * t * s.y1 + t * t * s.y]);
