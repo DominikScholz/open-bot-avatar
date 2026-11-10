@@ -24,7 +24,7 @@ const avatar = mountAvatar(document.querySelector("#bot")!, {
   followPointer: true,
 });
 
-avatar.update({ mood: "happy" });
+avatar.update({ state: "working", mood: "happy" });
 // When the avatar is no longer needed:
 avatar.destroy();
 ```
@@ -35,7 +35,8 @@ avatar.destroy();
 | --- | --- |
 | `definition` | Required avatar definition. Validate imported data first. |
 | `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. Changes ease from the current pose. |
+| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`. Changes ease from the current pose. |
+| `mood` | How the bot feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on top of any state, and the eyes morph from one shape to the next. `"idle"` and `"thinking"` are still accepted here and mean those states. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
 | `holdGaze` | Keep the current look direction. Default: `false`. |
@@ -45,6 +46,21 @@ avatar.destroy();
 | `still` | Render a static SVG without animation. Default: `false`. |
 | `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
 | `label` | Accessible name. Defaults to the definition's name; `""` marks it decorative. |
+
+### States and moods
+
+The six states are the ones an agent moves through. Each is motion on the same avatar, not a separate asset:
+
+| State | What it shows |
+| --- | --- |
+| `idle` | Calm: breathes, sways, blinks and looks around. A happy bot hops. |
+| `thinking` | The body gives way to three dots that hop in turn. |
+| `working` | Bent over the work with a quick bob and darting eyes, while ribbons circle the body, behind it and in front. |
+| `waiting` | Leans to one side with its eyes flattened to slits, glancing off, and sighs now and then. |
+| `blocked` | The body gives way to an exclamation mark that jumps and shakes every few seconds. |
+| `done` | Celebrates: a few turns with ribbons flying round it, then a rest, and after a while again. |
+
+A mood combines with any state: a bot can be working and happy. A happy bot keeps its arcs while it waits. The marks of `thinking` and `blocked` have no eyes, so a mood shows again when the body returns. Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.
 
 ## React
 
@@ -79,7 +95,7 @@ import { avatarFrame, renderAvatarSvg, validateAvatar } from "open-bot-avatar";
 const result = validateAvatar(JSON.parse(text));
 if (!result.ok) throw new Error(result.errors.join("\n"));
 
-const options = { color: "#1fbf68", time: 1.2, motion: "happy" as const };
+const options = { color: "#1fbf68", time: 1.2, state: "working" as const, mood: "happy" as const };
 const svg = renderAvatarSvg(result.value, { ...options, size: 256 });
 const frame = avatarFrame(result.value, options);
 ```
@@ -87,11 +103,14 @@ const frame = avatarFrame(result.value, options);
 Both functions accept `RenderOptions`:
 
 - `color`, `eyeColor`, `depth` and `view` work as in the mount API.
-- `motion` selects the mood (default: `"idle"`); `time` sets the animation clock in seconds (default: 0).
+- `state` and `mood` select what is shown (defaults: `"idle"`, `"neutral"`); `time` sets the animation clock in seconds (default: 0). `motion` (`"idle"`, `"thinking"` or `"happy"`) is the single option that came before them and still works.
+- `stateAge` is the time in seconds since `state` began. `done` celebrates from the moment it begins, so a host that animates passes it (`createAnimator` returns it); without it the state is drawn at rest.
 - `gaze` sets a fixed direction: `{ x, y, weight? }`. Each axis ranges from -1 to 1; `weight` ranges from 0 to 1 and defaults to 1.
 - `size` sets the SVG width and height in pixels. Omit it for a fluid SVG.
-- `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion and blinking; gaze still applies. It does not read system preferences.
-- `motionBlend` lets a custom animation host blend from another mood: `{ from, t }`, with `t` from 0 to 1. `from` can be a mood or `{ motion, blend? }` for an interrupted transition.
+- `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion, blinking and marks and leaves out ribbons; gaze still applies. It does not read system preferences.
+- `motionBlend` lets a custom animation host blend from what was shown before: `{ from, t }`, with `t` from 0 to 1. `from` is `{ state, mood, age?, blend? }`, where `age` is that state's `stateAge` when the change began and `blend` an interrupted transition.
+
+A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the marks of `thinking` and `blocked` are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled in the body color, then covered in white at `tint` opacity (black at `-tint` when it is negative).
 
 ## Definitions and validation
 

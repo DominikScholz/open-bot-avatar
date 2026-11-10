@@ -2,7 +2,7 @@
 /**
  * Validate an avatar definition and optionally render a preview SVG.
  *
- *   node scripts/avatar-validate.ts <file.json|->  [--strict] [--svg out.svg] [--color #hex] [--motion idle|thinking|happy] [--time s]
+ *   node scripts/avatar-validate.ts <file.json|->  [--strict] [--svg out.svg] [--color #hex] [--state s] [--mood m] [--time s]
  *
  * Prints the normalized compact JSON on success (exit 0) or one error per line (exit 1).
  * Also reports the face room as drawn (enlarged eyes, happy arcs, gaze); with
@@ -15,7 +15,7 @@ import { analyzeBody, validateAvatar } from '../src/validate.ts';
 import { EYE_BOOST, FACE_ROOM_TARGET, faceRoom } from '../src/volume.ts';
 import { renderAvatarSvg } from '../src/render.ts';
 import { silhouetteSeams } from '../src/seams.ts';
-import type { AvatarMotion } from '../src/types.ts';
+import { resolveLook } from '../src/motion.ts';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {
@@ -27,11 +27,12 @@ const strict = strictAt >= 0;
 if (strict) args.splice(strictAt, 1);
 const svgOut = flag('--svg');
 const color = flag('--color');
-const motion = flag('--motion') as AvatarMotion | undefined;
+// --motion (idle, thinking or happy) is the flag that came before --state and --mood.
+const look = resolveLook({ state: flag('--state'), mood: flag('--mood'), motion: flag('--motion') });
 const time = flag('--time');
 const src = args[0];
 if (!src) {
-  console.error('usage: node scripts/avatar-validate.ts <file.json|-> [--strict] [--svg out.svg] [--color #hex] [--motion m] [--time s]');
+  console.error('usage: node scripts/avatar-validate.ts <file.json|-> [--strict] [--svg out.svg] [--color #hex] [--state s] [--mood m] [--time s]');
   process.exit(2);
 }
 
@@ -79,6 +80,6 @@ if (seams.length) {
 console.log(JSON.stringify(res.value));
 
 if (svgOut) {
-  writeFileSync(svgOut, renderAvatarSvg(res.value, { color, motion, time: time ? Number(time) : 0, size: 256 }));
+  writeFileSync(svgOut, renderAvatarSvg(res.value, { color, ...look, time: time ? Number(time) : 0, size: 256 }));
   console.error(`wrote ${svgOut}`);
 }

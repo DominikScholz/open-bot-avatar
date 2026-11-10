@@ -1,9 +1,9 @@
 /**
- * Mood changes (idle, thinking, happy) as pure functions a frame loop steps:
- * the pose eases from the mood on screen into the new one (see blendPoses in
+ * Changes of state and mood as pure functions a frame loop steps: the pose
+ * eases from what is on screen into the new state and mood (see blendPoses in
  * motion.ts), and a change during a change continues from where it is.
  */
-import type { AvatarMotion, AvatarMotionBlend } from './types.ts';
+import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 /** Length of a mood change, ms. */
 export const MOOD_MS = 420;
@@ -18,9 +18,14 @@ export function moodProgress(elapsedMs: number): number {
   return smooth(elapsedMs / MOOD_MS);
 }
 
-/** A mood on screen, possibly still easing in over what came before. */
+/** A state and mood on screen, possibly still easing in over what came before. */
 export interface MoodState {
-  motion: AvatarMotion;
+  state?: AvatarState;
+  mood?: AvatarMood;
+  /** @deprecated Use `state` and `mood`. */
+  motion?: AvatarMotion;
+  /** Seconds the state had been showing when the next change began. */
+  age?: number;
   blend?: AvatarMotionBlend;
 }
 
@@ -33,7 +38,8 @@ export interface MoodState {
 export function settleMood(state: MoodState, share = 1, depth = 0): MoodState {
   const b = state.blend;
   if (!b) return state;
+  const { blend: _, ...settled } = state;
   const rest = share * (1 - b.t);
-  if (rest < 0.02 || depth >= 3) return { motion: state.motion };
-  return { motion: state.motion, blend: { from: typeof b.from === 'string' ? b.from : settleMood(b.from, rest, depth + 1), t: b.t } };
+  if (rest < 0.02 || depth >= 3) return settled;
+  return { ...settled, blend: { from: typeof b.from === 'string' ? b.from : settleMood(b.from, rest, depth + 1), t: b.t } };
 }

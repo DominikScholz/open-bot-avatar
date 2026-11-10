@@ -15,12 +15,13 @@ describe('mood changes', () => {
     expect(mid.roll).toBeCloseTo((a.roll + b.roll) / 2, 9);
   });
 
-  it('swap eye shape inside a blink', () => {
+  it('morph the eyes from one shape to the other, with no blink to hide a swap', () => {
     const a = computePose({ ...base, motion: 'idle' });
     const b = computePose({ ...base, motion: 'happy' });
-    expect(blendPoses(a, b, 0.45).eyeShape).toBe('pill');
-    expect(blendPoses(a, b, 0.55).eyeShape).toBe('happy');
-    expect(blendPoses(a, b, 0.5).blink).toBeCloseTo(1, 9);
+    expect(a.eyes.arc).toBe(0);
+    expect(b.eyes.arc).toBe(1);
+    expect(blendPoses(a, b, 0.25).eyes.arc).toBeCloseTo(0.25, 9);
+    expect(blendPoses(a, b, 0.5).blink).toBeCloseTo((a.blink + b.blink) / 2, 9);
   });
 
   it('ease in through computePose', () => {
@@ -37,9 +38,9 @@ describe('mood changes', () => {
   });
 
   it('never grows the chain of interrupted changes', () => {
-    let state: MoodState = { motion: 'idle' };
-    const moods = ['thinking', 'happy', 'idle'] as const;
-    for (let i = 0; i < 50; i++) state = { motion: moods[i % 3], blend: { from: settleMood(state), t: 0.3 } };
+    let state: MoodState = { state: 'idle' };
+    const states = ['thinking', 'working', 'idle'] as const;
+    for (let i = 0; i < 50; i++) state = { state: states[i % 3], mood: 'happy', age: i, blend: { from: settleMood(state), t: 0.3 } };
     let depth = 0;
     for (let s: MoodState | string = state; typeof s !== 'string' && s.blend; s = s.blend.from) depth++;
     expect(depth).toBeLessThanOrEqual(5);
@@ -51,7 +52,7 @@ describe('animator', () => {
     const a = createAnimator();
     expect(a.step({ now: 0, motion: 'idle', target: null, reducedMotion: false }).moving).toBe(false);
     const start = a.step({ now: 16, motion: 'happy', target: null, reducedMotion: false });
-    expect(start.motionBlend).toEqual({ from: { motion: 'idle' }, t: 0 });
+    expect(start.motionBlend).toEqual({ from: { state: 'idle', mood: 'neutral', age: expect.any(Number), blend: undefined }, t: 0 });
     const half = a.step({ now: 16 + MOOD_MS / 2, motion: 'happy', target: null, reducedMotion: false });
     expect(half.motionBlend?.t).toBeCloseTo(0.5, 6);
     const done = a.step({ now: 16 + MOOD_MS + 1, motion: 'happy', target: null, reducedMotion: false });

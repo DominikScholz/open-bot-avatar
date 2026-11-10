@@ -2,7 +2,7 @@
  * A live avatar in any DOM element, without a framework.
  *
  *   const avatar = mountAvatar(el, { definition, color: '#1f7cf2', followPointer: true });
- *   avatar.update({ mood: 'happy' });
+ *   avatar.update({ state: 'working', mood: 'happy' });
  *   avatar.destroy();
  *
  * Live avatars paint each frame to one canvas (see paint.ts): one compositor
@@ -15,8 +15,9 @@
  */
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
+import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
-import type { AvatarDefinition, AvatarMotion, RenderOptions } from '../types.ts';
+import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -30,7 +31,13 @@ export interface AvatarOptions {
   eyeColor?: string;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
-  mood?: AvatarMotion;
+  /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
+  state?: AvatarState;
+  /**
+   * How the bot feels (default `neutral`): it shapes the eyes on top of any state. `idle` and
+   * `thinking` are still accepted here from before `state` existed and mean those states.
+   */
+  mood?: AvatarMood | 'idle' | 'thinking';
   /** Eyes look and the body turns toward the mouse, pen or finger anywhere on the page. */
   followPointer?: boolean;
   /** Fixed look direction (-1..1 per axis, x right, y down). Wins over the pointer. */
@@ -67,7 +74,8 @@ interface Scene {
   view: HTMLElement;
   stacks: Record<'z' | 'x', HTMLElement>;
   slices: Record<'z' | 'x', HTMLElement[]>;
-  eyes: { root: HTMLElement; pill: HTMLElement; arc: HTMLElement }[];
+  eyes: { root: HTMLElement; pill: HTMLElement; arc: HTMLElement; morph: HTMLElement; path: SVGPathElement }[];
+  fx: Record<'back' | 'front', HTMLElement>;
   last: Record<string, string>;
 }
 
@@ -84,8 +92,10 @@ function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number
     slices: { z: [...stacks.z.children] as HTMLElement[], x: [...stacks.x.children] as HTMLElement[] },
     eyes: [0, 1].map((i) => {
       const root = q(`[data-eye="${i}"]`);
-      return { root, pill: root.querySelector('i') as HTMLElement, arc: root.querySelector('svg') as unknown as HTMLElement };
+      const morph = root.querySelector('[data-morph]') as HTMLElement;
+      return { root, pill: root.querySelector('i') as HTMLElement, arc: root.querySelector('svg') as unknown as HTMLElement, morph, path: morph.querySelector('path') as SVGPathElement };
     }),
+    fx: { back: q('[data-fx="back"]'), front: q('[data-fx="front"]') },
     last: {},
   };
 }
@@ -100,6 +110,13 @@ function put(m: Scene, key: string, el: HTMLElement, prop: 'transform' | 'visibi
 function apply(m: Scene, frame: SceneFrame) {
   put(m, 'motion', m.motion, 'transform', frame.motion);
   put(m, 'view', m.view, 'transform', frame.view);
+  // A body that has given way to a mark holds no layers.
+  put(m, 'body', m.view, 'display', frame.body > 0 ? 'block' : 'none');
+  for (const side of ['back', 'front'] as const) {
+    if (m.last[side] === frame[side]) continue;
+    m.last[side] = frame[side];
+    m.fx[side].innerHTML = frame[side];
+  }
   // display:none, not visibility: hidden slices would still each hold a 3D layer.
   put(m, 'z', m.stacks.z, 'display', frame.stack === 'z' ? 'block' : 'none');
   put(m, 'x', m.stacks.x, 'display', frame.stack === 'x' ? 'block' : 'none');
@@ -110,8 +127,13 @@ function apply(m: Scene, frame: SceneFrame) {
     put(m, `e${i}`, e.root, 'transform', eye.transform);
     put(m, `v${i}`, e.root, 'visibility', eye.visible ? 'visible' : 'hidden');
     put(m, `p${i}`, e.pill, 'transform', eye.pill);
-    put(m, `ph${i}`, e.pill, 'display', eye.happy ? 'none' : 'block');
-    put(m, `a${i}`, e.arc, 'display', eye.happy ? 'block' : 'none');
+    put(m, `ph${i}`, e.pill, 'display', eye.happy || eye.d ? 'none' : 'block');
+    put(m, `a${i}`, e.arc, 'display', eye.happy && !eye.d ? 'block' : 'none');
+    put(m, `m${i}`, e.morph, 'display', eye.d ? 'block' : 'none');
+    if (eye.d && m.last[`d${i}`] !== eye.d) {
+      m.last[`d${i}`] = eye.d;
+      e.path.setAttribute('d', eye.d);
+    }
   });
 }
 
@@ -214,6 +236,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const p = opts;
     const reducedMotion = p.reducedMotion === 'system' || p.reducedMotion === undefined ? prefersReducedMotion() : p.reducedMotion;
     const now = performance.now();
+    // `mood: 'idle' | 'thinking'` are the states they were before `state` existed.
+    const look = resolveLook({ state: p.state, mood: p.mood, motion: p.mood });
     try {
       if (p.still) {
         if (scene || surface) clear();
@@ -221,7 +245,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
-          motion: p.mood,
+          state: look.state,
+          mood: look.mood,
           view: p.view,
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
@@ -241,10 +266,12 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         : p.followPointer && pointer && rect && rect.width > 0
           ? pointerGaze(pointer, rect, eyesOrigin(p.definition))
           : null;
-      const step = animator.step({ now, motion: p.mood ?? 'idle', target, hold: p.holdGaze, reducedMotion });
+      const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
-        motion: p.mood ?? 'idle',
+        state: look.state,
+        mood: look.mood,
+        stateAge: step.stateAge,
         motionBlend: step.motionBlend,
         size: size || undefined,
         time,
@@ -267,7 +294,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         return !reducedMotion || step.moving;
       }
       if (surface) clear();
-      const frame = sceneFrame(p.definition, options);
+      const frame = sceneFrame(p.definition, { ...options, color: p.color });
       if (!scene || scene.key !== frame.scene || scene.geometry !== geometryKey(p.definition) || !host.contains(scene.view)) {
         scene = mountScene(host, p.definition, p.depth);
       }

@@ -100,7 +100,7 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
   const matrices = frame.shapes.map((shape) => {
     const [a, b, c, d, e, f] = shape.matrix;
     const m: Matrix = [ra * a + rc * b, rb * a + rd * b, ra * c + rc * d, rb * c + rd * d, ra * e + rc * f + re, rb * e + rd * f + rf];
-    const box = shape.kind === 'slice' ? boxes.get(shape.path) : eyeBox(shape.mark);
+    const box = shape.kind === 'slice' ? boxes.get(shape.path) : shape.kind === 'eye' ? eyeBox(shape.mark) : shape.box;
     if (box) {
       add(m, box.x, box.y);
       add(m, box.x + box.w, box.y);
@@ -114,14 +114,19 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
 
 function eyeBox(mark: EyeMark): FramePath['box'] {
   if (mark.shape === 'pill') return { x: mark.x, y: mark.y, w: mark.width, h: mark.height };
-  // A quadratic arc lies within its points' hull; the stroke reaches half its width past it.
+  // Quadratics lie within their points' hull; an arc's stroke reaches half its width past it.
+  const reach = mark.shape === 'arc' ? mark.strokeWidth : 0;
   const n = (mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
   const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-  const x = Math.min(...xs) - mark.strokeWidth, y = Math.min(...ys) - mark.strokeWidth;
-  return { x, y, w: Math.max(...xs) + mark.strokeWidth - x, h: Math.max(...ys) + mark.strokeWidth - y };
+  const x = Math.min(...xs) - reach, y = Math.min(...ys) - reach;
+  return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
 }
 
 function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
+  if (mark.shape === 'path') {
+    ctx.fill(new Path2D(mark.d));
+    return;
+  }
   if (mark.shape === 'arc') {
     ctx.lineWidth = mark.strokeWidth;
     ctx.stroke(new Path2D(mark.d));
@@ -206,10 +211,20 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       ctx.fill(section.path, section.rule);
-    } else {
+    } else if (shape.kind === 'eye') {
       ctx.fillStyle = ink;
       eye(ctx, shape.mark);
       ctx.fillStyle = fill;
+    } else {
+      const ribbon = new Path2D(shape.d);
+      ctx.fill(ribbon);
+      if (shape.tint) {
+        ctx.fillStyle = shape.tint > 0 ? '#fff' : '#000';
+        ctx.globalAlpha = Math.abs(shape.tint);
+        ctx.fill(ribbon);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = fill;
+      }
     }
   }
 }

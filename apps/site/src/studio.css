@@ -145,25 +145,46 @@
       background: var(--hover);
     }
 
-    .moods {
+    /* State and mood: two menus under the stage, each choice shown on the avatar. */
+    .stage-picks {
       display: flex;
-      gap: 2px;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
     }
 
-    .mood {
-      padding: 4px 12px;
-      border-radius: 999px;
-      font-size: 13px;
+    .choice-kind {
       color: var(--faint);
     }
 
-    .mood:hover {
-      color: var(--muted);
+    .choice-list {
+      min-width: 300px;
     }
 
-    .mood.is-on {
-      color: var(--text);
-      background: #1c1c1c;
+    .menu-item.choice-item {
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 10px 6px 8px;
+    }
+
+    .menu-item.choice-item[aria-checked="true"] {
+      background: #2c2c2c;
+    }
+
+    /* Room around the picture for ribbons, which reach past the avatar's box. */
+    .choice-preview {
+      flex: none;
+      width: 34px;
+      margin: 5px;
+      pointer-events: none;
+    }
+
+    .choice-text {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      white-space: nowrap;
     }
 
     /* Picker card */
@@ -1243,11 +1264,6 @@
         aspect-ratio: 1;
       }
 
-      .mood {
-        padding: 4px 10px;
-        font-size: 12.5px;
-      }
-
       .picker {
         min-width: 0;
         display: flex;
@@ -1348,15 +1364,10 @@
           padding: 8px 10px 10px 12px;
         }
 
-        .moods {
+        .stage-picks {
           flex-direction: column;
           align-items: center;
-          gap: 0;
-        }
-
-        .mood {
-          padding: 2px 8px;
-          font-size: 11.5px;
+          gap: 4px;
         }
 
         .tabs {
@@ -1423,11 +1434,6 @@
 
         .stage-avatar {
           width: var(--avatar);
-        }
-
-        .mood {
-          padding: 6px 14px;
-          font-size: 14px;
         }
 
         /* One size whatever the tab shows; its content scrolls inside. */

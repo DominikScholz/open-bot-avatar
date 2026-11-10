@@ -14,11 +14,19 @@
  *   does projection and occlusion. Each visible slice costs a compositor layer,
  *   so mountAvatar paints live avatars to one canvas by default and only uses
  *   the scene with `renderer: 'scene'`.
+ *
+ * A state can draw more than the body (see effects.ts): ribbons behind and in front of it, and
+ * the marks a thinking or blocked bot turns into. Those stay where they are while the body hops
+ * and rolls.
  */
 import { parseHex, toHex } from './color.ts';
 import type { Rgb } from './color.ts';
+import { bodyScale, markParts, ribbonPieces, ribbonReach } from './effects.ts';
+import type { Box } from './effects.ts';
+import { eyePath, plainLook } from './eyes.ts';
+import type { EyeSpot } from './eyes.ts';
 import { computePose, hashString } from './motion.ts';
-import type { Pose } from './motion.ts';
+import type { EyeLook, Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
 import type { GazeRange } from './validate.ts';
@@ -98,11 +106,13 @@ export function preparedVolume(definition: AvatarDefinition, depth?: number): { 
 }
 
 function poseOf(p: Prepared, options: RenderOptions): Pose {
-  const motion = options.motion === 'thinking' || options.motion === 'happy' ? options.motion : 'idle';
   return computePose({
     seed: p.seed,
     time: Number.isFinite(options.time) ? (options.time as number) : 0,
-    motion,
+    state: options.state,
+    mood: options.mood,
+    motion: options.motion,
+    stateAge: options.stateAge,
     gaze: options.gaze,
     reducedMotion: options.reducedMotion === true,
     view: options.view,
@@ -125,6 +135,10 @@ const mul = (m: M, n: M): M => [
 ];
 const translate = (x: number, y: number): M => [1, 0, 0, 1, x, y];
 const about = (x: number, y: number, m: M): M => mul(translate(x, y), mul(m, translate(-x, -y)));
+const invert = ([a, b, c, d, e, g]: M): M => {
+  const det = a * d - b * c;
+  return [d / det, -b / det, -c / det, a / det, (c * g - d * e) / det, (b * e - a * g) / det];
+};
 const mat = (m: M) => `matrix(${m.map((v, i) => (i < 4 ? (Math.round(v * 10000) / 10000).toString() : f(v))).join(' ')})`;
 
 export interface ViewBasis {
@@ -207,7 +221,8 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
   const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
-  const half = radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy);
+  const ribbons = ribbonReach(b);
+  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), ribbons.radius + ribbons.width * 1.3);
   return { x: cx - half, y: cy - half, size: 2 * half };
 }
 
@@ -254,7 +269,9 @@ interface EyeState {
   /** Drawn pill height after blink/squint, and its downward shift (lids close toward a point below center). */
   open: number;
   shift: number;
-  happy: boolean;
+  look: EyeLook;
+  /** The plain pill or the plain happy arc, drawn as such; null for every other look (a path). */
+  plain: 'pill' | 'arc' | null;
 }
 
 function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
@@ -264,11 +281,17 @@ function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
   const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
   const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
   const centers = eyeCenters(p.def.eyes);
+  const plain = plainLook(pose.eyes);
   return ([0, 1] as const).map((i) => {
     const squint = i === 0 ? pose.squintL : pose.squintR;
     const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, happy: pose.eyeShape === 'happy' };
+    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, look: pose.eyes, plain };
   }) as [EyeState, EyeState];
+}
+
+/** Where an eye is drawn: with its gaze offset, or without it where a transform applies the gaze. */
+function eyeSpot(e: EyeState, gaze: boolean): EyeSpot {
+  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, open: e.open, shift: e.shift };
 }
 
 function happyArc(e: EyeState): string {
@@ -278,7 +301,8 @@ function happyArc(e: EyeState): string {
 }
 
 function eyeMark(e: EyeState): EyeMark {
-  if (e.happy) return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
+  if (e.plain === 'arc') return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
+  if (e.plain === null) return { shape: 'path', d: eyePath(e.look, eyeSpot(e, true)) };
   const cx = e.x + e.dx, cy = e.y + e.dy + e.shift;
   return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
 }
@@ -296,10 +320,15 @@ function colors(options: RenderOptions): { color: string; ink: string } {
 /** 2D affine matrix in SVG order (a b c d e f). */
 export type Matrix = [number, number, number, number, number, number];
 
-/** How one eye is drawn, in its face plane's coordinates (viewBox units). */
+/**
+ * How one eye is drawn, in its face plane's coordinates (viewBox units): the plain pill, the
+ * plain happy arc (stroked, round caps), or for every other look a filled outline (a waiting
+ * bot's slits, and every shape on the way from one look to the next).
+ */
 export type EyeMark =
   | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number }
-  | { shape: 'arc'; d: string; strokeWidth: number };
+  | { shape: 'arc'; d: string; strokeWidth: number }
+  | { shape: 'path'; d: string };
 
 export type FrameShape =
   | {
@@ -310,7 +339,19 @@ export type FrameShape =
       path: string;
       matrix: Matrix;
     }
-  | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark };
+  | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
+  | {
+      /**
+       * A piece of a ribbon: fill `d` in the body color, then, where it passes in front of the
+       * body, in white at `tint` opacity on top (in black at `-tint` when `tint` is negative).
+       */
+      kind: 'ribbon';
+      key: string;
+      d: string;
+      box: { x: number; y: number; w: number; h: number };
+      matrix: Matrix;
+      tint: number;
+    };
 
 /** One cross-section outline, shared by every shape that draws it. */
 export interface FramePath {
@@ -322,7 +363,9 @@ export interface FramePath {
 
 /**
  * One frame of the avatar flattened onto the screen: every cross-section the
- * view draws with its projection, and the visible eyes, sorted back to front.
+ * view draws with its projection, and the visible eyes, sorted back to front,
+ * between the ribbons behind the body and those in front of it. The marks of
+ * `thinking` and `blocked` are listed as slices too, in place of the body.
  * Painting them in order (body paths in `color`, eyes in `ink`) inside the
  * `root` transform and a 0 0 100 100 viewBox gives the avatar exactly as
  * renderAvatarSvg draws it. Plain numbers and path strings, so any vector
@@ -357,6 +400,44 @@ export function liveFrame(definition: AvatarDefinition, options: RenderOptions =
   return flatFrame(definition, options, options.size);
 }
 
+/**
+ * Ribbons are a shade apart from the body where they pass in front of it, so they show against
+ * it: lighter on most colors, darker on a body too light to lighten.
+ */
+function ribbonTint(color: string | undefined): number {
+  const rgb = parseHex(color) ?? (parseHex(DEFAULT_COLOR) as Rgb);
+  const light = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+  return light > 0.7 ? -0.16 : 0.4;
+}
+
+/** What a frame draws besides the body, in viewBox units outside the body's own motion. */
+interface Effects {
+  /** How much of its size the body keeps while it gives way to a mark (0 = gone). */
+  body: number;
+  ribbons: { d: string; box: Box; front: boolean }[];
+  marks: { id: string; d: string; box: Box; matrix: M }[];
+}
+
+function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
+  const b = p.vol.bounds;
+  const time = Number.isFinite(options.time) ? (options.time as number) : 0;
+  const still = options.reducedMotion === true;
+  const [cx, cy] = pivotOf(b);
+  return {
+    body: bodyScale(pose.bang, pose.dots),
+    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep),
+    marks: markParts(b, pose.bang, pose.dots, p.seed, time, still).map((part) => {
+      const turn: M = [Math.cos(part.turn), Math.sin(part.turn), -Math.sin(part.turn), Math.cos(part.turn), 0, 0];
+      return {
+        id: `${p.id}-${part.shape}`,
+        d: part.d,
+        box: part.box,
+        matrix: mul(about(cx, cy, turn), mul(translate(part.x, part.y), [part.scale, 0, 0, part.scale, 0, 0])),
+      };
+    }),
+  };
+}
+
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
@@ -367,43 +448,70 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const v = viewBasis(pose.yaw, pose.pitch);
   const stack = activeStack(v);
   const eyesMid: Point = [p.def.eyes.x, p.def.eyes.y];
+  const fx = effectsOf(p, pose, options);
+  const root = rootMatrix(pose, b);
+  // The body shrinks toward its center as it gives way to a mark.
+  const shrink = (m: M): M => (fx.body < 1 ? mul(about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]), m) : m);
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
   const items: { depth: number; shape: FrameShape }[] = [];
-  drawnSlices(p, v, size, (s, m, i, j) => {
-    let path = paths.get(s.d);
-    if (!path) {
-      path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
-      paths.set(s.d, path);
-    }
-    // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
-    const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
-    const depth = stack === 'z' ? projectPoint(v, [rx, ry, s.at], pivot)[2] : projectPoint(v, [s.at, ry, 0], pivot)[2];
-    items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: m } });
+  if (fx.body > 0) {
+    drawnSlices(p, v, size, (s, m, i, j) => {
+      let path = paths.get(s.d);
+      if (!path) {
+        path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
+        paths.set(s.d, path);
+      }
+      // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
+      const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
+      const depth = stack === 'z' ? projectPoint(v, [rx, ry, s.at], pivot)[2] : projectPoint(v, [s.at, ry, 0], pivot)[2];
+      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
+    });
+    // Painted on the surface; each eye goes once the surface under it turns away.
+    eyeStates(p, pose).forEach((e, idx) => {
+      if (eyeVisible(vol, v, idx)) {
+        const z = vol.eyeZ[idx] + EYE_LIFT;
+        items.push({
+          depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
+          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(planeMatrix(v, z, pivot)), mark: eyeMark(e) },
+        });
+      }
+    });
+    items.sort((a, c) => a.depth - c.depth);
+  }
+
+  const tint = ribbonTint(options.color);
+  // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
+  const fixed = fx.ribbons.length || fx.marks.length ? invert(root) : null;
+  const ribbon = (front: boolean): FrameShape[] =>
+    fx.ribbons.flatMap((r, i) =>
+      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, tint: front ? tint : 0 }] : [],
+    );
+  const marks = fx.marks.map((mark, i): FrameShape => {
+    if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
+    return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
   });
-  // Painted on the surface; each eye goes once the surface under it turns away.
-  eyeStates(p, pose).forEach((e, idx) => {
-    if (eyeVisible(vol, v, idx)) {
-      const z = vol.eyeZ[idx] + EYE_LIFT;
-      items.push({
-        depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
-        shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: planeMatrix(v, z, pivot), mark: eyeMark(e) },
-      });
-    }
-  });
-  items.sort((a, c) => a.depth - c.depth);
-  return { name: p.def.name, color, ink, paths: [...paths.values()], root: rootMatrix(pose, b), shapes: items.map((it) => it.shape) };
+  return {
+    name: p.def.name, color, ink, paths: [...paths.values()], root,
+    shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Standalone SVG still
 
 function eyeSvg(mark: EyeMark, ink: string): string {
+  if (mark.shape === 'path') return `<path d="${mark.d}" fill="${ink}"/>`;
   if (mark.shape === 'arc') {
     return `<path d="${mark.d}" fill="none" stroke="${ink}" stroke-width="${f(mark.strokeWidth)}" stroke-linecap="round"/>`;
   }
   return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" fill="${ink}"/>`;
+}
+
+/** A ribbon piece inside a group filled with the body color: the color, then white over it where it is tinted. */
+function ribbonSvg(d: string, tint: number): string {
+  return `<path d="${d}"/>` + (tint ? `<path d="${d}" fill="${tint > 0 ? '#fff' : '#000'}" fill-opacity="${f(Math.abs(tint))}"/>` : '');
 }
 
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
@@ -411,7 +519,11 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const frame = avatarFrame(definition, options);
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
-    .map((s) => (s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>` : `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`))
+    .map((s) =>
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
+      : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
+      : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.tint)}</g>`,
+    )
     .join('');
   const size = Number.isFinite(options.size) && (options.size as number) > 0 ? f(clamp(options.size as number, 8, 4096)) : null;
   const dims = size ? ` width="${size}" height="${size}"` : '';
@@ -448,6 +560,9 @@ function sliceMarkup(s: VolumeSlice): string {
   );
 }
 
+const overlay = (side: 'back' | 'front') =>
+  `<svg data-fx="${side}" viewBox="0 0 100 100" style="${FILL}overflow:visible;pointer-events:none" fill="currentColor" aria-hidden="true"></svg>`;
+
 /**
  * Static markup of the live scene for a definition and depth. Mount it once,
  * then apply `sceneFrame` every frame. Body color comes from CSS `color` on
@@ -470,16 +585,23 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
       `<i style="position:absolute;inset:0;border-radius:999px;background:${ink}"></i>` +
       `<svg viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
       `<path d="${happyArc(e)}" fill="none" stroke="${ink}" stroke-width="${f(e.w * HAPPY_ARC.stroke)}" stroke-linecap="round"/></svg>` +
+      // Every look between the pill and the arc: its outline is written each frame it changes.
+      `<svg data-morph viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
+      `<path fill="${ink}"/></svg>` +
       `</div>`
     );
   });
   return (
     `<div data-avatar-scene="${p.id}" style="position:relative;width:100%;height:100%;container-type:size">` +
+    // Ribbons behind the body; they and the marks are written each frame they show.
+    overlay('back') +
     // will-change pins the slices' raster scale: without it every hop and squash re-rasterizes each slice.
     `<div data-motion style="${FILL}will-change:transform;transform-origin:${u((b.minX + b.maxX) / 2)} ${u(b.maxY)}">` +
     `<div data-view style="${FILL}transform-style:preserve-3d;transform-origin:${u(cx)} ${u(cy)}">` +
     stack('z') + stack('x') + eyes.join('') +
-    `</div></div></div>`
+    `</div></div>` +
+    overlay('front') +
+    `</div>`
   );
 }
 
@@ -488,12 +610,18 @@ export interface SceneFrame {
   scene: string;
   /** 2D motion (hop, roll, squash) about the base of the body. */
   motion: string;
-  /** 3D view rotation about the body center. */
+  /** 3D view rotation about the body center, scaled down while the body gives way to a mark. */
   view: string;
+  /** How much of its size the body keeps, 0..1; at 0 the view needs no layers. */
+  body: number;
+  /** Markup for the scene's two overlays (`data-fx`): ribbons behind the body; ribbons and marks in front. */
+  back: string;
+  front: string;
   stack: 'z' | 'x';
   /** Per slice of the active stack, in markup order: whether it shows. Hidden ones need no layer. */
   slices: boolean[];
-  eyes: { visible: boolean; happy: boolean; transform: string; pill: string }[];
+  /** `d` is set while the eye is between the pill and the arc: it then shows the `data-morph` path alone. */
+  eyes: { visible: boolean; happy: boolean; transform: string; pill: string; d: string }[];
 }
 
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -536,18 +664,25 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const stack = activeStack(v);
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, options.size);
+  const fx = effectsOf(p, pose, options);
+  const tint = ribbonTint(options.color);
+  const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, front ? tint : 0)).join('');
   let k = 0;
   return {
     scene: p.id,
     motion: `translate(0,${u(pose.lift)}) rotate(${f(pose.roll)}deg) scale(${r4(pose.sx)},${r4(pose.sy)})`,
-    view: `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
+    view: (fx.body < 1 ? `scale(${r4(fx.body)}) ` : '') + `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
+    body: fx.body,
+    back: piece(false),
+    front: piece(true) + fx.marks.map((mark) => `<path d="${mark.d}" transform="${mat(mark.matrix)}"/>`).join(''),
     stack,
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
     eyes: states.map((e, i) => ({
       visible: eyeVisible(p.vol, v, i),
-      happy: e.happy,
+      happy: e.plain === 'arc',
       transform: `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT)}) translate(${u(e.dx)},${u(e.dy)})`,
       pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.h)})`,
+      d: e.plain === null ? eyePath(e.look, eyeSpot(e, false)) : '',
     })),
   };
 }

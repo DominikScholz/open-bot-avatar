@@ -28,14 +28,39 @@ export interface AvatarDefinition {
   eyes: AvatarEyes;
 }
 
+/**
+ * What the bot is doing. `thinking` and `blocked` replace the body with a mark (three dots, an
+ * exclamation mark); `working` adds ribbons that circle the body; `done` celebrates: it turns a
+ * few times with ribbons flying, rests, and after a while does it again.
+ */
+export type AvatarState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done';
+
+/** How the bot feels. It shapes the eyes on top of any state; in `idle` a happy bot also hops. */
+export type AvatarMood = 'neutral' | 'happy';
+
+/**
+ * The single option that came before `state` and `mood`, still accepted: `idle` and `thinking`
+ * are states, `happy` is the idle state in a happy mood.
+ * @deprecated Use `state` and `mood`.
+ */
 export type AvatarMotion = 'idle' | 'thinking' | 'happy';
 
 /**
- * A mood easing in over what was shown before it: a plain mood, or a mood that
- * was itself still easing in (its progress frozen where it was). `t` 0..1.
+ * A change easing in over what was shown before it: a plain legacy motion, or a state and mood
+ * that were themselves still easing in (their progress frozen where it was). `t` 0..1.
  */
 export interface AvatarMotionBlend {
-  from: AvatarMotion | { motion: AvatarMotion; blend?: AvatarMotionBlend };
+  from:
+    | AvatarMotion
+    | {
+        state?: AvatarState;
+        mood?: AvatarMood;
+        /** @deprecated Use `state` and `mood`. */
+        motion?: AvatarMotion;
+        /** Seconds that state had been showing when the change began (see RenderOptions.stateAge). */
+        age?: number;
+        blend?: AvatarMotionBlend;
+      };
   t: number;
 }
 
@@ -61,14 +86,24 @@ export interface RenderOptions {
    * over the idle pose so following can start and stop without a jump.
    */
   gaze?: { x: number; y: number; weight?: number };
+  /** What the bot is doing (default `idle`). */
+  state?: AvatarState;
+  /** How the bot feels (default `neutral`). */
+  mood?: AvatarMood;
+  /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
   /**
-   * Ease into `motion` from the mood shown before: the pose blends between the
-   * two, and eyes that change shape close and reopen. Hosts leave it out once
-   * `t` reaches 1 (and under reduced motion).
+   * Seconds since `state` began. `done` celebrates from the moment it begins, so hosts that
+   * animate pass this (createAnimator returns it); without it the state is drawn at rest.
+   */
+  stateAge?: number;
+  /**
+   * Ease into `state` and `mood` from what was shown before: the pose blends between the two
+   * and the eyes morph from one shape to the other. Hosts leave it out once `t` reaches 1 (and
+   * under reduced motion).
    */
   motionBlend?: AvatarMotionBlend;
-  /** Freeze body motion and blinking at a calm pose; gaze still applies. */
+  /** Freeze body motion, blinking, ribbons and marks at a calm pose; gaze still applies. */
   reducedMotion?: boolean;
 }
 

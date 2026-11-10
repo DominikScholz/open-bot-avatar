@@ -201,7 +201,7 @@ describe('live scene', () => {
     const html = renderAvatarScene(c);
     const vol = buildVolume(c);
     const slices = vol.parts.reduce((n, p) => n + p.zSlices.length + p.xSlices.length, 0);
-    expect((html.match(/<svg /g) ?? []).length).toBe(slices + 2); // + one happy-eye arc per eye
+    expect((html.match(/<svg /g) ?? []).length).toBe(slices + 6); // + a happy arc and a morphing outline per eye, and two overlays
     expect(html).toContain('preserve-3d');
     expect(html).not.toMatch(/NaN|undefined|Infinity/);
     const a = sceneFrame(c, { time: 0.4 }), b = sceneFrame(c, { time: 2.9 });
