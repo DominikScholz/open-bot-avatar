@@ -12,8 +12,6 @@ Open source, MIT licensed. [Docs](https://dominikscholz.github.io/open-bot-avata
 
 In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it returns into Import. The prompt is [system-prompt.md](skills/generate-avatar/references/system-prompt.md); agents with skills can use the [generate-avatar skill](skills/generate-avatar/SKILL.md).
 
-![the avatar picker, with the French Bulldog selected](docs/media/gallery.png)
-
 To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery).
 
 ## Definition
@@ -127,7 +125,6 @@ export function BotAvatar({ size = 96, ...options }: AvatarOptions & { size?: nu
 ```text
 packages/core/   npm package: engine and browser mount
 apps/site/       editor and documentation (Vite + React)
-apps/grok-bot/   standalone study of the Grok Bot states (React, CSS)
 gallery/         community avatar definitions
 skills/          design prompt and generation skill
 docs/            definition contract and demo media

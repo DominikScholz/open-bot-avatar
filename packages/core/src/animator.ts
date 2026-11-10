@@ -24,7 +24,7 @@ export interface AnimatorInput {
 export interface AnimatorStep {
   gaze?: { x: number; y: number; weight: number };
   motionBlend?: AvatarMotionBlend;
-  /** Seconds since the current mood began; motions that settle (`done`) use it. */
+  /** Seconds since the current mood began; `happy` uses it to start its loop with the mood. */
   motionAge: number;
   /** True while the look or a mood change is still easing. */
   moving: boolean;

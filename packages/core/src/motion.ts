@@ -26,12 +26,6 @@ export interface Pose {
   squintR: number;
   /** `flat` is the bored, half-shut look: wide horizontal slits instead of tall pills. */
   eyeShape: 'pill' | 'happy' | 'flat';
-  /** Turn of the face inside the head, in radians (see RenderOptions.faceTurn). */
-  faceTurn: number;
-  /** The body's turn about its own vertical axis, in depth, in radians (see RenderOptions.bodyTurn). */
-  bodyTurn: number;
-  /** The face's turn in the picture plane, about the body's centre, in radians (see RenderOptions.faceWhirl). */
-  faceWhirl: number;
 }
 
 /** Resting view: turned a little and seen a little from above, so the volume reads without dominating. */
@@ -114,7 +108,7 @@ function dartAt(seed: number, t: number): [number, number] {
 export interface PoseInput {
   seed: number;
   time: number;
-  /** Seconds since `motion` began, for motions that settle (see `done`). */
+  /** Seconds since `motion` began; `happy` uses it to start its loop with the mood. */
   motionAge?: number;
   motion: AvatarMotion;
   /** Look target, -1..1 per axis (x right, y down); `weight` 0..1 fades it in over the idle pose (default 1). */
@@ -139,9 +133,6 @@ export function blendPoses(a: Pose, b: Pose, t: number): Pose {
     sx: mix(a.sx, b.sx), sy: mix(a.sy, b.sy), gazeX: mix(a.gazeX, b.gazeX), gazeY: mix(a.gazeY, b.gazeY),
     blink: mix(a.blink, b.blink), squintL: mix(a.squintL, b.squintL), squintR: mix(a.squintR, b.squintR),
     eyeShape: b.eyeShape,
-    faceTurn: mix(a.faceTurn, b.faceTurn),
-    bodyTurn: mix(a.bodyTurn, b.bodyTurn),
-    faceWhirl: mix(a.faceWhirl, b.faceWhirl),
   };
   if (a.eyeShape !== b.eyeShape) {
     pose.eyeShape = k < 0.5 ? a.eyeShape : b.eyeShape;
@@ -158,7 +149,7 @@ export function computePose(input: PoseInput): Pose {
   return blendPoses(computePose({ ...input, motion: from.motion, blend: from.blend }), pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
-function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput): Pose {
+function moodPose({ seed, time, motionAge, motion, gaze, reducedMotion, view }: PoseInput): Pose {
   // Per-avatar phase offset so several avatars on a page do not move in lockstep.
   const t = reducedMotion ? 0 : time + noise(seed, 7) * 10;
   const wave = (period: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase));
@@ -171,7 +162,7 @@ function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput):
 
   const pose: Pose = {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
-    gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0, eyeShape: 'pill', faceTurn: 0, bodyTurn: 0, faceWhirl: 0,
+    gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0, eyeShape: 'pill',
   };
 
   if (motion === 'done') {
@@ -190,14 +181,19 @@ function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput):
     }
   } else if (motion === 'happy') {
     const period = 0.92;
-    const p = reducedMotion ? 0.5 : ((t % period) + period) % period / period;
+    // The loop starts with the mood when the caller knows its age, so entering
+    // `happy` always shows the hop from the ground; direct renders without an
+    // age follow the animation clock.
+    const clock = Number.isFinite(motionAge) ? (motionAge as number) : t;
+    const beat = (seconds: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * clock) / seconds + phase));
+    const p = reducedMotion ? 0.5 : ((clock % period) + period) % period / period;
     const air = 4 * p * (1 - p);
     const land = reducedMotion ? 0 : clamp(1 - Math.min(p, 1 - p) / 0.12, 0, 1);
     pose.lift = reducedMotion ? 0 : -3.2 * air;
     pose.sy = 1 - 0.09 * land + 0.03 * air * (reducedMotion ? 0 : 1);
     pose.sx = 1 + 0.07 * land - 0.015 * air * (reducedMotion ? 0 : 1);
-    pose.roll = 4.5 * wave(period * 2);
-    pose.yaw += 0.1 * wave(period * 2, 0.6);
+    pose.roll = 4.5 * beat(period * 2);
+    pose.yaw += 0.1 * beat(period * 2, 0.6);
     pose.eyeShape = 'happy';
   } else if (motion === 'working') {
     // Busy: the head holds a steady lean and works against it, breathing in and out

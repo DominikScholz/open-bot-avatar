@@ -92,7 +92,10 @@ Both functions accept `RenderOptions`:
 - `size` sets the SVG width and height in pixels. Omit it for a fluid SVG.
 - `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion and blinking; gaze still applies. It does not read system preferences.
 - `motionBlend` lets a custom animation host blend from another mood: `{ from, t }`, with `t` from 0 to 1. `from` can be a mood or `{ motion, blend? }` for an interrupted transition.
-- `motionAge` is the seconds since `motion` began. `happy` uses it to keep its loop in phase; `done` ignores it and keeps looking around, so a direct render matches the live one.
+- `motionAge` is the seconds since `motion` began. `happy` uses it to start its loop with the mood; `done` ignores it and keeps looking around, so a direct render matches the live one.
+- `faceTurn` turns the face inside the head, in radians: the eye pair rides the head's cross-section and goes edge-on as it turns away; the silhouette stays put.
+- `bodyTurn` turns the body about its own vertical axis, in radians: the shape shows its side and its back in depth, as the Grok Bot spins inside its belt.
+- `faceWhirl` turns the face in the picture plane about the body's centre, in radians: the eyes swing around the head instead of sliding across it.
 
 ## Definitions and validation
 
@@ -122,6 +125,7 @@ See the [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) 
 
 - `examples` and `getExample(id)` provide built-in definitions.
 - `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms, at one compositor layer per visible slice; `mountAvatar` uses them with `renderer: "scene"`.
+- `paintBelt` returns the geometry paint that rides around an avatar is built on: the centre of its bounds, the belt's radius (half its widest row) and its widest dimension.
 - `computePose`, `createAnimator` and `pointerGaze` support custom animation hosts.
 
 ## License

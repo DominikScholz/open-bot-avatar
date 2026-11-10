@@ -56,6 +56,16 @@ describe('mood changes', () => {
     }
   });
 
+  it('starts the happy loop with the mood when its age is known', () => {
+    expect(computePose({ ...base, motion: 'happy', motionAge: 0 }).lift).toBeCloseTo(0, 9);
+    expect(computePose({ ...base, motion: 'happy', motionAge: 0.46 }).lift).toBeCloseTo(-3.2, 9);
+    // The hop and the sway run on the mood's clock, not the page's.
+    const a = computePose({ ...base, motion: 'happy', motionAge: 0.46 });
+    const b = computePose({ ...base, motion: 'happy', motionAge: 0.46, time: 20 });
+    expect(b.lift).toBe(a.lift);
+    expect(b.roll).toBe(a.roll);
+  });
+
   it('keeps done looking around while the paint dries', () => {
     // Done ignores `motionAge`, so a direct render and the live one agree.
     expect(computePose({ ...base, motion: 'done', motionAge: 7 })).toEqual(computePose({ ...base, motion: 'done' }));

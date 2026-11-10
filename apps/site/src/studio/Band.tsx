@@ -52,7 +52,7 @@
  * avatar into, and it keeps its own place in the world while the body turns.
  */
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, type RefObject } from "react";
-import { preparedVolume, type AvatarDefinition } from "open-bot-avatar";
+import { paintBelt, type AvatarDefinition } from "open-bot-avatar";
 
 export type BandMode = "working" | "done";
 
@@ -150,51 +150,6 @@ function seeded(key: string) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/**
- * The belt's radius: half of the shape's widest row.
- *
- * The official measures its belt this way and no other: it scans the shape row
- * by row and keeps the widest row it finds, and the belt is half of that. Its
- * bot is a round head that fills its design space, so its widest row is 228.54
- * across and the belt is 114.27 — the same as the radius of the circle that
- * covers it, and the belt rides at 116, just off the rim. Read the same way
- * here, our own avatar is one body however it is drawn: the belt is half of
- * its widest row, so the paint comes from around the shape's waist and
- * straddles its silhouette.
- */
-function beltRadius(polys: number[][][]): number {
-  let top = Infinity;
-  let bottom = -Infinity;
-  for (const poly of polys) {
-    for (const p of poly) {
-      if (p[1] < top) top = p[1];
-      if (p[1] > bottom) bottom = p[1];
-    }
-  }
-  if (!Number.isFinite(top) || bottom <= top) return 0;
-  let far = 0;
-  // The official's row of the scan is a hundred and sixtieth of the shape.
-  const step = (bottom - top) / 160;
-  for (let y = top; y <= bottom; y += step) {
-    let min = Infinity;
-    let max = -Infinity;
-    for (const poly of polys) {
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i];
-        const b = poly[(i + 1) % poly.length];
-        if (a[1] === b[1]) continue;
-        // Only the edges that cross this row have a point on it.
-        if (y < Math.min(a[1], b[1]) || y > Math.max(a[1], b[1])) continue;
-        const x = a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]);
-        if (x < min) min = x;
-        if (x > max) max = x;
-      }
-    }
-    if (max > min) far = Math.max(far, (max - min) / 2);
-  }
-  return far;
 }
 
 // ---------------------------------------------------------------------------
@@ -548,16 +503,10 @@ class Paint {
     this.front = front;
     this.defs = defs;
     try {
-      const { vol } = preparedVolume(definition);
-      const polys = vol.parts.flatMap((p) => p.polys);
-      const b = vol.bounds;
-      const widest = Math.max(b.maxX - b.minX, b.maxY - b.minY);
-      this.cx = (b.minX + b.maxX) / 2;
-      this.cy = (b.minY + b.maxY) / 2;
-      // The belt is half of the shape's widest row, the way the official
-      // measures its belt, so the paint comes from around the shape's waist
-      // and not out of its middle.
-      this.belt = beltRadius(polys);
+      const { cx, cy, belt, widest } = paintBelt(definition);
+      this.cx = cx;
+      this.cy = cy;
+      this.belt = belt;
       // The official's design space is filled by the shape, so its constants
       // are scaled by the shape's own size.
       this.unit = Math.max(widest, 1) / DESIGN;

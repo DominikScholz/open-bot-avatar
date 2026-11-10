@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { examples } from '../src/examples.ts';
+import { computePose, hashString } from '../src/motion.ts';
 import { flattenPath, parsePath } from '../src/path.ts';
-import { avatarFrame, liveFrame, renderAvatarSvg } from '../src/render.ts';
+import { avatarFrame, liveFrame, preparedVolume, renderAvatarSvg } from '../src/render.ts';
 
 const poses = [
   { time: 0, reducedMotion: true },
@@ -100,6 +101,37 @@ describe('avatarFrame', () => {
       const turnedMarks = marks(turned);
       for (const [key, mark] of marks(still)) {
         if (turnedMarks.has(key)) expect(turnedMarks.get(key)).toEqual(mark);
+      }
+    }
+  });
+
+  it('rolls and squashes about the base of the body, like the scene', () => {
+    for (const d of examples) {
+      const options = { time: 0.33, motion: 'happy' as const };
+      const frame = avatarFrame(d, options);
+      const { vol } = preparedVolume(d);
+      const bx = (vol.bounds.minX + vol.bounds.maxX) / 2;
+      const by = vol.bounds.maxY;
+      const pose = computePose({ seed: hashString(d.id), time: 0.33, motion: 'happy', reducedMotion: false });
+      // The base's centre is fixed by roll and squash, then lifted by the hop.
+      const x = frame.root[0] * bx + frame.root[2] * by + frame.root[4];
+      const y = frame.root[1] * bx + frame.root[3] * by + frame.root[5];
+      expect(x).toBeCloseTo(bx, 9);
+      expect(y).toBeCloseTo(by + pose.lift, 9);
+    }
+  });
+
+  it('keeps both eyes in front of the face they sit on while the view turns', () => {
+    for (const d of examples) {
+      const { vol } = preparedVolume(d);
+      for (let deg = 0; deg <= 40; deg += 5) {
+        const frame = avatarFrame(d, { reducedMotion: true, view: { yaw: (deg * Math.PI) / 180, pitch: 0 } });
+        const eyes = frame.shapes.flatMap((s, i) => (s.kind === 'eye' ? [i] : []));
+        expect(eyes.length).toBeGreaterThan(0);
+        // Depth is keyed at the face's midpoint for the eye part; taking it
+        // under each eye instead sorts the far eye behind its own face.
+        const lastFace = frame.shapes.reduce((last, s, i) => (s.kind === 'slice' && s.key[0] === String(vol.eyePart) ? i : last), -1);
+        for (const eye of eyes) expect(eye).toBeGreaterThan(lastFace);
       }
     }
   });
