@@ -94,8 +94,7 @@ export interface RenderOptions {
   motion?: AvatarMotion;
   /**
    * Seconds since `state` began. `done` celebrates from the moment it begins, so hosts that
-   * animate pass this (createAnimator returns it); without it `done` celebrates on the
-   * animation clock (`time`).
+   * animate pass this (createAnimator returns it); without it the state is drawn at rest.
    */
   stateAge?: number;
   /**

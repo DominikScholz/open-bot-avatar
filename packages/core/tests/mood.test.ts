@@ -52,7 +52,7 @@ describe('animator', () => {
     const a = createAnimator();
     expect(a.step({ now: 0, motion: 'idle', target: null, reducedMotion: false }).moving).toBe(false);
     const start = a.step({ now: 16, motion: 'happy', target: null, reducedMotion: false });
-    expect(start.motionBlend).toEqual({ from: { state: 'idle', mood: 'neutral', age: Infinity, blend: undefined }, t: 0 });
+    expect(start.motionBlend).toEqual({ from: { state: 'idle', mood: 'neutral', age: expect.any(Number), blend: undefined }, t: 0 });
     const half = a.step({ now: 16 + MOOD_MS / 2, motion: 'happy', target: null, reducedMotion: false });
     expect(half.motionBlend?.t).toBeCloseTo(0.5, 6);
     const done = a.step({ now: 16 + MOOD_MS + 1, motion: 'happy', target: null, reducedMotion: false });

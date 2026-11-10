@@ -207,7 +207,7 @@ describe('ribbons', () => {
     }
     expect(front).toBeGreaterThan(0);
     expect(back).toBeGreaterThan(0);
-    for (const state of ['idle', 'thinking', 'waiting', 'blocked', 'done'] as const) expect(ribbons(avatarFrame(mug, { state, time: 1, stateAge: 60 * DONE_CYCLE_S - 1 })).length).toBe(0);
+    for (const state of ['idle', 'thinking', 'waiting', 'blocked', 'done'] as const) expect(ribbons(avatarFrame(mug, { state, time: 1, stateAge: DONE_TURN_S + 0.5 })).length).toBe(0);
     expect(ribbons(avatarFrame(mug, { state: 'working', time: 1, reducedMotion: true })).length).toBe(0);
   });
 
@@ -266,6 +266,8 @@ describe('done', () => {
   it('celebrates as it begins: a few turns with more ribbons than a working bot has, then a rest', () => {
     expect(resting.ribbons).toBe(0);
     expect(computePose({ ...base, stateAge: DONE_CYCLE_S - 0.01 })).toEqual(computePose({ ...base, stateAge: DONE_TURN_S }));
+    // Without an age it is at rest.
+    expect(computePose(base)).toEqual(resting);
     const mid = computePose({ ...base, stateAge: DONE_TURN_S / 2 });
     expect(mid.ribbons).toBeGreaterThan(1);
     expect(mid.lift).toBeLessThan(resting.lift);
@@ -281,10 +283,19 @@ describe('done', () => {
     expect(computePose({ ...base, stateAge: 0.15 }).yaw).toBeLessThan(resting.yaw);
   });
 
-  it('celebrates again after a rest, the other way round', () => {
+  it('celebrates again after a rest, the other way round, at a pace of its own', () => {
+    // When the second celebration starts: each avatar's cycle is DONE_CYCLE_S or up to a third longer.
+    const again = (seed: number) => {
+      for (let age = DONE_TURN_S; age < 2 * DONE_CYCLE_S; age += 0.001) if (computePose({ ...base, seed, stateAge: age }).ribbons > 0) return age;
+      return NaN;
+    };
+    const cycle = again(5);
+    expect(cycle).toBeGreaterThanOrEqual(DONE_CYCLE_S);
+    expect(cycle).toBeLessThan(DONE_CYCLE_S * 1.34);
     const first = computePose({ ...base, stateAge: 1 }).yaw - resting.yaw;
-    const second = computePose({ ...base, stateAge: DONE_CYCLE_S + 1 }).yaw - resting.yaw;
-    expect(second).toBeCloseTo(-first, 9);
+    const second = computePose({ ...base, stateAge: cycle + 1 }).yaw - resting.yaw;
+    expect(second).toBeCloseTo(-first, 2);
+    expect(Math.abs(again(6) - cycle)).toBeGreaterThan(0.05);
   });
 
   it('never unwinds: the angle stays the short way round from the resting one', () => {
@@ -301,10 +312,7 @@ describe('done', () => {
     }
   });
 
-  it('celebrates on the animation clock when no age is given, and not at all under reduced motion', () => {
-    const yaws = new Set<number>();
-    for (let time = 0; time < DONE_CYCLE_S; time += 0.25) yaws.add(Math.round(computePose({ ...base, time }).ribbons * 10));
-    expect(yaws.size).toBeGreaterThan(2);
+  it('does not celebrate under reduced motion', () => {
     expect(computePose({ ...base, reducedMotion: true, stateAge: 1 })).toEqual(computePose({ ...base, reducedMotion: true }));
     expect(computePose({ ...base, reducedMotion: true, stateAge: 1 }).ribbons).toBe(0);
   });
@@ -316,8 +324,8 @@ describe('animator states', () => {
 
   it('counts a state from when it began, through a change of mood', () => {
     const a = createAnimator();
-    // An avatar that mounts in a state has been in it all along.
-    expect(step(a, 0, 'done').stateAge).toBe(Infinity);
+    // An avatar that mounts in a state starts it at rest: a done bot has just finished celebrating.
+    expect(step(a, 0, 'done').stateAge).toBe(DONE_TURN_S);
     expect(step(a, 100, 'working').stateAge).toBe(0);
     expect(step(a, 600, 'working').stateAge).toBeCloseTo(0.5, 9);
     expect(step(a, 700, 'working', 'happy').stateAge).toBeCloseTo(0.6, 9);
@@ -329,7 +337,22 @@ describe('animator states', () => {
     step(a, 0, 'idle');
     step(a, 1000, 'done');
     const change = step(a, 1300, 'idle', 'happy');
-    expect(change.motionBlend).toEqual({ from: { state: 'done', mood: 'neutral', age: 0.3, blend: { from: { state: 'idle', mood: 'neutral', age: Infinity }, t: expect.any(Number) } }, t: 0 });
+    expect(change.motionBlend).toEqual({ from: { state: 'done', mood: 'neutral', age: 0.3, blend: { from: { state: 'idle', mood: 'neutral', age: expect.any(Number) }, t: expect.any(Number) } }, t: 0 });
+  });
+
+  it('leaves done without a jump, whenever it is left', () => {
+    // A bot mounted in done, left at many different moments: the pose on the way out moves a little each frame.
+    for (let leave = 200; leave < 12000; leave += 370) {
+      const a = createAnimator();
+      let last: number | null = null;
+      for (let now = 0; now < leave + 600; now += 16) {
+        const state = now < leave ? 'done' : 'idle';
+        const s = step(a, now, state);
+        const pose = computePose({ seed: 5, time: now / 1000, reducedMotion: false, state, stateAge: s.stateAge, blend: s.motionBlend });
+        if (last !== null) expect(Math.abs(Math.atan2(Math.sin(pose.yaw - last), Math.cos(pose.yaw - last))), `left at ${leave}, now ${now}`).toBeLessThan(0.3);
+        last = pose.yaw;
+      }
+    }
   });
 
   it('turns without a jump when the mood changes mid-turn', () => {

@@ -150,7 +150,7 @@ export interface PoseInput {
   mood?: AvatarMood;
   /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
-  /** Seconds since `state` began: `done` celebrates from then on. Without it, it celebrates on the animation clock. */
+  /** Seconds since `state` began: `done` celebrates from then on. Without it the state is at rest. */
   stateAge?: number;
   /** Look target, -1..1 per axis (x right, y down); `weight` 0..1 fades it in over the idle pose (default 1). */
   gaze?: { x: number; y: number; weight?: number };
@@ -190,7 +190,11 @@ export function computePose(input: PoseInput): Pose {
   return blendPoses(before, pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
-/** Done celebrates in cycles: this many turns over DONE_TURN_S seconds, then a rest until DONE_CYCLE_S. */
+/**
+ * Done celebrates in cycles: this many turns over DONE_TURN_S seconds, then a rest. A cycle lasts
+ * DONE_CYCLE_S or up to a third longer, differently for each avatar, so several done bots on a
+ * page drift apart instead of turning together.
+ */
 export const DONE_TURN_S = 3.2;
 export const DONE_CYCLE_S = 7;
 const DONE_TURNS = 3;
@@ -309,11 +313,11 @@ function statePose(input: PoseInput): Pose {
     // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
     // slower than idle, and after a while again, the other way round.
     rest(1.25);
-    // Counted from when the state began; a bot that has been done all along (no age given)
-    // celebrates on its own clock, so several of them on a page do not turn together.
-    const age = Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : t;
-    const cycle = Math.floor(age / DONE_CYCLE_S), since = age - cycle * DONE_CYCLE_S;
-    if (!reducedMotion && since < DONE_TURN_S) {
+    // Counted from when the state began. Without an age it is at rest.
+    const age = !reducedMotion && Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : DONE_TURN_S;
+    const length = DONE_CYCLE_S * (1 + 0.33 * noise(seed, 31));
+    const cycle = Math.floor(age / length), since = age - cycle * length;
+    if (since < DONE_TURN_S) {
       const u = since / DONE_TURN_S;
       const swell = Math.sin(Math.PI * u);
       const turn = celebration(u) * (cycle % 2 ? -1 : 1);
