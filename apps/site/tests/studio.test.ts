@@ -93,9 +93,17 @@ describe("share links", () => {
   const mug = examples.find((e) => e.id === "mug")!;
 
   it("round-trip a starter, color and mood", () => {
-    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: "#ec4899", motion: "happy" });
-    expect(link).toBe("https://example.test/?avatar=mug&color=pink&mood=happy");
-    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", mood: "happy" });
+    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: "#ec4899", motion: "done" });
+    expect(link).toBe("https://example.test/?avatar=mug&color=pink&mood=done");
+    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", mood: "done" });
+  });
+
+  it("accepts every lifecycle state in a link and reads the legacy happy as done", () => {
+    for (const motion of ["idle", "working", "waiting", "blocked", "thinking", "done"] as const) {
+      expect(readShare(`?avatar=mug&mood=${motion}`).mood).toBe(motion);
+    }
+    expect(readShare("?avatar=mug&mood=happy").mood).toBe("done");
+    expect(readShare("?avatar=mug&mood=sideways").mood).toBeUndefined();
   });
 
   it("leave out an avatar's own color", () => {
@@ -137,5 +145,11 @@ describe("avatar colors", () => {
 
   it("drops invalid stored colors", () => {
     expect(reviveLook({ colors: { a: "#123456", b: "red", c: 4 }, color: "#ffffff" })?.colors).toEqual({ a: "#123456" });
+  });
+
+  it("revives a lifecycle state, reads happy as done and falls back to idle", () => {
+    expect(reviveLook({ motion: "blocked" })?.motion).toBe("blocked");
+    expect(reviveLook({ motion: "happy" })?.motion).toBe("done");
+    expect(reviveLook({ motion: "sideways" })?.motion).toBe("idle");
   });
 });

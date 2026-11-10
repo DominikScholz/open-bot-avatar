@@ -120,7 +120,7 @@ describe('validateAvatar', () => {
 describe('renderAvatarSvg', () => {
   it('produces balanced standalone SVG for every example and motion', () => {
     for (const e of examples) {
-      for (const motion of ['idle', 'thinking', 'happy'] as const) {
+      for (const motion of ['idle', 'working', 'waiting', 'blocked', 'thinking', 'done', 'happy'] as const) {
         const svg = renderAvatarSvg(e, { motion, time: 1.7, size: 96 });
         expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="96" height="96"')).toBe(true);
         assertBalanced(svg);
@@ -191,7 +191,7 @@ describe('motion', () => {
     const p = computePose({ seed: 1, time: 3, motion: 'idle', gaze: { x: 50, y: -50 }, reducedMotion: true });
     expect(p.gazeX).toBe(1);
     expect(p.gazeY).toBe(-1);
-    for (const motion of ['idle', 'thinking', 'happy'] as const) {
+    for (const motion of ['idle', 'working', 'waiting', 'blocked', 'thinking', 'done', 'happy'] as const) {
       for (let t = 0; t < 6; t += 0.37) {
         const q = computePose({ seed: 9, time: t, motion, reducedMotion: false });
         expect(Object.values(q).every((v) => typeof v === 'string' || Number.isFinite(v))).toBe(true);

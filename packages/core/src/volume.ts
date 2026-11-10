@@ -143,6 +143,13 @@ export function insideDistance(polys: Point[][], x: number, y: number): number {
   return isInside(polys, x, y) ? edgeDistance(polys, x, y) : 0;
 }
 
+/** The horizontal span of the outlines at height y, or null where none of them crosses it. */
+export function spanAt(polys: Point[][], y: number): [number, number] | null {
+  const xs = crossings(polys, true, y);
+  if (!xs.length) return null;
+  return [xs[0], xs[xs.length - 1]];
+}
+
 /** Outline erosion of an inflated part at depth z (elliptical fillet). */
 export function erosionAt(part: Pick<VolumePart, 'depth' | 'rxy' | 'rz'>, z: number): number {
   const half = part.depth / 2;

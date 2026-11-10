@@ -126,10 +126,121 @@
       height: 156px;
     }
 
+    /* The paint orbits the avatar: one overlay per side of the body. */
+    .stage-figure {
+      position: relative;
+      display: grid;
+      place-items: center;
+    }
+
+    /* The box the avatar and its paint share, so the paint lines up with the body. */
+    .stage-box {
+      position: relative;
+      display: grid;
+      place-items: center;
+    }
+
+    .stage-box .stage-avatar {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* The body sits above the paint; the paint keeps its own place in the world. */
+    .stage-body {
+      position: relative;
+      z-index: 1;
+      width: fit-content;
+    }
+
+    /* The paint: a layer behind the body and a layer in front of it. */
+    .paint-defs {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .paint-back,
+    .paint-front {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .paint-back {
+      z-index: 0;
+    }
+
+    .paint-front {
+      z-index: 2;
+    }
+
+    /* Blocked and thinking show punctuation in the avatar's color instead of a silhouette. */
+    .lifecycle-glyph {
+      width: 140px;
+      height: 140px;
+      display: grid;
+      place-items: center;
+      animation: lifecycle-in 0.42s cubic-bezier(0.34, 1.35, 0.5, 1);
+    }
+
+    .lifecycle-glyph svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    /* Thinking: equal dots, each breathing on its own clock so the bright one wanders. */
+    .think-group {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: think-in 0.5s cubic-bezier(0.34, 1.4, 0.5, 1);
+    }
+
+    .lifecycle-glyph.is-thinking .think-dot {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: think-breathe 1.7s ease-in-out infinite;
+    }
+
+    .lifecycle-glyph.is-thinking .think-dot:nth-of-type(2) {
+      animation-delay: -0.28s;
+    }
+
+    .lifecycle-glyph.is-thinking .think-dot:nth-of-type(3) {
+      animation-delay: -0.56s;
+    }
+
+    /* Blocked: the bar springs up, then the dot drops in and the mark holds still. */
+    .lifecycle-glyph.is-blocked .alert-bar {
+      transform-box: fill-box;
+      transform-origin: 50% 100%;
+      animation: alert-bar-in 0.5s cubic-bezier(0.22, 1.4, 0.4, 1) both;
+    }
+
+    .lifecycle-glyph.is-blocked .alert-dot {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: alert-dot-in 0.62s cubic-bezier(0.3, 1.5, 0.5, 1) 0.16s both;
+    }
+
+    .lifecycle-glyph.is-still,
+    .lifecycle-glyph.is-still .think-group,
+    .lifecycle-glyph.is-still .think-dot,
+    .lifecycle-glyph.is-still .alert-bar,
+    .lifecycle-glyph.is-still .alert-dot {
+      animation: none !important;
+    }
+
     .stage-reset {
       position: absolute;
       top: 8px;
       right: 8px;
+      z-index: 3;
       width: 34px;
       height: 34px;
       display: grid;
@@ -147,6 +258,8 @@
 
     .moods {
       display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
       gap: 2px;
     }
 
@@ -164,6 +277,14 @@
     .mood.is-on {
       color: var(--text);
       background: #1c1c1c;
+    }
+
+    /* Six lifecycle states read as a 3 × 2 block on a phone instead of 5 + 1. */
+    @media (max-width: 480px) and (min-height: 561px) {
+      .moods {
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+      }
     }
 
     /* Picker card */
@@ -1349,7 +1470,9 @@
         }
 
         .moods {
-          flex-direction: column;
+          flex-direction: row;
+          flex-wrap: wrap;
+          justify-content: center;
           align-items: center;
           gap: 0;
         }
@@ -1423,6 +1546,11 @@
 
         .stage-avatar {
           width: var(--avatar);
+        }
+
+        .lifecycle-glyph {
+          width: calc(var(--avatar) * 0.82);
+          height: calc(var(--avatar) * 0.82);
         }
 
         .mood {
@@ -1504,6 +1632,84 @@
       clip-path: inset(50%);
       white-space: nowrap;
     }
+  }
+}
+
+@keyframes lifecycle-in {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes think-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes think-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(1.5px) scale(0.86);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-2.5px) scale(1);
+  }
+  62% {
+    opacity: 0.6;
+    transform: translateY(0) scale(0.92);
+  }
+}
+
+@keyframes alert-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scaleY(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+@keyframes alert-dot-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-26px) scale(1.9);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lifecycle-glyph,
+  .lifecycle-glyph .think-group,
+  .lifecycle-glyph .think-dot,
+  .lifecycle-glyph .alert-bar,
+  .lifecycle-glyph .alert-dot {
+    animation: none !important;
+  }
+
+  .paint-back,
+  .paint-front {
+    display: none;
   }
 }
 

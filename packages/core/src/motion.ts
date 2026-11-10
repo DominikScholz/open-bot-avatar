@@ -24,7 +24,8 @@ export interface Pose {
   /** Extra lid narrowing per eye, 0..1. */
   squintL: number;
   squintR: number;
-  eyeShape: 'pill' | 'happy';
+  /** `flat` is the bored, half-shut look: wide horizontal slits instead of tall pills. */
+  eyeShape: 'pill' | 'happy' | 'flat';
 }
 
 /** Resting view: turned a little and seen a little from above, so the volume reads without dominating. */
@@ -91,9 +92,24 @@ export function wanderAt(seed: number, t: number): [number, number] {
   return [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
 }
 
+/** Faster, wider glances for a busy state: a new saccade target every ~0.55 s. */
+function dartAt(seed: number, t: number): [number, number] {
+  const SLOT = 0.55;
+  const s = Math.floor(t / SLOT);
+  const target = (k: number): [number, number] => {
+    if (noise(seed, 2000 + k * 3) < 0.22) return [0, 0];
+    return [(noise(seed, 2001 + k * 3) * 2 - 1) * 0.85, (noise(seed, 2002 + k * 3) * 2 - 1) * 0.55];
+  };
+  const a = target(s - 1), b = target(s);
+  const e = smooth((t - s * SLOT) / 0.1);
+  return [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
+}
+
 export interface PoseInput {
   seed: number;
   time: number;
+  /** Seconds since `motion` began; `happy` uses it to start its loop with the mood. */
+  motionAge?: number;
   motion: AvatarMotion;
   /** Look target, -1..1 per axis (x right, y down); `weight` 0..1 fades it in over the idle pose (default 1). */
   gaze?: { x: number; y: number; weight?: number };
@@ -133,7 +149,7 @@ export function computePose(input: PoseInput): Pose {
   return blendPoses(computePose({ ...input, motion: from.motion, blend: from.blend }), pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
-function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput): Pose {
+function moodPose({ seed, time, motionAge, motion, gaze, reducedMotion, view }: PoseInput): Pose {
   // Per-avatar phase offset so several avatars on a page do not move in lockstep.
   const t = reducedMotion ? 0 : time + noise(seed, 7) * 10;
   const wave = (period: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase));
@@ -149,17 +165,81 @@ function moodPose({ seed, time, motion, gaze, reducedMotion, view }: PoseInput):
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0, eyeShape: 'pill',
   };
 
-  if (motion === 'happy') {
+  if (motion === 'done') {
+    // Content rather than triumphant: it keeps looking around while the paint dries.
+    // `motionAge` is deliberately unused here, so a direct render matches the live one.
+    const breath = wave(4.2, -Math.PI / 2);
+    pose.yaw += 0.1 * sway * wave(5.2);
+    pose.pitch += 0.035 * wave(4.6, 1);
+    pose.roll = 3.2 * wave(4.9, 2);
+    pose.lift = reducedMotion ? 0 : -0.55 * (1 - Math.cos((TAU * t) / 4.2));
+    pose.sy = 1 + 0.012 * breath;
+    pose.sx = 1 - 0.008 * breath;
+    if (!reducedMotion) {
+      pose.blink = blinkAt(seed, t * 1.1);
+      [pose.gazeX, pose.gazeY] = wanderAt(seed, t * 1.35);
+    }
+  } else if (motion === 'happy') {
     const period = 0.92;
-    const p = reducedMotion ? 0.5 : ((t % period) + period) % period / period;
+    // The loop starts with the mood when the caller knows its age, so entering
+    // `happy` always shows the hop from the ground; direct renders without an
+    // age follow the animation clock.
+    const clock = Number.isFinite(motionAge) ? (motionAge as number) : t;
+    const beat = (seconds: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * clock) / seconds + phase));
+    const p = reducedMotion ? 0.5 : ((clock % period) + period) % period / period;
     const air = 4 * p * (1 - p);
     const land = reducedMotion ? 0 : clamp(1 - Math.min(p, 1 - p) / 0.12, 0, 1);
     pose.lift = reducedMotion ? 0 : -3.2 * air;
     pose.sy = 1 - 0.09 * land + 0.03 * air * (reducedMotion ? 0 : 1);
     pose.sx = 1 + 0.07 * land - 0.015 * air * (reducedMotion ? 0 : 1);
-    pose.roll = 4.5 * wave(period * 2);
-    pose.yaw += 0.1 * wave(period * 2, 0.6);
+    pose.roll = 4.5 * beat(period * 2);
+    pose.yaw += 0.1 * beat(period * 2, 0.6);
     pose.eyeShape = 'happy';
+  } else if (motion === 'working') {
+    // Busy: the head holds a steady lean and works against it, breathing in and out
+    // of step with the lean, while the eyes dart from one thing to the next and the
+    // two lids narrow out of step, so it reads as scanning rather than staring.
+    // Measured against the Grok Bot: lean ~4 deg, wobble ~0.5 deg every 0.65 s.
+    const period = 0.655;
+    const beat = wave(period);
+    pose.yaw += 0.1 * wave(period * 3, 0.4);
+    pose.pitch += 0.07;
+    pose.roll = 4 + 0.54 * beat;
+    pose.lift = reducedMotion ? 0 : -0.11 * (1 - Math.cos((TAU * t) / 4.9));
+    pose.sx = 1;
+    pose.sy = 0.993 - 0.0064 * beat;
+    if (reducedMotion) {
+      pose.gazeX = 0.12;
+      pose.squintL = 0.26;
+      pose.squintR = 0.26;
+    } else {
+      [pose.gazeX, pose.gazeY] = dartAt(seed, t);
+      pose.squintL = 0.22 + 0.14 * wave(2.7);
+      pose.squintR = 0.22 + 0.14 * wave(3.3, 1.7);
+      pose.blink = blinkAt(seed, t * 1.35);
+    }
+  } else if (motion === 'waiting') {
+    // Bored wait: the head leans on one side and the eyes flatten into horizontal slits,
+    // glancing at whoever it is waiting on with the occasional slow blink.
+    pose.yaw += 0.05 * sway * wave(7.4);
+    pose.pitch += 0.03;
+    pose.roll = 8.2 + 1.5 * wave(6.8, 2);
+    pose.lift = reducedMotion ? 0 : -0.4 * (1 - Math.cos((TAU * t) / 6.2));
+    pose.gazeX = 0.44 + 0.16 * wave(8.2);
+    pose.gazeY = 0.08 + 0.07 * wave(5.6, 1);
+    pose.eyeShape = 'flat';
+    if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.7);
+  } else if (motion === 'blocked') {
+    // Alert pulses and a small shake: something needs attention now.
+    const pulse = reducedMotion ? 0 : Math.max(0, wave(1.6));
+    pose.yaw += 0.04 * wave(3.2, 0.8);
+    pose.roll = 2.6 * wave(1.6, 0.2);
+    pose.lift = -1.4 * pulse;
+    pose.sx = 1 + 0.04 * pulse;
+    pose.sy = 1 - 0.03 * pulse;
+    pose.gazeX = 0;
+    pose.gazeY = 0;
+    if (!reducedMotion) pose.blink = blinkAt(seed, t * 1.7);
   } else if (motion === 'thinking') {
     pose.yaw += 0.12 + 0.05 * sway * wave(7.3);
     pose.pitch += 0.08;

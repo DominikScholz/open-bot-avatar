@@ -54,7 +54,7 @@ const avatar = mountAvatar(document.querySelector("#bot")!, {
   followPointer: true,
 });
 
-avatar.update({ mood: "happy" }); // any subset of the options
+avatar.update({ mood: "working" }); // any subset of the options
 avatar.destroy();
 ```
 
@@ -62,7 +62,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"` or `"happy"`. |
+| `mood` | `"idle"` (default), `"working"`, `"waiting"`, `"blocked"`, `"thinking"`, `"done"` or `"happy"` (legacy celebration loop). |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
 | `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |
 | `holdGaze` | Keep looking where it looks now. Default: `false`. |
@@ -71,6 +71,18 @@ avatar.destroy();
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
 | `still` | One static SVG, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
+
+## Agent states
+
+The six moods are motion, not assets: each drives the same body through yaw and turn, so the volume stays readable from any angle.
+
+![idle, working, waiting, blocked, thinking and done, one after another](docs/media/states.gif)
+
+`working` emits paint strokes in the avatar's color; `done` spins the body while the eyes orbit in the same direction.
+
+| Working | Done |
+| --- | --- |
+| ![paint strokes while working](docs/media/working.gif) | ![a full spin on done](docs/media/done.gif) |
 
 ## SVG
 
@@ -115,7 +127,7 @@ packages/core/   npm package: engine and browser mount
 apps/site/       editor and documentation (Vite + React)
 gallery/         community avatar definitions
 skills/          design prompt and generation skill
-docs/            definition contract
+docs/            definition contract and demo media
 ```
 
 ## Development

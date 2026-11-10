@@ -2,7 +2,7 @@
 /**
  * Validate an avatar definition and optionally render a preview SVG.
  *
- *   node scripts/avatar-validate.ts <file.json|->  [--strict] [--svg out.svg] [--color #hex] [--motion idle|thinking|happy] [--time s]
+ *   node scripts/avatar-validate.ts <file.json|->  [--strict] [--svg out.svg] [--color #hex] [--motion idle|working|waiting|blocked|thinking|done|happy] [--time s]
  *
  * Prints the normalized compact JSON on success (exit 0) or one error per line (exit 1).
  * Also reports the face room as drawn (enlarged eyes, happy arcs, gaze); with

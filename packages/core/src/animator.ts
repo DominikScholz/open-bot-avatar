@@ -24,6 +24,8 @@ export interface AnimatorInput {
 export interface AnimatorStep {
   gaze?: { x: number; y: number; weight: number };
   motionBlend?: AvatarMotionBlend;
+  /** Seconds since the current mood began; `happy` uses it to start its loop with the mood. */
+  motionAge: number;
   /** True while the look or a mood change is still easing. */
   moving: boolean;
 }
@@ -58,7 +60,7 @@ export function createAnimator(): Animator {
       if (mood.blend && t < 1) motionBlend = { from: mood.blend.from, t };
       else mood.blend = undefined;
 
-      return { gaze: followGaze(follow), motionBlend, moving: moving || motionBlend !== undefined };
+      return { gaze: followGaze(follow), motionBlend, motionAge: (now - mood.since) / 1000, moving: moving || motionBlend !== undefined };
     },
     reset() {
       follow = REST;

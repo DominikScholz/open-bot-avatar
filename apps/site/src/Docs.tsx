@@ -19,7 +19,7 @@ const avatar = mountAvatar(document.querySelector("#bot")!, {
   followPointer: true,
 });
 
-avatar.update({ mood: "happy" });
+avatar.update({ mood: "done" }); // also working, waiting, blocked or thinking
 avatar.destroy();`;
 
 const REACT_USAGE = `import { useEffect, useRef } from "react";
@@ -73,7 +73,7 @@ function Code({ snippet, language }: { snippet: keyof typeof snippets; language:
 const PROPS: [string, string][] = [
   ["definition", "The avatar. Required."],
   ["color, eyeColor", "#rgb, #rrggbb or any CSS color. Default: #ff6a1a and #151515."],
-  ["mood", '"idle" (default), "thinking" or "happy".'],
+  ["mood", '"idle" (default), "working", "waiting", "blocked", "thinking", "done" or "happy" (legacy).'],
   ["followPointer", "Look at the mouse or finger. Default: false."],
   ["lookAt", "A fixed look direction, { x, y } from -1 to 1. Wins over the pointer."],
   ["holdGaze", "Keep looking where it looks now. Default: false."],

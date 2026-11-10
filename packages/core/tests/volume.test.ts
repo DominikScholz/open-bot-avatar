@@ -210,6 +210,48 @@ describe('live scene', () => {
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: 1.3, pitch: 0 } }).stack).toBe('x');
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: Math.PI, pitch: 0 } }).eyes.every((e) => !e.visible)).toBe(true);
     expect(sceneFrame(c, { motion: 'happy', time: 0.3 }).eyes.every((e) => e.happy)).toBe(true);
+    expect(sceneFrame(c, { motion: 'done', time: 0.3 }).eyes.every((e) => !e.happy)).toBe(true);
+    expect(sceneFrame(c, { motion: 'waiting', time: 0.3 }).eyes.every((e) => e.flat)).toBe(true);
+  });
+
+  it('turns the body in depth, around its own vertical axis', () => {
+    const c = getExample('chat')!;
+    const still = sceneFrame(c, { reducedMotion: true });
+    const turned = sceneFrame(c, { reducedMotion: true, bodyTurn: Math.PI / 2 });
+    // The turn is in depth: the view is the camera and does not carry it, the
+    // body's own layer does.
+    expect(turned.view).toBe(still.view);
+    expect(turned.spin).toBe('rotateY(1.5708rad)');
+    expect(still.spin).toBe('rotateY(0rad)');
+    // The eye keeps its place on the face: the body carries it, not the eye.
+    expect(turned.eyes.every((e) => !e.transform.includes('rotate('))).toBe(true);
+    expect(turned.eyes.map((e) => e.transform)).toEqual(still.eyes.map((e) => e.transform));
+  });
+
+  it('whirls the eye about the body, clockwise in the picture', () => {
+    const c = getExample('chat')!;
+    const b = buildVolume(c).bounds;
+    const px = (b.minX + b.maxX) / 2;
+    const py = (b.minY + b.maxY) / 2;
+    const w = 0.9;
+    const turned = sceneFrame(c, { reducedMotion: true, faceWhirl: w });
+    const still = sceneFrame(c, { reducedMotion: true });
+    expect(still.eyes.every((e) => !e.transform.includes('rotate('))).toBe(true);
+    const home = [c.eyes.x - c.eyes.spacing / 2, c.eyes.y];
+    const cos = Math.cos(w);
+    const sin = Math.sin(w);
+    const at = [px + (home[0] - px) * cos - (home[1] - py) * sin, py + (home[0] - px) * sin + (home[1] - py) * cos];
+    const offset = (t: string) => {
+      const m = t.match(/translate\((-?[\d.]+)cqw,(-?[\d.]+)cqw\)/);
+      return m ? [Number(m[1]), Number(m[2])] : null;
+    };
+    const moved = turned.eyes[0].transform;
+    const off = offset(moved)!;
+    expect(off).not.toBeNull();
+    // The eye's place turns about the body's centre, and the mark turns with it.
+    expect(moved).toContain('rotate(0.9rad)');
+    expect(Math.abs(home[0] + off[0] - at[0])).toBeLessThan(0.02);
+    expect(Math.abs(home[1] + off[1] - at[1])).toBeLessThan(0.02);
   });
 
   it('keeps every part core when small sizes thin out the slices', () => {

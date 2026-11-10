@@ -2,6 +2,7 @@ export type { AvatarDefinition, AvatarEyes, AvatarMotion, AvatarMotionBlend, Ren
 export { validateAvatar } from './validate.ts';
 export {
   avatarFrame,
+  paintBelt,
   renderAvatarSvg,
   renderAvatarScene,
   sceneFrame,
@@ -9,7 +10,7 @@ export {
   DEFAULT_DEPTH,
   DEFAULT_EYE_COLOR,
 } from './render.ts';
-export type { AvatarFrame, EyeMark, FramePath, FrameShape, Matrix, SceneFrame } from './render.ts';
+export type { AvatarFrame, EyeMark, FramePath, FrameShape, Matrix, PaintBelt, SceneFrame } from './render.ts';
 export { BASE_PITCH, BASE_YAW, blendPoses, computePose } from './motion.ts';
 export type { Pose, PoseInput } from './motion.ts';
 export { MOOD_MS, moodProgress, settleMood } from './mood.ts';

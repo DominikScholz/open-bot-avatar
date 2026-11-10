@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { examples } from '../src/examples.ts';
+import { computePose, hashString } from '../src/motion.ts';
 import { flattenPath, parsePath } from '../src/path.ts';
-import { avatarFrame, liveFrame, renderAvatarSvg } from '../src/render.ts';
+import { avatarFrame, liveFrame, preparedVolume, renderAvatarSvg } from '../src/render.ts';
 
 const poses = [
   { time: 0, reducedMotion: true },
@@ -72,6 +73,65 @@ describe('avatarFrame', () => {
           expect(y).toBeGreaterThanOrEqual(path.box.y - 0.05);
           expect(y).toBeLessThanOrEqual(path.box.y + path.box.h + 0.05);
         }
+      }
+    }
+  });
+
+  it('turns the body in depth, around its own vertical axis', () => {
+    const turn = Math.PI / 2;
+    for (const d of examples) {
+      const still = avatarFrame(d, { reducedMotion: true });
+      const turned = avatarFrame(d, { reducedMotion: true, bodyTurn: turn });
+      // The turn is in depth, not in the picture: the cross-sections are seen
+      // from another side, exactly as if the camera had turned by the same
+      // angle about the body's own centre.
+      const asCamera = avatarFrame(d, { reducedMotion: true, view: { yaw: turn, pitch: 0 } });
+      expect(turned.shapes.map((s) => s.matrix)).toEqual(asCamera.shapes.map((s) => s.matrix));
+      expect(turned.root).toEqual(asCamera.root);
+      expect(turned.shapes.map((s) => s.matrix)).not.toEqual(still.shapes.map((s) => s.matrix));
+      // The root carries the 2D motion only; the turn is in the projection.
+      expect(turned.root[0]).toBeCloseTo(1, 6);
+      expect(turned.root[1]).toBeCloseTo(0, 6);
+      expect(turned.root[4]).toBeCloseTo(0, 6);
+      expect(turned.root[5]).toBeCloseTo(0, 6);
+      // The face rides the turn: the eyes keep their place on the face, and the
+      // body carries them around (an eye that turns out of sight is simply gone).
+      const marks = (f: typeof still) =>
+        new Map(f.shapes.filter((s) => s.kind === 'eye').map((s) => [s.key, s.kind === 'eye' ? s.mark : null]));
+      const turnedMarks = marks(turned);
+      for (const [key, mark] of marks(still)) {
+        if (turnedMarks.has(key)) expect(turnedMarks.get(key)).toEqual(mark);
+      }
+    }
+  });
+
+  it('rolls and squashes about the base of the body, like the scene', () => {
+    for (const d of examples) {
+      const options = { time: 0.33, motion: 'happy' as const };
+      const frame = avatarFrame(d, options);
+      const { vol } = preparedVolume(d);
+      const bx = (vol.bounds.minX + vol.bounds.maxX) / 2;
+      const by = vol.bounds.maxY;
+      const pose = computePose({ seed: hashString(d.id), time: 0.33, motion: 'happy', reducedMotion: false });
+      // The base's centre is fixed by roll and squash, then lifted by the hop.
+      const x = frame.root[0] * bx + frame.root[2] * by + frame.root[4];
+      const y = frame.root[1] * bx + frame.root[3] * by + frame.root[5];
+      expect(x).toBeCloseTo(bx, 9);
+      expect(y).toBeCloseTo(by + pose.lift, 9);
+    }
+  });
+
+  it('keeps both eyes in front of the face they sit on while the view turns', () => {
+    for (const d of examples) {
+      const { vol } = preparedVolume(d);
+      for (let deg = 0; deg <= 40; deg += 5) {
+        const frame = avatarFrame(d, { reducedMotion: true, view: { yaw: (deg * Math.PI) / 180, pitch: 0 } });
+        const eyes = frame.shapes.flatMap((s, i) => (s.kind === 'eye' ? [i] : []));
+        expect(eyes.length).toBeGreaterThan(0);
+        // Depth is keyed at the face's midpoint for the eye part; taking it
+        // under each eye instead sorts the far eye behind its own face.
+        const lastFace = frame.shapes.reduce((last, s, i) => (s.kind === 'slice' && s.key[0] === String(vol.eyePart) ? i : last), -1);
+        for (const eye of eyes) expect(eye).toBeGreaterThan(lastFace);
       }
     }
   });

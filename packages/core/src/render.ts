@@ -22,9 +22,11 @@ import type { Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
 import type { GazeRange } from './validate.ts';
-import { buildVolume } from './volume.ts';
+import { buildVolume, spanAt } from './volume.ts';
 import type { Volume, VolumeSlice } from './volume.ts';
-import type { AvatarDefinition, RenderOptions } from './types.ts';
+import type { AvatarDefinition, AvatarMotion, RenderOptions } from './types.ts';
+
+const MOTIONS: readonly AvatarMotion[] = ['idle', 'working', 'waiting', 'blocked', 'thinking', 'done', 'happy'];
 
 export const DEFAULT_COLOR = '#ff6a1a';
 export const DEFAULT_EYE_COLOR = '#151515';
@@ -38,6 +40,9 @@ const MAX_DEPTH = 14;
  * drifts lift × sin(angle) from its spot: under half a unit at rest, about one at 45°.
  */
 const EYE_LIFT = 1.5;
+/** Flat (bored) eyes: this much wider than a neutral eye, and this fraction as tall. */
+const FLAT_WIDTH = 2.2;
+const FLAT_OPEN = 0.42;
 
 interface Prepared {
   def: AvatarDefinition;
@@ -98,16 +103,29 @@ export function preparedVolume(definition: AvatarDefinition, depth?: number): { 
 }
 
 function poseOf(p: Prepared, options: RenderOptions): Pose {
-  const motion = options.motion === 'thinking' || options.motion === 'happy' ? options.motion : 'idle';
+  const motion = options.motion && MOTIONS.includes(options.motion) ? options.motion : 'idle';
   return computePose({
     seed: p.seed,
     time: Number.isFinite(options.time) ? (options.time as number) : 0,
+    motionAge: Number.isFinite(options.motionAge) ? (options.motionAge as number) : undefined,
     motion,
     gaze: options.gaze,
     reducedMotion: options.reducedMotion === true,
     view: options.view,
     blend: options.motionBlend,
   });
+}
+
+/** The caller's turns: per-frame render input, not part of the mood's pose. */
+interface Turns {
+  face: number;
+  body: number;
+  whirl: number;
+}
+
+function turnsOf(options: RenderOptions): Turns {
+  const num = (v: number | undefined) => (Number.isFinite(v) ? (v as number) : 0);
+  return { face: num(options.faceTurn), body: num(options.bodyTurn), whirl: num(options.faceWhirl) };
 }
 
 function esc(s: string): string {
@@ -178,13 +196,23 @@ export function sidePlaneMatrix(v: ViewBasis, x0: number, pivot: Point): M {
   return [-v.sY, v.cY * v.sP, 0, v.cP, cx + v.cY * (x0 - cx), cy - v.cP * cy + v.sY * v.sP * (x0 - cx)];
 }
 
-/** Project a 3D point: screen x, screen y and depth toward the viewer. */
+/**
+ * Project a 3D point: screen x, screen y and depth toward the viewer. */
 export function projectPoint(v: ViewBasis, [x, y, z]: [number, number, number], pivot: Point): [number, number, number] {
   const m = planeMatrix(v, z, pivot);
   const X = x - pivot[0], Y = y - pivot[1];
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5], v.sP * Y + v.cP * (-v.sY * X + v.cY * z)];
 }
 
+/**
+ * The body's own turn.
+ *
+ * The official's bot spins inside its belt while it celebrates, and the spin
+ * is about the bot's own vertical axis: the shape turns in depth, so it shows
+ * its side and then its back, while the belt hangs still around it. The
+ * camera does not move for the spin, so the turn belongs to the body, and it
+ * is read as a turn of the shape about its own centre.
+ */
 function rootMatrix(pose: Pose, b: Bounds): M {
   const bx = (b.minX + b.maxX) / 2, by = b.maxY;
   const r = (pose.roll * Math.PI) / 180;
@@ -209,6 +237,100 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
   const half = radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy);
   return { x: cx - half, y: cy - half, size: 2 * half };
+}
+
+/**
+ * The belt geometry paint that rides around the avatar is built on: the paint
+ * comes from around the shape's waist, not out of its middle.
+ */
+export interface PaintBelt {
+  /** Centre of the avatar's bounds, viewBox units. */
+  cx: number;
+  cy: number;
+  /** Half the widest row of the silhouette. */
+  belt: number;
+  /** The avatar's widest dimension, for scaling design units. */
+  widest: number;
+}
+
+/** Half the widest row of the shape, scanned the way the official measures its belt. */
+function widestRow(polys: Point[][]): number {
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const poly of polys) {
+    for (const p of poly) {
+      if (p[1] < top) top = p[1];
+      if (p[1] > bottom) bottom = p[1];
+    }
+  }
+  if (!Number.isFinite(top) || bottom <= top) return 0;
+  let far = 0;
+  // The official's row of the scan is a hundred and sixtieth of the shape.
+  const step = (bottom - top) / 160;
+  for (let y = top; y <= bottom; y += step) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const poly of polys) {
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i];
+        const b = poly[(i + 1) % poly.length];
+        if (a[1] === b[1]) continue;
+        // Only the edges that cross this row have a point on it.
+        if (y < Math.min(a[1], b[1]) || y > Math.max(a[1], b[1])) continue;
+        const x = a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]);
+        if (x < min) min = x;
+        if (x > max) max = x;
+      }
+    }
+    if (max > min) far = Math.max(far, (max - min) / 2);
+  }
+  return far;
+}
+
+/**
+ * Geometry the Grok Bot's paint rides on. The belt is half of the shape's
+ * widest row, the official's own measurement: its bot fills its design space,
+ * so the belt rides just off the rim, and an avatar of any shape reads the
+ * same way. Throws if the definition is invalid.
+ */
+export function paintBelt(definition: AvatarDefinition, depth?: number): PaintBelt {
+  const { vol } = prepare(definition, depthOption({ depth }));
+  const b = vol.bounds;
+  return {
+    cx: (b.minX + b.maxX) / 2,
+    cy: (b.minY + b.maxY) / 2,
+    belt: widestRow(vol.parts.flatMap((part) => part.polys)),
+    widest: Math.max(b.maxX - b.minX, b.maxY - b.minY),
+  };
+}
+
+/**
+ * Where a point on the face sits after the face's turn in the picture.
+ *
+ * The official turns its whole head while it celebrates and the eyes ride the
+ * turn, so an eye swings around the head in a rosette rather than sliding
+ * across it. A body that only turns in depth leaves the eye sliding, and the
+ * eye then travels the other way round the body than the paint does. The
+ * whirl turns the eye's place on the face about the body's centre, in the
+ * picture, which is the turn the official's head group makes.
+ */
+function whirlPoint([x, y]: Point, whirl: number, pivot: Point): Point {
+  if (!whirl) return [x, y];
+  const c = Math.cos(whirl), s = Math.sin(whirl);
+  const dx = x - pivot[0], dy = y - pivot[1];
+  return [pivot[0] + dx * c - dy * s, pivot[1] + dx * s + dy * c];
+}
+
+/**
+ * The view the body is seen in: the camera's turn plus the body's own turn
+ * about its vertical axis.
+ *
+ * A turn of the body about the axis through its centre and a turn of the
+ * camera about the same axis give the same picture, so the two are one number
+ * here: the body is seen from the direction its own turn has carried it to.
+ */
+function bodyBasis(pose: Pose, bodyTurn: number): ViewBasis {
+  return viewBasis(pose.yaw + bodyTurn, pose.pitch);
 }
 
 /**
@@ -255,32 +377,97 @@ interface EyeState {
   open: number;
   shift: number;
   happy: boolean;
+  /** Bored eyes: a wide, shallow bar instead of a tall pill. */
+  flat: boolean;
+  /** How much the eye narrows as the face turns away from the viewer. */
+  sx: number;
+  /** How far the face's turn carries the eye in depth, in viewBox units. */
+  dz: number;
+  /** Whether the face's turn leaves this eye in front of the head. */
+  visible: boolean;
+  /** The eye's place in the face when the face does not turn. */
+  homeX: number;
 }
 
-function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
+/** The head's cross-section at one height: the ring the face turns around. */
+interface FaceArc {
+  /** The centre of the cross-section. */
+  cx: number;
+  /** How far the head reaches sideways at this height. */
+  rx: number;
+  /** How far the head reaches in depth. */
+  rz: number;
+}
+
+function faceArc(p: Prepared, y: number): FaceArc | null {
+  const part = p.vol.parts[p.vol.eyePart];
+  const span = spanAt(part.polys, y);
+  if (!span) return null;
+  const [minX, maxX] = span;
+  return {
+    cx: (minX + maxX) / 2,
+    rx: Math.max((maxX - minX) / 2, 12),
+    rz: Math.max(part.depth / 2, 0.5),
+  };
+}
+
+function eyeStates(p: Prepared, pose: Pose, faceTurn: number): [EyeState, EyeState] {
   const s = p.vol.eyeScale;
-  const w = EYE_W * s, h = EYE_H * s;
+  const shape = pose.eyeShape;
+  const flat = shape === 'flat';
+  const w = EYE_W * s * (flat ? FLAT_WIDTH : 1), h = EYE_H * s;
   const r = p.range;
   const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
   const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
   const centers = eyeCenters(p.def.eyes);
+  // The face turns inside the head: the pair rides the head's cross-section, so it
+  // swings around the head, narrows as it turns away and is gone once it passes the
+  // back. The head's own turn carries the face around with it.
+  const turn = faceTurn;
   return ([0, 1] as const).map((i) => {
     const squint = i === 0 ? pose.squintL : pose.squintR;
-    const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, happy: pose.eyeShape === 'happy' };
+    const lid = (1 - pose.blink) * (1 - squint * 0.4);
+    const open = flat
+      ? Math.max(h * 0.1, h * FLAT_OPEN * lid)
+      : Math.max(h * Math.max(0.09, lid), w * 0.55);
+    const [ex, ey] = centers[i];
+    let x = ex;
+    let sx = 1;
+    let dz = 0;
+    let visible = true;
+    if (turn) {
+      const arc = faceArc(p, ey);
+      if (arc) {
+        // The eye's own place on the ring, and where the turn carries it.
+        const r0 = Math.asin(clamp((ex - arc.cx) / arc.rx, -1, 1));
+        const s = r0 + turn;
+        const c = Math.cos(s);
+        visible = c > 0.02;
+        sx = Math.max(c, 0.02) / Math.max(Math.cos(r0), 0.02);
+        x = arc.cx + arc.rx * Math.sin(s);
+        dz = arc.rz * (c - Math.cos(r0));
+      }
+    }
+    return {
+      x, y: ey, w, h, dx, dy, open,
+      shift: (h - open) * (flat ? 0.05 : 0.18), happy: shape === 'happy', flat,
+      sx, dz, visible, homeX: ex,
+    };
   }) as [EyeState, EyeState];
 }
 
 function happyArc(e: EyeState): string {
   const ex = e.x + e.dx, ey = e.y + e.dy;
-  const hw = e.w * HAPPY_ARC.halfWidth, base = ey + e.h * HAPPY_ARC.base;
+  const hw = e.w * e.sx * HAPPY_ARC.halfWidth, base = ey + e.h * HAPPY_ARC.base;
   return `M${f(ex - hw)} ${f(base)}Q${f(ex)} ${f(ey - e.h * HAPPY_ARC.peak)} ${f(ex + hw)} ${f(base)}`;
 }
 
 function eyeMark(e: EyeState): EyeMark {
-  if (e.happy) return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
-  const cx = e.x + e.dx, cy = e.y + e.dy + e.shift;
-  return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
+  if (e.happy) return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * e.sx * HAPPY_ARC.stroke };
+  const ex = e.x + e.dx, ey = e.y + e.dy;
+  const w = e.w * e.sx;
+  const cx = ex, cy = ey + e.shift;
+  return { shape: 'pill', x: cx - w / 2, y: cy - e.open / 2, width: w, height: e.open, radius: Math.min(w, e.open) / 2 };
 }
 
 function colors(options: RenderOptions): { color: string; ink: string } {
@@ -363,14 +550,16 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const b = vol.bounds;
   const { color, ink } = colors(options);
   const pose = poseOf(p, options);
+  const turns = turnsOf(options);
   const pivot = pivotOf(b);
-  const v = viewBasis(pose.yaw, pose.pitch);
+  const v = bodyBasis(pose, turns.body);
   const stack = activeStack(v);
   const eyesMid: Point = [p.def.eyes.x, p.def.eyes.y];
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
   const items: { depth: number; shape: FrameShape }[] = [];
+  // The turn of the body: it carries the shape and the face together.
   drawnSlices(p, v, size, (s, m, i, j) => {
     let path = paths.get(s.d);
     if (!path) {
@@ -383,12 +572,23 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: m } });
   });
   // Painted on the surface; each eye goes once the surface under it turns away.
-  eyeStates(p, pose).forEach((e, idx) => {
-    if (eyeVisible(vol, v, idx)) {
-      const z = vol.eyeZ[idx] + EYE_LIFT;
+  eyeStates(p, pose, turns.face).forEach((e, idx) => {
+    if (e.visible && eyeVisible(vol, v, idx)) {
+      const z = vol.eyeZ[idx] + EYE_LIFT + e.dz;
+      // The whirl turns the eye in the face's own plane, so the mark rides the
+      // turn: the eye swings round the head the way the official's does.
+      const w = turns.whirl;
+      const turn: M = [Math.cos(w), Math.sin(w), -Math.sin(w), Math.cos(w), 0, 0];
       items.push({
+        // Depth is keyed at the face's midpoint, like the slices it sorts
+        // against; an eye's own x would put the far eye behind its own face.
         depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
-        shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: planeMatrix(v, z, pivot), mark: eyeMark(e) },
+        shape: {
+          kind: 'eye',
+          key: idx === 0 ? 'eye-0' : 'eye-1',
+          matrix: w ? mul(planeMatrix(v, z, pivot), about(pivot[0], pivot[1], turn)) : planeMatrix(v, z, pivot),
+          mark: eyeMark(e),
+        },
       });
     }
   });
@@ -463,7 +663,7 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     `<div data-stack="${axis}" style="${FILL}transform-style:preserve-3d">` +
     vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
     `</div>`;
-  const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
+  const eyes = eyeStates(p, poseOf(p, { reducedMotion: true }), 0).map((e, i) => {
     const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
     return (
       `<div data-eye="${i}" style="position:absolute;${box};backface-visibility:hidden;transform:translateZ(${u(vol.eyeZ[i] + EYE_LIFT)})">` +
@@ -478,8 +678,11 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     // will-change pins the slices' raster scale: without it every hop and squash re-rasterizes each slice.
     `<div data-motion style="${FILL}will-change:transform;transform-origin:${u((b.minX + b.maxX) / 2)} ${u(b.maxY)}">` +
     `<div data-view style="${FILL}transform-style:preserve-3d;transform-origin:${u(cx)} ${u(cy)}">` +
+    // The spinning group: the body and the face turn together inside it, about
+    // the body's own vertical axis, while the paint outside hangs still in the world.
+    `<div data-spin style="${FILL}transform-style:preserve-3d;transform-origin:${u(cx)} ${u(cy)}">` +
     stack('z') + stack('x') + eyes.join('') +
-    `</div></div></div>`
+    `</div></div></div></div>`
   );
 }
 
@@ -490,10 +693,12 @@ export interface SceneFrame {
   motion: string;
   /** 3D view rotation about the body center. */
   view: string;
+  /** The body's own turn, about its vertical axis, in depth. */
+  spin: string;
   stack: 'z' | 'x';
   /** Per slice of the active stack, in markup order: whether it shows. Hidden ones need no layer. */
   slices: boolean[];
-  eyes: { visible: boolean; happy: boolean; transform: string; pill: string }[];
+  eyes: { visible: boolean; happy: boolean; flat: boolean; transform: string; pill: string }[];
 }
 
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -531,8 +736,10 @@ function sliceDetail(p: Prepared, stack: 'z' | 'x', size: number | undefined): b
 export function sceneFrame(definition: AvatarDefinition, options: RenderOptions = {}): SceneFrame {
   const p = prepare(definition, depthOption(options));
   const pose = poseOf(p, options);
-  const v = viewBasis(pose.yaw, pose.pitch);
-  const states = eyeStates(p, pose);
+  const turns = turnsOf(options);
+  const v = bodyBasis(pose, turns.body);
+  const pivot = pivotOf(p.vol.bounds);
+  const states = eyeStates(p, pose, turns.face);
   const stack = activeStack(v);
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, options.size);
@@ -540,14 +747,33 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   return {
     scene: p.id,
     motion: `translate(0,${u(pose.lift)}) rotate(${f(pose.roll)}deg) scale(${r4(pose.sx)},${r4(pose.sy)})`,
+    // The view is the camera: the user's drag, the gaze and the pitch. The
+    // official never turns its root in depth, so neither do we.
     view: `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
+    // The body's own turn is about its vertical axis, in depth: the shape
+    // turns inside the belt and shows its side and its back, the way the
+    // official's bot spins in its belt. The camera does not carry it.
+    spin: `rotateY(${r4(turns.body)}rad)`,
     stack,
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
-    eyes: states.map((e, i) => ({
-      visible: eyeVisible(p.vol, v, i),
-      happy: e.happy,
-      transform: `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT)}) translate(${u(e.dx)},${u(e.dy)})`,
-      pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.h)})`,
-    })),
+    eyes: states.map((e, i) => {
+      // The face's own turn carries the eye around the head; the body's turn
+      // carries both, so the eye only has to hold its place on the face.
+      // The whirl turns that place about the body's centre, so the eye swings
+      // round the head the way the official's does.
+      const at = whirlPoint([e.x + e.dx, e.y + e.dy], turns.whirl, pivot);
+      const whirl = turns.whirl ? `rotate(${r4(turns.whirl)}rad) ` : '';
+      return {
+        visible: e.visible && eyeVisible(p.vol, v, i),
+        happy: e.happy,
+        flat: e.flat,
+        transform:
+          `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT + e.dz)}) ` +
+          `translate(${u(at[0] - e.homeX)},${u(at[1] - e.y)}) ` +
+          whirl +
+          `scale(${r4(e.sx)},1)`,
+        pill: `translateY(${u(e.shift)}) scale(${r4(e.flat ? FLAT_WIDTH : 1)},${r4(e.open / e.h)})`,
+      };
+    }),
   };
 }
