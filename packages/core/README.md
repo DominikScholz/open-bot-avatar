@@ -35,7 +35,8 @@ avatar.destroy();
 | --- | --- |
 | `definition` | Required avatar definition. Validate imported data first. |
 | `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"`, `"happy"`, `"excited"`, `"celebrate"`, `"determined"`, `"surprised"`, `"angry"`, `"sad"` or `"sleepy"`. Changes ease from the current pose, and the eyes morph. |
+| `mood` | `"idle"` (default), `"happy"`, `"excited"`, `"celebrate"`, `"determined"`, `"surprised"`, `"angry"`, `"sad"` or `"sleepy"`. Changes ease from the current pose, and the eyes morph. `"thinking"` is still accepted and means the `thinking` activity. |
+| `activity` | What the bot is doing, shown on top of the mood: `"thinking"`, `"listening"`, `"speaking"`, `"working"`, `"waiting"`, `"success"` or `"error"`. Omit it for none. The mood keeps the eyes and face; the activity sets the rhythm, gaze and body movement, so `mood: "sad"` with `activity: "working"` is a sad bot at work. Changes ease like mood changes. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
 | `holdGaze` | Keep the current look direction. Default: `false`. |
@@ -87,11 +88,11 @@ const frame = avatarFrame(result.value, options);
 Both functions accept `RenderOptions`:
 
 - `color`, `eyeColor`, `depth` and `view` work as in the mount API.
-- `motion` selects the mood (default: `"idle"`); `time` sets the animation clock in seconds (default: 0).
+- `motion` selects the mood (default: `"idle"`); `activity` selects what the bot is doing on top of it (default: none); `time` sets the animation clock in seconds (default: 0).
 - `gaze` sets a fixed direction: `{ x, y, weight? }`. Each axis ranges from -1 to 1; `weight` ranges from 0 to 1 and defaults to 1.
 - `size` sets the SVG width and height in pixels. Omit it for a fluid SVG.
 - `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion and blinking; gaze still applies. It does not read system preferences.
-- `motionBlend` lets a custom animation host blend from another mood: `{ from, t }`, with `t` from 0 to 1. `from` can be a mood or `{ motion, blend? }` for an interrupted transition.
+- `motionBlend` lets a custom animation host blend from another mood: `{ from, t }`, with `t` from 0 to 1. `from` can be a mood or `{ motion, activity?, blend? }` for an interrupted transition.
 
 ## Definitions and validation
 
@@ -121,7 +122,7 @@ See the [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) 
 
 - `examples` and `getExample(id)` provide built-in definitions.
 - `renderAvatarScene` and `sceneFrame` provide CSS 3D scene markup and per-frame transforms and eye outlines, at one compositor layer per visible slice; `mountAvatar` uses them with `renderer: "scene"`.
-- `MOTIONS` lists every mood and `isMotion` checks a value against it.
+- `MOTIONS` lists every mood and `isMotion` checks a value against it. `ACTIVITIES` and `isActivity` do the same for activities. `isMotion` also accepts `"thinking"`, which `MOTIONS` omits.
 - `computePose`, `createAnimator` and `pointerGaze` support custom animation hosts.
 
 ## License

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { contourLoops, loopsToPath, simplifyLoop } from '../src/contour.ts';
 import { examples, getExample } from '../src/examples.ts';
 import { FLATNESS, filledArea, flattenPath, insideRow, isInside, parsePath, winding } from '../src/path.ts';
-import { MOTIONS } from '../src/motion.ts';
+import { ACTIVITIES, MOTIONS } from '../src/motion.ts';
 import { activeStack, avatarFrame, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
 import { EYE_CLEARANCE, EYE_H, GAZE_X, GAZE_Y, analyzeBody, drawnEyesFit, gazeRange, validateAvatar } from '../src/validate.ts';
 import { EYE_BOOST, EYE_BOOST_PAD, FACE_ROOM_TARGET, type VolumePart, buildVolume, erosionAt, faceRoom, revolveAxis, surfaceZ } from '../src/volume.ts';
@@ -428,16 +428,18 @@ describe('mood expressions', () => {
   // A slot just tall enough for the eyes: big expressions have to give way here.
   const slot: AvatarDefinition = { version: 1, id: 'slot', name: 'Slot', body: { path: 'M30 37 H70 V55 H30 Z' }, eyes: { x: 50, y: 46, spacing: 11, scale: 1 } };
 
-  it('keep every eye inside the body, in every mood, look and moment', () => {
+  it('keep every eye inside the body, in every mood, activity, look and moment', () => {
     for (const e of [...examples, slot]) {
       const polys = analyzeBody(e.body.path).polys;
       for (const motion of MOTIONS) {
-        for (const time of [0.2, 1.1, 2.3, 3.7]) {
-          for (const gaze of [undefined, { x: 1, y: 1 }, { x: -1, y: -1 }]) {
-            for (const s of avatarFrame(e, { motion, time, gaze }).shapes) {
-              if (s.kind !== 'eye') continue;
-              const n = (s.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-              for (let k = 0; k < n.length; k += 2) expect(isInside(polys, n[k], n[k + 1]), `${e.id} ${motion} t${time}`).toBe(true);
+        for (const activity of [undefined, ...ACTIVITIES]) {
+          for (const time of [1.1, 5.9]) {
+            for (const gaze of [undefined, { x: 1, y: 1 }, { x: -1, y: -1 }]) {
+              for (const s of avatarFrame(e, { motion, activity, time, gaze }).shapes) {
+                if (s.kind !== 'eye') continue;
+                const n = (s.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+                for (let k = 0; k < n.length; k += 2) expect(isInside(polys, n[k], n[k + 1]), `${e.id} ${motion} ${activity} t${time}`).toBe(true);
+              }
             }
           }
         }

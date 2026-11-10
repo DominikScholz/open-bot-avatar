@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createAnimator } from '../src/animator.ts';
-import { blendPoses, computePose } from '../src/motion.ts';
+import { ACTIVITIES, blendPoses, computePose } from '../src/motion.ts';
 import { MOOD_MS, moodProgress, settleMood, type MoodState } from '../src/mood.ts';
 
 const base = { seed: 7, time: 3.2, reducedMotion: false };
@@ -8,7 +8,7 @@ const base = { seed: 7, time: 3.2, reducedMotion: false };
 describe('mood changes', () => {
   it('blend from one pose to the other, exactly at both ends', () => {
     const a = computePose({ ...base, motion: 'idle' });
-    const b = computePose({ ...base, motion: 'thinking' });
+    const b = computePose({ ...base, motion: 'happy' });
     expect(blendPoses(a, b, 0)).toEqual(a);
     expect(blendPoses(a, b, 1)).toEqual(b);
     const mid = blendPoses(a, b, 0.5);
@@ -30,6 +30,15 @@ describe('mood changes', () => {
     expect(computePose({ ...base, motion: 'happy', blend: { from: 'idle', t: 1 } })).toEqual(to);
   });
 
+  it('ease between a mood and activity pair and another', () => {
+    const from = computePose({ ...base, motion: 'sad', activity: 'working' });
+    const to = computePose({ ...base, motion: 'happy', activity: 'waiting' });
+    const blend = { from: { motion: 'sad', activity: 'working' }, t: 0 } as const;
+    expect(computePose({ ...base, motion: 'happy', activity: 'waiting', blend })).toEqual(from);
+    expect(computePose({ ...base, motion: 'happy', activity: 'waiting', blend: { ...blend, t: 1 } })).toEqual(to);
+    expect(from).not.toEqual(computePose({ ...base, motion: 'sad' }));
+  });
+
   it('progress eases from 0 to 1 over MOOD_MS', () => {
     expect(moodProgress(0)).toBe(0);
     expect(moodProgress(MOOD_MS)).toBe(1);
@@ -38,11 +47,41 @@ describe('mood changes', () => {
 
   it('never grows the chain of interrupted changes', () => {
     let state: MoodState = { motion: 'idle' };
-    const moods = ['thinking', 'happy', 'idle'] as const;
+    const moods = ['sad', 'happy', 'idle'] as const;
     for (let i = 0; i < 50; i++) state = { motion: moods[i % 3], blend: { from: settleMood(state), t: 0.3 } };
     let depth = 0;
     for (let s: MoodState | string = state; typeof s !== 'string' && s.blend; s = s.blend.from) depth++;
     expect(depth).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('activities', () => {
+  const lifts = (motion: 'happy' | 'celebrate', activity?: 'working') =>
+    Array.from({ length: 80 }, (_, i) => computePose({ ...base, time: i * 0.07, motion, activity }));
+
+  it('treat motion thinking as idle plus the thinking activity, and let an explicit activity win', () => {
+    for (const reducedMotion of [false, true]) {
+      const idle = computePose({ ...base, reducedMotion, motion: 'idle', activity: 'thinking' });
+      expect(computePose({ ...base, reducedMotion, motion: 'thinking' })).toEqual(idle);
+      expect(computePose({ ...base, reducedMotion, motion: 'thinking', activity: 'working' })).toEqual(computePose({ ...base, reducedMotion, motion: 'idle', activity: 'working' }));
+    }
+  });
+
+  it('leave a mood without an activity as it was, and damp its body motion under one', () => {
+    expect(Math.min(...lifts('happy').map((p) => p.lift))).toBeLessThan(-3);
+    expect(Math.min(...lifts('happy', 'working').map((p) => p.lift))).toBeGreaterThan(-1.5);
+    expect(Math.max(...lifts('celebrate').map((p) => p.yaw))).toBeGreaterThan(5);
+    expect(Math.max(...lifts('celebrate', 'working').map((p) => p.yaw))).toBeLessThan(1);
+  });
+
+  it('keep the mood eyes recognisable', () => {
+    const happy = computePose({ ...base, motion: 'happy' }).eyes[0];
+    for (const activity of ACTIVITIES) expect(computePose({ ...base, motion: 'happy', activity }).eyes[0].arch).toBe(happy.arch);
+  });
+
+  it('differ from each other and from none under reduced motion', () => {
+    const poses = [undefined, ...ACTIVITIES].map((activity) => JSON.stringify(computePose({ ...base, motion: 'idle', activity, reducedMotion: true })));
+    expect(new Set(poses).size).toBe(poses.length);
   });
 });
 
@@ -57,6 +96,17 @@ describe('animator', () => {
     const done = a.step({ now: 16 + MOOD_MS + 1, motion: 'happy', target: null, reducedMotion: false });
     expect(done.motionBlend).toBeUndefined();
     expect(done.moving).toBe(false);
+  });
+
+  it('starts a blend when only the activity changes', () => {
+    const a = createAnimator();
+    a.step({ now: 0, motion: 'happy', activity: 'working', target: null, reducedMotion: false });
+    const start = a.step({ now: 16, motion: 'happy', activity: 'waiting', target: null, reducedMotion: false });
+    expect(start.motionBlend).toEqual({ from: { motion: 'happy', activity: 'working' }, t: 0 });
+    expect(start.moving).toBe(true);
+    const snap = createAnimator();
+    snap.step({ now: 0, motion: 'happy', activity: 'working', target: null, reducedMotion: true });
+    expect(snap.step({ now: 16, motion: 'happy', activity: 'waiting', target: null, reducedMotion: true }).motionBlend).toBeUndefined();
   });
 
   it('turns toward a target and lets go of it gradually', () => {
@@ -81,7 +131,7 @@ describe('animator', () => {
   it('snaps under reduced motion', () => {
     const a = createAnimator();
     a.step({ now: 0, motion: 'idle', target: null, reducedMotion: true });
-    const step = a.step({ now: 16, motion: 'thinking', target: { x: 0.3, y: 0 }, reducedMotion: true });
+    const step = a.step({ now: 16, motion: 'sad', target: { x: 0.3, y: 0 }, reducedMotion: true });
     expect(step.motionBlend).toBeUndefined();
     expect(step.gaze).toEqual({ x: 0.3, y: 0, weight: 1 });
   });

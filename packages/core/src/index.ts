@@ -1,4 +1,4 @@
-export type { AvatarDefinition, AvatarEyes, AvatarMotion, AvatarMotionBlend, RenderOptions, ValidationResult } from './types.ts';
+export type { AvatarActivity, AvatarDefinition, AvatarEyes, AvatarMotion, AvatarMotionBlend, RenderOptions, ValidationResult } from './types.ts';
 export { validateAvatar } from './validate.ts';
 export {
   avatarFrame,
@@ -10,7 +10,7 @@ export {
   DEFAULT_EYE_COLOR,
 } from './render.ts';
 export type { AvatarFrame, EyeMark, FramePath, FrameShape, Matrix, SceneFrame } from './render.ts';
-export { BASE_PITCH, BASE_YAW, MOTIONS, blendPoses, computePose, isMotion } from './motion.ts';
+export { ACTIVITIES, BASE_PITCH, BASE_YAW, MOTIONS, blendPoses, computePose, isActivity, isMotion } from './motion.ts';
 export type { Pose, PoseInput } from './motion.ts';
 export { FACE_TRAVEL, NEUTRAL_EYE } from './face.ts';
 export type { EyeParams } from './face.ts';

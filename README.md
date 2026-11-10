@@ -62,7 +62,8 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `mood` | `"idle"` (default), `"thinking"`, `"happy"`, `"excited"`, `"celebrate"`, `"determined"`, `"surprised"`, `"angry"`, `"sad"` or `"sleepy"`. |
+| `mood` | `"idle"` (default), `"happy"`, `"excited"`, `"celebrate"`, `"determined"`, `"surprised"`, `"angry"`, `"sad"` or `"sleepy"`. It sets the face and posture. `"thinking"` is still accepted and means the thinking activity. |
+| `activity` | `"thinking"`, `"listening"`, `"speaking"`, `"working"`, `"waiting"`, `"success"` or `"error"`. What the bot is doing, shown on top of its mood, so it can be working and happy, or waiting and sleepy. Default: none. |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
 | `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |
 | `holdGaze` | Keep looking where it looks now. Default: `false`. |
@@ -86,7 +87,7 @@ if (result.ok) {
 }
 ```
 
-Both also take `time` (seconds), `motion` (the mood) and `gaze`.
+Both also take `time` (seconds), `motion` (the mood), `activity` and `gaze`.
 
 ## React
 

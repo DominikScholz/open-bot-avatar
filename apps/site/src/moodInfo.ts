@@ -1,4 +1,4 @@
-import type { AvatarMotion } from "open-bot-avatar";
+import type { AvatarActivity, AvatarMotion } from "open-bot-avatar";
 
 export const MOOD_INFO: Record<AvatarMotion, { label: string; text: string }> = {
   idle: { label: "Idle", text: "Breathes, sways, blinks and glances around." },
@@ -14,3 +14,15 @@ export const MOOD_INFO: Record<AvatarMotion, { label: string; text: string }> = 
 };
 
 export const moodLabel = (mood: AvatarMotion) => MOOD_INFO[mood].label;
+
+export const ACTIVITY_INFO: Record<AvatarActivity, { label: string; text: string }> = {
+  thinking: { label: "Thinking", text: "Looks up and away with one eye squinting, then mulls it over on the other side." },
+  listening: { label: "Listening", text: "Perks up wide-eyed and faces you with its head cocked, nodding along twice." },
+  speaking: { label: "Speaking", text: "Bounces in an uneven, syllable-like rhythm, its eyes popping tall with each beat, turning from phrase to phrase." },
+  working: { label: "Working", text: "Hunches over and taps away, eyes narrowed and reading along a line, and looks up now and then to check." },
+  waiting: { label: "Waiting", text: "Rocks from side to side gazing off, then turns, leans in wide-eyed and hops twice." },
+  success: { label: "Success", text: "Hops once with smiling eyes, nods twice, then stands proud." },
+  error: { label: "Error", text: "Shakes its head with a flinch, then stays off balance and uneasy." },
+};
+
+export const activityLabel = (activity: AvatarActivity) => ACTIVITY_INFO[activity].label;

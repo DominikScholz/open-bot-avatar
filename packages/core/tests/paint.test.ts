@@ -99,7 +99,7 @@ describe('fitSquare', () => {
       const extent = avatarExtent(d);
       let fit: Square | null = null, grows = 0;
       for (let t = 0; t < 400; t++) {
-        const o: RenderOptions = { motion: (['idle', 'happy', 'thinking'] as const)[Math.floor(t / 40) % 3], time: t / 30, gaze: { x: Math.sin(t / 17), y: Math.cos(t / 23) }, size: 64 };
+        const o: RenderOptions = { motion: (['idle', 'happy', 'sad'] as const)[Math.floor(t / 40) % 3], time: t / 30, gaze: { x: Math.sin(t / 17), y: Math.cos(t / 23) }, size: 64 };
         const { bounds } = framePlacement(liveFrame(d, o));
         const next = fitSquare(fit, bounds, extent);
         if (next !== fit) grows++;

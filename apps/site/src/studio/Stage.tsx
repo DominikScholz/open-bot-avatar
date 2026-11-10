@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { MOTIONS, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
+import { ACTIVITIES, MOTIONS, type AvatarActivity, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
-import { moodLabel } from "../moodInfo";
-import { Icon } from "./ui";
+import { activityLabel, moodLabel } from "../moodInfo";
+import { ChoiceMenu, Icon } from "./ui";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
@@ -10,6 +10,7 @@ interface StageProps {
   definition: AvatarDefinition;
   color: string;
   mood: AvatarMotion;
+  activity: AvatarActivity | undefined;
   followCursor: boolean;
   /** Forced on or off, or "system" to follow prefers-reduced-motion. */
   reducedMotion: boolean | "system";
@@ -18,18 +19,20 @@ interface StageProps {
   view: ViewAngle;
   onView: (view: ViewAngle) => void;
   onMotion: (motion: AvatarMotion) => void;
-  /** Shown under the moods (the avatar's actions). */
+  onActivity: (activity: AvatarActivity | undefined) => void;
+  /** Shown under the mood and activity (the avatar's actions). */
   children?: ReactNode;
 }
 
 const MOODS = MOTIONS.map((value) => ({ value, label: moodLabel(value) }));
+const ACTIVITY_OPTIONS = [{ value: undefined, label: "None" }, ...ACTIVITIES.map((value) => ({ value, label: activityLabel(value) }))];
 
 const PITCH_LIMIT = 0.9;
 const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p));
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, mood, followCursor, reducedMotion, reduced, view, onView, onMotion, children }: StageProps) {
+export function Stage({ definition, color, mood, activity, followCursor, reducedMotion, reduced, view, onView, onMotion, onActivity, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -116,6 +119,7 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
           definition={definition}
           color={color}
           mood={mood}
+          activity={activity}
           view={view}
           followPointer={followCursor}
           holdGaze={dragging}
@@ -135,19 +139,9 @@ export function Stage({ definition, color, mood, followCursor, reducedMotion, re
           <Icon name="rotate" />
         </button>
       </div>
-      <div className="moods" role="radiogroup" aria-label="Mood">
-        {MOODS.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            role="radio"
-            aria-checked={mood === m.value}
-            className={mood === m.value ? "mood is-on" : "mood"}
-            onClick={() => onMotion(m.value)}
-          >
-            {m.label}
-          </button>
-        ))}
+      <div className="stage-picks">
+        <ChoiceMenu label="Mood" value={mood} options={MOODS} onChange={onMotion} />
+        <ChoiceMenu label="Activity" value={activity} options={ACTIVITY_OPTIONS} onChange={onActivity} />
       </div>
       {children}
     </section>

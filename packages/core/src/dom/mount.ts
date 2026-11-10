@@ -16,7 +16,7 @@
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
-import type { AvatarDefinition, AvatarMotion, RenderOptions } from '../types.ts';
+import type { AvatarActivity, AvatarDefinition, AvatarMotion, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -31,6 +31,8 @@ export interface AvatarOptions {
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
   mood?: AvatarMotion;
+  /** What the bot is doing, combined with the mood (e.g. working and happy). */
+  activity?: AvatarActivity;
   /** Eyes look and the body turns toward the mouse, pen or finger anywhere on the page. */
   followPointer?: boolean;
   /** Fixed look direction (-1..1 per axis, x right, y down). Wins over the pointer. */
@@ -222,6 +224,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           eyeColor: p.eyeColor,
           depth: p.depth,
           motion: p.mood,
+          activity: p.activity,
           view: p.view,
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
@@ -241,10 +244,11 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         : p.followPointer && pointer && rect && rect.width > 0
           ? pointerGaze(pointer, rect, eyesOrigin(p.definition))
           : null;
-      const step = animator.step({ now, motion: p.mood ?? 'idle', target, hold: p.holdGaze, reducedMotion });
+      const step = animator.step({ now, motion: p.mood ?? 'idle', activity: p.activity, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
         motion: p.mood ?? 'idle',
+        activity: p.activity,
         motionBlend: step.motionBlend,
         size: size || undefined,
         time,

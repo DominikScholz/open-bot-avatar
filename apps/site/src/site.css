@@ -261,10 +261,48 @@
       background: var(--hover);
     }
 
+    .mood-with {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .mood-with-label {
+      font-size: 13px;
+      color: var(--faint);
+    }
+
+    .activity-pick {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px;
+    }
+
+    .activity-pick-item {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      color: var(--faint);
+    }
+
+    .activity-pick-item:hover {
+      color: var(--muted);
+    }
+
+    .activity-pick-item.is-on {
+      color: var(--text);
+      background: var(--hover);
+    }
+
     .mood-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr));
       gap: 12px;
+    }
+
+    .mood-grid-wide {
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr));
     }
 
     .mood-card {
@@ -279,12 +317,13 @@
       margin: 0 auto 6px;
     }
 
-    .page .mood-card h2 {
+    .mood-card h3 {
       margin: 0 0 4px;
       font-size: 15px;
+      font-weight: 600;
     }
 
-    .mood-card h2 code {
+    .mood-card h3 code {
       margin-left: 6px;
       font-size: 12px;
       font-weight: 400;

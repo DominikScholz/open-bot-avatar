@@ -98,6 +98,18 @@ describe("share links", () => {
     expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", mood: "happy" });
   });
 
+  it("round-trip an activity next to the mood, and leave it out when none", () => {
+    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), motion: "sad", activity: "working" });
+    expect(link).toBe("https://example.test/?avatar=mug&mood=sad&activity=working");
+    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", mood: "sad", activity: "working" });
+    expect(shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), motion: "idle", activity: undefined })).toBe("https://example.test/?avatar=mug");
+  });
+
+  it("ignore an unknown activity and keep mood=thinking as a mood", () => {
+    expect(readShare("?activity=dancing")).toEqual({});
+    expect(readShare("?mood=thinking")).toEqual({ mood: "thinking" });
+  });
+
   it("leave out an avatar's own color", () => {
     const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), motion: "idle" });
     expect(link).toBe("https://example.test/?avatar=mug");

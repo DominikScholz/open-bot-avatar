@@ -17,7 +17,7 @@
  */
 import { parseHex, toHex } from './color.ts';
 import type { Rgb } from './color.ts';
-import { computePose, hashString, isMotion } from './motion.ts';
+import { computePose, hashString, isActivity, isMotion } from './motion.ts';
 import type { Pose } from './motion.ts';
 import { FACE_TRAVEL, eyePoints, outlinePath, type EyeFrame } from './face.ts';
 import { insideRow } from './path.ts';
@@ -26,7 +26,7 @@ import { EYE_CLEARANCE, EYE_H, EYE_W, GAZE_X, GAZE_Y, analyzeBody, eyeCenters, g
 import type { GazeRange } from './validate.ts';
 import { buildVolume } from './volume.ts';
 import type { Volume, VolumeSlice } from './volume.ts';
-import type { AvatarDefinition, AvatarMotion, RenderOptions } from './types.ts';
+import type { AvatarActivity, AvatarDefinition, AvatarMotion, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
 export const DEFAULT_EYE_COLOR = '#151515';
@@ -48,8 +48,8 @@ interface Prepared {
   /** Body outline, for fitting expressions; rasterized on first use (see bodyMask). */
   polys: Point[][];
   mask?: Uint8Array;
-  /** Per mood, the share of its expression that fits (see moodFit). */
-  fit: Map<AvatarMotion, number>;
+  /** Per mood and activity pair, the share of its expression that fits (see moodFit). */
+  fit: Map<string, number>;
   seed: number;
   /** Prefix for SVG ids; equal geometry and depth always give equal ids, so repeats on a page are safe. */
   id: string;
@@ -112,21 +112,22 @@ function poseOf(p: Prepared, options: RenderOptions): Pose {
     seed: p.seed,
     time: Number.isFinite(options.time) ? (options.time as number) : 0,
     motion,
+    activity: isActivity(options.activity) ? options.activity : undefined,
     gaze: options.gaze,
     reducedMotion: options.reducedMotion === true,
     view: options.view,
     blend: options.motionBlend,
-    fit: (m) => moodFit(p, m),
+    fit: (m, a) => moodFit(p, m, a),
   });
 }
 
 const FIT_STEPS = [1, 0.8, 0.6, 0.4, 0.2, 0];
-const FIT_TIMES = [0, 0.4, 0.9, 1.4, 2, 2.7, 3.5, 4.4, 5.3];
+const FIT_TIMES = [0, 0.4, 0.9, 1.4, 2, 2.7, 3.5, 4.4, 5.3, 6.1];
 const FIT_LOOKS = [undefined, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
 
 /**
- * The largest share of a mood's expression (eye growth, tilt and face travel) whose eyes keep
- * EYE_CLEARANCE inside the outline across the mood's motion and any look direction. At 0 the
+ * The largest share of a mood and activity pair's expression (eye growth, tilt and face travel) whose eyes keep
+ * EYE_CLEARANCE inside the outline across the pair's motion and any look direction. At 0 the
  * eyes stay within the neutral pill, which validation already guarantees. Cached per avatar.
  */
 const MASK_STEP = 0.25, MASK_N = 100 / MASK_STEP;
@@ -147,18 +148,19 @@ function inBody(p: Prepared, x: number, y: number): boolean {
   return i >= 0 && j >= 0 && i < MASK_N && j < MASK_N && p.mask[j * MASK_N + i] === 1;
 }
 
-function moodFit(p: Prepared, motion: AvatarMotion): number {
-  const known = p.fit.get(motion);
+function moodFit(p: Prepared, motion: AvatarMotion, activity?: AvatarActivity): number {
+  const key = `${motion}|${activity ?? ''}`;
+  const known = p.fit.get(key);
   if (known !== undefined) return known;
   const fits = (k: number) =>
     FIT_TIMES.every((time) =>
       FIT_LOOKS.every((gaze) => {
-        const pose = computePose({ seed: p.seed, time, motion, gaze, reducedMotion: false, fit: () => k });
+        const pose = computePose({ seed: p.seed, time, motion, activity, gaze, reducedMotion: false, fit: () => k });
         return eyeFrames(p, pose, EYE_CLEARANCE).every((frame, i) => eyePoints(pose.eyes[i], frame).every(([x, y]) => inBody(p, x, y)));
       }),
     );
   const k = FIT_STEPS.find((step) => step === 0 || fits(step)) ?? 0;
-  p.fit.set(motion, k);
+  p.fit.set(key, k);
   return k;
 }
 

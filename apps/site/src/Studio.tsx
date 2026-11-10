@@ -110,7 +110,7 @@ export function Studio() {
     [yoursDefs, setYoursDefs, setSelectedKey],
   );
 
-  // A link's query (studio/share.ts) picks the avatar, color and mood once, on opening. They're
+  // A link's query (studio/share.ts) picks the avatar, color, mood and activity once, on opening. They're
   // saved like any other choice; anything in it that doesn't check out is left alone. The query is
   // then cleared, so coming back to the studio later doesn't apply it again.
   const shared = useRef(true);
@@ -134,7 +134,9 @@ export function Studio() {
     }
     // A link's color is for its avatar; without one it has nothing to apply to.
     setLook((prev) => {
-      let next = link.mood ? { ...prev, motion: link.mood } : prev;
+      // An old link's mood=thinking is the thinking activity now.
+      let next = link.mood ? { ...prev, motion: link.mood === "thinking" ? ("idle" as const) : link.mood, activity: link.mood === "thinking" ? ("thinking" as const) : prev.activity } : prev;
+      if (link.activity) next = { ...next, activity: link.activity };
       if (link.color && target) next = withColor(next, target.key, target.id, link.color);
       return next;
     });
@@ -179,14 +181,16 @@ export function Studio() {
           definition={selected.definition}
           color={color}
           mood={look.motion}
+          activity={look.activity}
           followCursor={look.followCursor}
           reducedMotion={reducedMotion}
           reduced={reduced}
           view={view}
           onView={setView}
           onMotion={(motion) => patchLook({ motion })}
+          onActivity={(activity) => patchLook({ activity })}
         >
-          <Actions entry={selected} color={color} mood={look.motion} onRemove={removeEntry} />
+          <Actions entry={selected} color={color} mood={look.motion} activity={look.activity} onRemove={removeEntry} />
         </Stage>
 
         <section className="picker" aria-label="Avatar editor">

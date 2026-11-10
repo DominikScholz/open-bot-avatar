@@ -19,7 +19,7 @@ const avatar = mountAvatar(document.querySelector("#bot")!, {
   followPointer: true,
 });
 
-avatar.update({ mood: "happy" });
+avatar.update({ mood: "happy", activity: "working" });
 avatar.destroy();`;
 
 const REACT_USAGE = `import { useEffect, useRef } from "react";
@@ -73,7 +73,8 @@ function Code({ snippet, language }: { snippet: keyof typeof snippets; language:
 const PROPS: [string, string][] = [
   ["definition", "The avatar. Required."],
   ["color, eyeColor", "#rgb, #rrggbb or any CSS color. Default: #ff6a1a and #151515."],
-  ["mood", '"idle" (default), "thinking", "happy", "excited", "celebrate", "determined", "surprised", "angry", "sad" or "sleepy". See Moods.'],
+  ["mood", '"idle" (default), "happy", "excited", "celebrate", "determined", "surprised", "angry", "sad" or "sleepy". It sets the face and posture. "thinking" is still accepted and means the thinking activity. See Moods.'],
+  ["activity", '"thinking", "listening", "speaking", "working", "waiting", "success" or "error". What the bot is doing, shown on top of its mood: it sets the rhythm, gaze and body movement. Default: none. See Moods.'],
   ["followPointer", "Look at the mouse or finger. Default: false."],
   ["lookAt", "A fixed look direction, { x, y } from -1 to 1. Wins over the pointer."],
   ["holdGaze", "Keep looking where it looks now. Default: false."],
