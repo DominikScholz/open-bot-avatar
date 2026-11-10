@@ -428,23 +428,25 @@ describe('mood expressions', () => {
   // A slot just tall enough for the eyes: big expressions have to give way here.
   const slot: AvatarDefinition = { version: 1, id: 'slot', name: 'Slot', body: { path: 'M30 37 H70 V55 H30 Z' }, eyes: { x: 50, y: 46, spacing: 11, scale: 1 } };
 
-  it('keep every eye inside the body, in every mood, activity, look and moment', () => {
+  // One test per activity, so each stays well inside the timeout on a slow machine.
+  it.each([undefined, ...ACTIVITIES])('keep every eye inside the body, in every mood, look and moment, while %s', (activity) => {
+    // One assertion for the lot: an expect per eye point would be a large share of the time here.
+    const outside = new Set<string>();
     for (const e of [...examples, slot]) {
       const polys = analyzeBody(e.body.path).polys;
       for (const motion of MOTIONS) {
-        for (const activity of [undefined, ...ACTIVITIES]) {
-          for (const time of [1.1, 5.9]) {
-            for (const gaze of [undefined, { x: 1, y: 1 }, { x: -1, y: -1 }]) {
-              for (const s of avatarFrame(e, { motion, activity, time, gaze }).shapes) {
-                if (s.kind !== 'eye') continue;
-                const n = (s.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-                for (let k = 0; k < n.length; k += 2) expect(isInside(polys, n[k], n[k + 1]), `${e.id} ${motion} ${activity} t${time}`).toBe(true);
-              }
+        for (const time of [1.1, 5.9]) {
+          for (const gaze of [undefined, { x: 1, y: 1 }, { x: -1, y: -1 }]) {
+            for (const s of avatarFrame(e, { motion, activity, time, gaze }).shapes) {
+              if (s.kind !== 'eye') continue;
+              const n = (s.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+              for (let k = 0; k < n.length; k += 2) if (!isInside(polys, n[k], n[k + 1])) outside.add(`${e.id} ${motion} t${time}`);
             }
           }
         }
       }
     }
+    expect([...outside]).toEqual([]);
   });
 
   it('scale back on a tight body instead of leaving it', () => {
