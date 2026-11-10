@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { examples, getExample } from '../src/examples.ts';
-import { blinkAt, computePose } from '../src/motion.ts';
+import { MOTIONS, blinkAt, computePose } from '../src/motion.ts';
 import { flattenPath, isInside, parsePath, PathError } from '../src/path.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, renderAvatarSvg } from '../src/render.ts';
 import { analyzeBody, RECESS_MAX_AREA, validateAvatar } from '../src/validate.ts';
@@ -120,7 +120,7 @@ describe('validateAvatar', () => {
 describe('renderAvatarSvg', () => {
   it('produces balanced standalone SVG for every example and motion', () => {
     for (const e of examples) {
-      for (const motion of ['idle', 'thinking', 'happy'] as const) {
+      for (const motion of MOTIONS) {
         const svg = renderAvatarSvg(e, { motion, time: 1.7, size: 96 });
         expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="96" height="96"')).toBe(true);
         assertBalanced(svg);
@@ -173,7 +173,7 @@ describe('renderAvatarSvg', () => {
   });
 
   it('hides the eyes once the front turns away', () => {
-    const eyes = (yaw: number) => (renderAvatarSvg(controller, { reducedMotion: true, view: { yaw, pitch: 0 } }).match(/<rect /g) ?? []).length;
+    const eyes = (yaw: number) => (renderAvatarSvg(controller, { reducedMotion: true, view: { yaw, pitch: 0 } }).match(/<g transform="[^"]*"><path /g) ?? []).length;
     expect(eyes(0)).toBe(2);
     expect(eyes(Math.PI)).toBe(0);
   });
@@ -191,10 +191,11 @@ describe('motion', () => {
     const p = computePose({ seed: 1, time: 3, motion: 'idle', gaze: { x: 50, y: -50 }, reducedMotion: true });
     expect(p.gazeX).toBe(1);
     expect(p.gazeY).toBe(-1);
-    for (const motion of ['idle', 'thinking', 'happy'] as const) {
+    for (const motion of MOTIONS) {
       for (let t = 0; t < 6; t += 0.37) {
         const q = computePose({ seed: 9, time: t, motion, reducedMotion: false });
-        expect(Object.values(q).every((v) => typeof v === 'string' || Number.isFinite(v))).toBe(true);
+        const { eyes, ...rest } = q;
+        expect([...Object.values(rest), ...eyes.flatMap((e) => Object.values(e))].every((v) => Number.isFinite(v))).toBe(true);
         expect(Math.abs(q.roll)).toBeLessThan(10);
         expect(q.lift).toBeLessThanOrEqual(0);
       }

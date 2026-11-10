@@ -17,14 +17,16 @@
  */
 import { parseHex, toHex } from './color.ts';
 import type { Rgb } from './color.ts';
-import { computePose, hashString } from './motion.ts';
+import { computePose, hashString, isActivity, isMotion } from './motion.ts';
 import type { Pose } from './motion.ts';
+import { FACE_TRAVEL, eyePoints, outlinePath, type EyeFrame } from './face.ts';
+import { insideRow } from './path.ts';
 import type { Bounds, Point } from './path.ts';
-import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
+import { EYE_CLEARANCE, EYE_H, EYE_W, GAZE_X, GAZE_Y, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
 import type { GazeRange } from './validate.ts';
 import { buildVolume } from './volume.ts';
 import type { Volume, VolumeSlice } from './volume.ts';
-import type { AvatarDefinition, RenderOptions } from './types.ts';
+import type { AvatarActivity, AvatarDefinition, AvatarMotion, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
 export const DEFAULT_EYE_COLOR = '#151515';
@@ -43,6 +45,11 @@ interface Prepared {
   def: AvatarDefinition;
   vol: Volume;
   range: GazeRange;
+  /** Body outline, for fitting expressions; rasterized on first use (see bodyMask). */
+  polys: Point[][];
+  mask?: Uint8Array;
+  /** Per mood and activity pair, the share of its expression that fits (see moodFit). */
+  fit: Map<string, number>;
   seed: number;
   /** Prefix for SVG ids; equal geometry and depth always give equal ids, so repeats on a page are safe. */
   id: string;
@@ -81,6 +88,8 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     def,
     vol,
     range: gazeRange(body.polys, { ...def.eyes, scale: vol.eyeScale }),
+    polys: body.polys,
+    fit: new Map(),
     seed: hashString(def.id),
     id,
     ids,
@@ -98,16 +107,61 @@ export function preparedVolume(definition: AvatarDefinition, depth?: number): { 
 }
 
 function poseOf(p: Prepared, options: RenderOptions): Pose {
-  const motion = options.motion === 'thinking' || options.motion === 'happy' ? options.motion : 'idle';
+  const motion = isMotion(options.motion) ? options.motion : 'idle';
   return computePose({
     seed: p.seed,
     time: Number.isFinite(options.time) ? (options.time as number) : 0,
     motion,
+    activity: isActivity(options.activity) ? options.activity : undefined,
     gaze: options.gaze,
     reducedMotion: options.reducedMotion === true,
     view: options.view,
     blend: options.motionBlend,
+    fit: (m, a) => moodFit(p, m, a),
   });
+}
+
+const FIT_STEPS = [1, 0.8, 0.6, 0.4, 0.2, 0];
+const FIT_TIMES = [0, 0.4, 0.9, 1.4, 2, 2.7, 3.5, 4.4, 5.3, 6.1];
+const FIT_LOOKS = [undefined, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+
+/**
+ * The largest share of a mood and activity pair's expression (eye growth, tilt and face travel) whose eyes keep
+ * EYE_CLEARANCE inside the outline across the pair's motion and any look direction. At 0 the
+ * eyes stay within the neutral pill, which validation already guarantees. Cached per avatar.
+ */
+const MASK_STEP = 0.25, MASK_N = 100 / MASK_STEP;
+
+/** Whether a point lies inside the body, from a bitmap of the outline (exact to a quarter unit). */
+function inBody(p: Prepared, x: number, y: number): boolean {
+  if (!p.mask) {
+    const mask = new Uint8Array(MASK_N * MASK_N);
+    const xs = Array.from({ length: MASK_N }, (_, i) => (i + 0.5) * MASK_STEP);
+    const row = new Uint8Array(MASK_N);
+    for (let j = 0; j < MASK_N; j++) {
+      insideRow(p.polys, (j + 0.5) * MASK_STEP, xs, row);
+      mask.set(row, j * MASK_N);
+    }
+    p.mask = mask;
+  }
+  const i = Math.floor(x / MASK_STEP), j = Math.floor(y / MASK_STEP);
+  return i >= 0 && j >= 0 && i < MASK_N && j < MASK_N && p.mask[j * MASK_N + i] === 1;
+}
+
+function moodFit(p: Prepared, motion: AvatarMotion, activity?: AvatarActivity): number {
+  const key = `${motion}|${activity ?? ''}`;
+  const known = p.fit.get(key);
+  if (known !== undefined) return known;
+  const fits = (k: number) =>
+    FIT_TIMES.every((time) =>
+      FIT_LOOKS.every((gaze) => {
+        const pose = computePose({ seed: p.seed, time, motion, activity, gaze, reducedMotion: false, fit: () => k });
+        return eyeFrames(p, pose, EYE_CLEARANCE).every((frame, i) => eyePoints(pose.eyes[i], frame).every(([x, y]) => inBody(p, x, y)));
+      }),
+    );
+  const k = FIT_STEPS.find((step) => step === 0 || fits(step)) ?? 0;
+  p.fit.set(key, k);
+  return k;
 }
 
 function esc(s: string): string {
@@ -242,45 +296,22 @@ function sliceCull(v: ViewBasis): (s: VolumeSlice) => boolean {
 // ---------------------------------------------------------------------------
 // Eyes (shared by both renderers, in face-plane coordinates)
 
-interface EyeState {
-  /** Neutral center and size. */
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  /** Gaze offset. */
-  dx: number;
-  dy: number;
-  /** Drawn pill height after blink/squint, and its downward shift (lids close toward a point below center). */
-  open: number;
-  shift: number;
-  happy: boolean;
-}
-
-function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
+/** Where each eye sits this frame and its neutral size; `inflate` grows the outline (fit tests). */
+function eyeFrames(p: Prepared, pose: Pose, inflate = 0): [EyeFrame, EyeFrame] {
   const s = p.vol.eyeScale;
-  const w = EYE_W * s, h = EYE_H * s;
   const r = p.range;
-  const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
-  const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
+  const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s + pose.faceX * FACE_TRAVEL * s;
+  const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s + pose.faceY * FACE_TRAVEL * s;
   const centers = eyeCenters(p.def.eyes);
-  return ([0, 1] as const).map((i) => {
-    const squint = i === 0 ? pose.squintL : pose.squintR;
-    const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, happy: pose.eyeShape === 'happy' };
-  }) as [EyeState, EyeState];
+  return ([0, 1] as const).map((i) => ({
+    x: centers[i][0] + dx, y: centers[i][1] + dy, w: EYE_W * s, h: EYE_H * s,
+    inward: i === 0 ? 1 : -1, blink: pose.blink, inflate,
+  })) as [EyeFrame, EyeFrame];
 }
 
-function happyArc(e: EyeState): string {
-  const ex = e.x + e.dx, ey = e.y + e.dy;
-  const hw = e.w * HAPPY_ARC.halfWidth, base = ey + e.h * HAPPY_ARC.base;
-  return `M${f(ex - hw)} ${f(base)}Q${f(ex)} ${f(ey - e.h * HAPPY_ARC.peak)} ${f(ex + hw)} ${f(base)}`;
-}
-
-function eyeMark(e: EyeState): EyeMark {
-  if (e.happy) return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
-  const cx = e.x + e.dx, cy = e.y + e.dy + e.shift;
-  return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
+/** Each eye's outline as a filled path, face-plane coordinates. */
+function eyePaths(p: Prepared, pose: Pose): [string, string] {
+  return eyeFrames(p, pose).map((frame, i) => outlinePath(eyePoints(pose.eyes[i], frame))) as [string, string];
 }
 
 function colors(options: RenderOptions): { color: string; ink: string } {
@@ -296,10 +327,8 @@ function colors(options: RenderOptions): { color: string; ink: string } {
 /** 2D affine matrix in SVG order (a b c d e f). */
 export type Matrix = [number, number, number, number, number, number];
 
-/** How one eye is drawn, in its face plane's coordinates (viewBox units). */
-export type EyeMark =
-  | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number }
-  | { shape: 'arc'; d: string; strokeWidth: number };
+/** How one eye is drawn, in its face plane's coordinates (viewBox units): a filled closed path. */
+export type EyeMark = { shape: 'path'; d: string };
 
 export type FrameShape =
   | {
@@ -383,12 +412,12 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: m } });
   });
   // Painted on the surface; each eye goes once the surface under it turns away.
-  eyeStates(p, pose).forEach((e, idx) => {
+  eyePaths(p, pose).forEach((d, idx) => {
     if (eyeVisible(vol, v, idx)) {
       const z = vol.eyeZ[idx] + EYE_LIFT;
       items.push({
         depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
-        shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: planeMatrix(v, z, pivot), mark: eyeMark(e) },
+        shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: planeMatrix(v, z, pivot), mark: { shape: 'path', d } },
       });
     }
   });
@@ -400,10 +429,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
 // Standalone SVG still
 
 function eyeSvg(mark: EyeMark, ink: string): string {
-  if (mark.shape === 'arc') {
-    return `<path d="${mark.d}" fill="none" stroke="${ink}" stroke-width="${f(mark.strokeWidth)}" stroke-linecap="round"/>`;
-  }
-  return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" fill="${ink}"/>`;
+  return `<path d="${mark.d}" fill="${ink}"/>`;
 }
 
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
@@ -463,16 +489,11 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     `<div data-stack="${axis}" style="${FILL}transform-style:preserve-3d">` +
     vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
     `</div>`;
-  const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
-    const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
-    return (
-      `<div data-eye="${i}" style="position:absolute;${box};backface-visibility:hidden;transform:translateZ(${u(vol.eyeZ[i] + EYE_LIFT)})">` +
-      `<i style="position:absolute;inset:0;border-radius:999px;background:${ink}"></i>` +
-      `<svg viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
-      `<path d="${happyArc(e)}" fill="none" stroke="${ink}" stroke-width="${f(e.w * HAPPY_ARC.stroke)}" stroke-linecap="round"/></svg>` +
-      `</div>`
-    );
-  });
+  // Each eye is one path over the whole face plane; sceneFrame gives its outline every frame.
+  const eyes = eyePaths(p, poseOf(p, { reducedMotion: true })).map((d, i) =>
+    `<svg data-eye="${i}" viewBox="0 0 100 100" style="${FILL}overflow:visible;backface-visibility:hidden;transform:translateZ(${u(vol.eyeZ[i] + EYE_LIFT)})" aria-hidden="true">` +
+    `<path d="${d}" fill="${ink}"/></svg>`,
+  );
   return (
     `<div data-avatar-scene="${p.id}" style="position:relative;width:100%;height:100%;container-type:size">` +
     // will-change pins the slices' raster scale: without it every hop and squash re-rasterizes each slice.
@@ -493,7 +514,8 @@ export interface SceneFrame {
   stack: 'z' | 'x';
   /** Per slice of the active stack, in markup order: whether it shows. Hidden ones need no layer. */
   slices: boolean[];
-  eyes: { visible: boolean; happy: boolean; transform: string; pill: string }[];
+  /** Per eye: whether it shows, and its outline (a path `d` in the 0 0 100 100 face plane). */
+  eyes: { visible: boolean; d: string }[];
 }
 
 const r4 = (n: number) => Math.round(n * 10000) / 10000;
@@ -532,7 +554,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const p = prepare(definition, depthOption(options));
   const pose = poseOf(p, options);
   const v = viewBasis(pose.yaw, pose.pitch);
-  const states = eyeStates(p, pose);
+  const paths = eyePaths(p, pose);
   const stack = activeStack(v);
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, options.size);
@@ -543,11 +565,6 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
     view: `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
     stack,
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
-    eyes: states.map((e, i) => ({
-      visible: eyeVisible(p.vol, v, i),
-      happy: e.happy,
-      transform: `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT)}) translate(${u(e.dx)},${u(e.dy)})`,
-      pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.h)})`,
-    })),
+    eyes: paths.map((d, i) => ({ visible: eyeVisible(p.vol, v, i), d })),
   };
 }

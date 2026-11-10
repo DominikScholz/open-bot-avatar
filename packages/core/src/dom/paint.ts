@@ -113,33 +113,15 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
 }
 
 function eyeBox(mark: EyeMark): FramePath['box'] {
-  if (mark.shape === 'pill') return { x: mark.x, y: mark.y, w: mark.width, h: mark.height };
-  // A quadratic arc lies within its points' hull; the stroke reaches half its width past it.
+  // Quadratics lie within their points' hull; the path is absolute M, Q and Z only (face.ts).
   const n = (mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
   const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-  const x = Math.min(...xs) - mark.strokeWidth, y = Math.min(...ys) - mark.strokeWidth;
-  return { x, y, w: Math.max(...xs) + mark.strokeWidth - x, h: Math.max(...ys) + mark.strokeWidth - y };
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
 function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
-  if (mark.shape === 'arc') {
-    ctx.lineWidth = mark.strokeWidth;
-    ctx.stroke(new Path2D(mark.d));
-    return;
-  }
-  const { x, y, width: w, height: h, radius: r } = mark;
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-  else {
-    // Safari before 16 and Firefox before 112.
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-  ctx.fill();
+  ctx.fill(new Path2D(mark.d));
 }
 
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
@@ -196,8 +178,6 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
   }
 
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
   // Shapes run in the thousands per second across a page: one setTransform each beats save/restore.
   for (let i = 0; i < frame.shapes.length; i++) {

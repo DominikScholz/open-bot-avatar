@@ -1,4 +1,4 @@
-import { validateAvatar, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
+import { isActivity, isMotion, validateAvatar, type AvatarActivity, type AvatarDefinition, type AvatarMotion } from "open-bot-avatar";
 import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
 
 /**
@@ -6,7 +6,9 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *
  *   ?avatar=barbell          a starter, a gallery avatar or one of yours, by id
  *   &color=1f7cf2            a color: hex, with or without #, or a swatch name (blue)
- *   &mood=happy              idle, thinking or happy
+ *   &mood=happy              a mood (MOTIONS in open-bot-avatar), e.g. idle, happy or sad; mood=thinking
+ *                            still works and means the thinking activity
+ *   &activity=working        an activity (ACTIVITIES in open-bot-avatar), e.g. working or waiting
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
@@ -15,12 +17,12 @@ export interface SharedLook {
   definition?: AvatarDefinition;
   color?: string;
   mood?: AvatarMotion;
+  activity?: AvatarActivity;
   /** Why `def` was left out, if it didn't decode or validate. */
   problem?: string;
 }
 
 const HEX = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i;
-const MOODS: AvatarMotion[] = ["idle", "thinking", "happy"];
 
 /** A definition as compact JSON in base64url (UTF-8 safe, no padding). */
 export function encodeDefinition(definition: AvatarDefinition): string {
@@ -71,19 +73,21 @@ export function readShare(search: string): SharedLook {
   if (avatar) shared.avatar = avatar;
   const color = readColor(params.get("color"));
   if (color) shared.color = color;
-  const mood = params.get("mood")?.trim().toLowerCase() as AvatarMotion | undefined;
-  if (mood && MOODS.includes(mood)) shared.mood = mood;
+  const mood = params.get("mood")?.trim().toLowerCase();
+  if (isMotion(mood)) shared.mood = mood;
+  const activity = params.get("activity")?.trim().toLowerCase();
+  if (isActivity(activity)) shared.activity = activity;
   return shared;
 }
 
 /**
  * A link to this avatar in this look: a starter or gallery avatar by id, one of yours with its
- * definition. The color and mood are left out at their defaults (the avatar's own color, idle).
+ * definition. The color, mood and activity are left out at their defaults (the avatar's own color, idle, none).
  */
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { color: string; motion: LookState["motion"] },
+  look: { color: string; motion: LookState["motion"]; activity?: LookState["activity"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);
@@ -94,5 +98,6 @@ export function shareLink(
     params.set("color", swatch ? swatch.name.toLowerCase() : color.replace(/^#/, ""));
   }
   if (look.motion !== DEFAULT_LOOK.motion) params.set("mood", look.motion);
+  if (look.activity && look.activity !== DEFAULT_LOOK.activity) params.set("activity", look.activity);
   return `${base}?${params}`;
 }

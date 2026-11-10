@@ -8,7 +8,7 @@ import { shareLink } from "./share";
 import { Icon, MenuButton } from "./ui";
 
 /** Export and Copy for the avatar on the stage, each offering its two versions, and Remove for one of yours. */
-export function Actions({ entry, color, mood, onRemove }: { entry: LibraryEntry; color: string; mood: LookState["motion"]; onRemove: (key: string) => void }) {
+export function Actions({ entry, color, mood, activity, onRemove }: { entry: LibraryEntry; color: string; mood: LookState["motion"]; activity: LookState["activity"]; onRemove: (key: string) => void }) {
   const [copied, flashCopied] = useFlash();
   const [problem, setProblem] = useState<string | null>(null);
   const { definition } = entry;
@@ -53,7 +53,7 @@ export function Actions({ entry, color, mood, onRemove }: { entry: LibraryEntry;
               label: "Link",
               hint: "Opens it in this color and mood",
               onSelect: () => {
-                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, motion: mood });
+                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, motion: mood, activity });
                 void copy(link, `Couldn’t reach the clipboard. The link: ${link}`);
               },
             },

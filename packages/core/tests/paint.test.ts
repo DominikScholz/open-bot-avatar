@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FIT_PAD, FIT_SLACK, fitSquare, framePlacement, type Bounds, type Square } from '../src/dom/paint.ts';
 import { examples } from '../src/examples.ts';
 import { flattenPath, type Segment } from '../src/path.ts';
+import { MOTIONS } from '../src/motion.ts';
 import { avatarExtent, avatarFrame, liveFrame } from '../src/render.ts';
 import type { RenderOptions } from '../src/types.ts';
 
@@ -41,14 +42,14 @@ function painted(o: RenderOptions, d = examples[0]) {
   frame.shapes.forEach((s, i) => {
     const m = matrices[i];
     const local: number[] = s.kind === 'slice' ? flat(paths.get(s.path) ?? '')
-      : s.mark.shape === 'pill' ? [s.mark.x, s.mark.y, s.mark.x + s.mark.width, s.mark.y + s.mark.height] : [];
+      : (s.mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
     for (let k = 0; k < local.length; k += 2) points.push([m[0] * local[k] + m[2] * local[k + 1] + m[4], m[1] * local[k] + m[3] * local[k + 1] + m[5]]);
   });
   return { bounds, points };
 }
 
 const poses: RenderOptions[] = [];
-for (const motion of ['idle', 'happy', 'thinking'] as const) {
+for (const motion of MOTIONS) {
   for (let t = 0; t < 12; t++) {
     poses.push({ motion, time: t * 0.61, gaze: t % 3 ? { x: Math.sin(t), y: Math.cos(t * 1.3) } : undefined });
     poses.push({ motion, time: t * 0.37, view: { yaw: t * 0.9 - 5, pitch: Math.sin(t) * 1.4 } });
@@ -98,7 +99,7 @@ describe('fitSquare', () => {
       const extent = avatarExtent(d);
       let fit: Square | null = null, grows = 0;
       for (let t = 0; t < 400; t++) {
-        const o: RenderOptions = { motion: (['idle', 'happy', 'thinking'] as const)[Math.floor(t / 40) % 3], time: t / 30, gaze: { x: Math.sin(t / 17), y: Math.cos(t / 23) }, size: 64 };
+        const o: RenderOptions = { motion: (['idle', 'happy', 'sad'] as const)[Math.floor(t / 40) % 3], time: t / 30, gaze: { x: Math.sin(t / 17), y: Math.cos(t / 23) }, size: 64 };
         const { bounds } = framePlacement(liveFrame(d, o));
         const next = fitSquare(fit, bounds, extent);
         if (next !== fit) grows++;

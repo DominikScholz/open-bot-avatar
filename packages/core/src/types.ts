@@ -28,14 +28,21 @@ export interface AvatarDefinition {
   eyes: AvatarEyes;
 }
 
-export type AvatarMotion = 'idle' | 'thinking' | 'happy';
+export type AvatarMotion =
+  | 'idle' | 'thinking' | 'happy' | 'excited' | 'celebrate' | 'determined' | 'surprised' | 'angry' | 'sad' | 'sleepy';
+
+/**
+ * What the bot is doing, shown on top of its mood: the mood keeps the face, the activity sets
+ * the rhythm, gaze and body movement. Leave it out when the bot is doing nothing in particular.
+ */
+export type AvatarActivity = 'thinking' | 'listening' | 'speaking' | 'working' | 'waiting' | 'success' | 'error';
 
 /**
  * A mood easing in over what was shown before it: a plain mood, or a mood that
  * was itself still easing in (its progress frozen where it was). `t` 0..1.
  */
 export interface AvatarMotionBlend {
-  from: AvatarMotion | { motion: AvatarMotion; blend?: AvatarMotionBlend };
+  from: AvatarMotion | { motion: AvatarMotion; activity?: AvatarActivity; blend?: AvatarMotionBlend };
   t: number;
 }
 
@@ -62,6 +69,8 @@ export interface RenderOptions {
    */
   gaze?: { x: number; y: number; weight?: number };
   motion?: AvatarMotion;
+  /** What the bot is doing, combined with `motion` (e.g. working and happy). */
+  activity?: AvatarActivity;
   /**
    * Ease into `motion` from the mood shown before: the pose blends between the
    * two, and eyes that change shape close and reopen. Hosts leave it out once

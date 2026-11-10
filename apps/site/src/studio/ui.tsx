@@ -190,3 +190,61 @@ export function MenuButton({ icon, label, items, done, placement = "top" }: { ic
     </div>
   );
 }
+
+/**
+ * A button that names a setting and its current choice, and opens a menu to pick another: for
+ * choices too many to lay out as buttons. Arrow keys move between them.
+ */
+export function ChoiceMenu<T extends string | undefined>({ label, value, options, onChange }: { label: string; value: T; options: readonly { value: T; label: string }[]; onChange: (value: T) => void }) {
+  const { open, setOpen, root, trigger } = usePopover();
+  const list = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (open) list.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  }, [open]);
+  const onKey = (event: KeyboardEvent) => {
+    const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    buttons[(at + step + buttons.length) % buttons.length]?.focus();
+  };
+  return (
+    <div className="menu" ref={root}>
+      <button
+        ref={trigger}
+        type="button"
+        className="btn btn-sm choice"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="choice-name">{label}</span>
+        {options.find((o) => o.value === value)?.label}
+        <Icon name="chevron" />
+      </button>
+      {open ? (
+        <div ref={list} id={id} className="popover popover-top" role="menu" aria-label={label} onKeyDown={onKey}>
+          {options.map((o) => (
+            <button
+              key={o.label}
+              type="button"
+              role="menuitemradio"
+              aria-checked={o.value === value}
+              className="menu-item menu-radio"
+              onClick={() => {
+                setOpen(false);
+                trigger.current?.focus();
+                onChange(o.value);
+              }}
+            >
+              <span>{o.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -1,11 +1,13 @@
 import { BotAvatar } from "./BotAvatar";
 import { Docs } from "./Docs";
+import { Moods } from "./Moods";
 import { REPO, href, useRoute, type Route } from "./route";
 import { Studio } from "./Studio";
 import { LOGO, LOGO_COLOR } from "./logo";
 
 const NAV: { route: Route; label: string }[] = [
   { route: "studio", label: "Editor" },
+  { route: "moods", label: "Moods" },
   { route: "docs", label: "Docs" },
 ];
 
@@ -32,7 +34,7 @@ export function App() {
           </a>
         </nav>
       </header>
-      {route === "studio" ? <Studio /> : <Docs />}
+      {route === "studio" ? <Studio /> : route === "moods" ? <Moods /> : <Docs />}
       <a className="credit" href="https://x.com/dom_scholz" target="_blank" rel="noopener">
         by @dom_scholz
       </a>

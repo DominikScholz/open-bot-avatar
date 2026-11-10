@@ -8,7 +8,6 @@ import { avatarExtent } from '../src/render.ts';
 interface Recorder {
   calls: { op: string; fill: string; stroke: string }[];
 }
-let withRoundRect = true;
 const recorders = new WeakMap<HTMLCanvasElement, Recorder>();
 
 beforeAll(() => {
@@ -22,7 +21,6 @@ beforeAll(() => {
     for (const op of ['setTransform', 'clearRect', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath']) {
       ctx[op] = () => rec.calls.push({ op, fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
     }
-    if (withRoundRect) ctx.roundRect = () => rec.calls.push({ op: 'roundRect', fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
     return ctx as unknown as CanvasRenderingContext2D;
   } as unknown as typeof HTMLCanvasElement.prototype.getContext;
 });
@@ -44,7 +42,6 @@ const painted = (el: HTMLElement) => recorders.get(el.querySelector('canvas') as
 describe('mountAvatar on a canvas', () => {
   afterEach(() => {
     document.body.innerHTML = '';
-    withRoundRect = true;
   });
 
   it('paints a live avatar to one canvas by default, in a wrapper at the content box', async () => {
@@ -102,16 +99,8 @@ describe('mountAvatar on a canvas', () => {
     const calls = painted(el);
     expect(calls.find((c) => c.op === 'fill')?.fill).toBe(getComputedStyle(el).color);
     expect(calls.find((c) => c.op === 'fill')?.fill).not.toBe('#ff6a1a');
-    expect(calls.find((c) => c.op === 'roundRect')?.fill).toBe('red');
+    expect(calls.filter((c) => c.op === 'fill' && c.fill === 'red').length).toBe(2);
     avatar.destroy();
   });
 
-  it('draws pill eyes without roundRect', async () => {
-    withRoundRect = false;
-    const el = host();
-    const avatar = mountAvatar(el, { definition: examples[0], reducedMotion: true });
-    await frame();
-    expect(painted(el).filter((c) => c.op === 'arcTo').length).toBe(8);
-    avatar.destroy();
-  });
 });
