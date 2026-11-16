@@ -130,6 +130,7 @@ interface Fill {
   stops: string[];
 }
 const PATTERN_SCALE = new DOMMatrix().scale(128 / FILL_SIZE);
+let scratch: CanvasRenderingContext2D | undefined;
 export const prefersStill = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export class Fills {
@@ -182,6 +183,21 @@ export class Fills {
     [...this.fills.keys()].forEach((key) => {
       if (!keep(key)) this.fills.delete(key);
     });
+  }
+  /**
+   * A painter for `key`'s fill as it will look `seconds` from now at the current speed, for
+   * animated exports. Every call repaints one shared canvas; a pattern copies it when made.
+   */
+  paintAt(key: string, seconds: number) {
+    const { stops, seed } = this.get(key);
+    return (ctx: CanvasRenderingContext2D) => {
+      scratch ??= document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D;
+      scratch.canvas.width = scratch.canvas.height = FILL_SIZE;
+      drawFill(scratch, stops, seed, this.t + seconds * this.speed);
+      const pattern = ctx.createPattern(scratch.canvas, 'repeat') as CanvasPattern;
+      pattern.setTransform(PATTERN_SCALE);
+      return pattern;
+    };
   }
   paint(key: string) {
     return (ctx: CanvasRenderingContext2D) => {

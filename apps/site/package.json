@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "gifenc": "^1.0.3",
     "open-bot-avatar": "workspace:^"
   },
   "devDependencies": {

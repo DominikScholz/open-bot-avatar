@@ -1,5 +1,5 @@
 import type { AvatarMotion } from 'open-bot-avatar';
-import { saveFile, wordToPng, wordToSvg, type Word } from './exporter.ts';
+import { saveFile, wordToGif, wordToPng, wordToSvg, type Word } from './exporter.ts';
 import { FLOW, Fills, LETTERS, MOODS, PALS, defaultColor, formatLetters, growEyesOnHover, keyOf, keysFor, layoutWords, letterCss, mountLetter, parts, stopsFor, stopsFrom, wordsIn, type Color, type Item, type LetterSetting } from './letters.ts';
 import './style.css';
 
@@ -287,6 +287,20 @@ $('savePng').onclick = async () => {
     tell('PNG saved. Images are still, without the motion.');
   } catch (error) {
     tell(error instanceof Error ? error.message : 'Could not create the PNG.');
+  }
+};
+const gifButton = $<HTMLButtonElement>('saveGif');
+gifButton.onclick = async () => {
+  gifButton.disabled = true;
+  try {
+    tell('Making the GIF…');
+    const gif = await wordToGif(currentWord(), (done) => tell(`Making the GIF… ${Math.round(done * 100)}%`));
+    saveFile(fileName('gif'), gif);
+    tell('GIF saved. It loops a few seconds of motion on a dark background.');
+  } catch (error) {
+    tell(error instanceof Error ? error.message : 'Could not create the GIF.');
+  } finally {
+    gifButton.disabled = false;
   }
 };
 $('saveSvg').onclick = () => {

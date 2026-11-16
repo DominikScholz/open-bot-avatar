@@ -1,4 +1,4 @@
-/** Still images of a word, and the code that embeds it live on another site. */
+/** Images of a word, still or animated, and the code that embeds it live on another site. */
 import { avatarFrame, type AvatarMotion } from 'open-bot-avatar';
 import { framePlacement, paintFrame } from 'open-bot-avatar/dom';
 import { advanceOf, definitionFor, keysFor, stopsFor, type Color, type Fills } from './letters.ts';
@@ -30,32 +30,84 @@ function sheet(word: Word, size: number) {
     }),
   };
 }
-const frameOf = (word: Word, key: string) =>
-  avatarFrame(definitionFor(key), { motion: word.moodOf(key), time: 0, depth: 0, reducedMotion: true, eyeColor: '#ffffff', gaze: { x: 0, y: 0 } });
+const frameOf = (word: Word, key: string, time?: number) =>
+  time === undefined
+    ? avatarFrame(definitionFor(key), { motion: word.moodOf(key), time: 0, depth: 0, reducedMotion: true, eyeColor: '#ffffff', gaze: { x: 0, y: 0 } })
+    : avatarFrame(definitionFor(key), { motion: word.moodOf(key), time, depth: 0, eyeColor: '#ffffff' });
 
-/** A transparent PNG of the word as it looks right now, without motion. */
-export function wordToPng(word: Word): Promise<Blob> {
+/** Letters `size` pixels wide fitting a sheet at most `limit` pixels wide. */
+const sizeFor = (word: Word, limit: number, max: number) => {
   const span = Math.max(...word.words.map((w) => 1 + (w.length - 1) * advanceOf(word.spacing)));
-  const size = Math.round(Math.min(512, 4000 / (span + PADDING * 2)));
-  const { rows, width, height, place } = sheet(word, size);
-  const out = document.createElement('canvas');
-  out.width = width;
-  out.height = height;
-  const ctx = out.getContext('2d') as CanvasRenderingContext2D;
+  return Math.round(Math.min(max, limit / (span + PADDING * 2)));
+};
+
+/** Paints the word onto `ctx`: still, or as it moves `time` seconds in. */
+function drawWord(ctx: CanvasRenderingContext2D, word: Word, size: number, time?: number) {
+  const { rows, place } = sheet(word, size);
+  const letter = document.createElement('canvas');
+  letter.width = letter.height = size;
+  const lctx = letter.getContext('2d') as CanvasRenderingContext2D;
   rows.forEach((row, r) => {
     // Right to left, so the leftmost letter ends up on top.
     [...row].reverse().forEach((key, reversed) => {
       const i = row.length - 1 - reversed;
-      const letter = document.createElement('canvas');
-      letter.width = letter.height = size;
-      const lctx = letter.getContext('2d') as CanvasRenderingContext2D;
-      paintFrame(lctx, frameOf(word, key), size / 100, word.fills.paint(key)(lctx), '#ffffff');
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.clearRect(0, 0, size, size);
+      const paint = time === undefined ? word.fills.paint(key) : word.fills.paintAt(key, time);
+      paintFrame(lctx, frameOf(word, key, time), size / 100, paint(lctx), '#ffffff');
       const { x, y } = place(r, i, row.length);
       ctx.filter = word.glow ? `drop-shadow(0 0 ${size * 0.09}px ${stopsFor(word.colorOf(key))[1]}a6)` : 'none';
       ctx.drawImage(letter, x, y);
     });
   });
+  ctx.filter = 'none';
+}
+
+/** A transparent PNG of the word as it looks right now, without motion. */
+export function wordToPng(word: Word): Promise<Blob> {
+  const size = sizeFor(word, 4000, 512);
+  const { width, height } = sheet(word, size);
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  drawWord(out.getContext('2d') as CanvasRenderingContext2D, word, size);
   return new Promise((resolve, reject) => out.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not create the PNG'))), 'image/png'));
+}
+
+const GIF_SECONDS = 6.5; // one slot of happy jumps, so happy letters usually hop
+const GIF_FPS = 20;
+/** The editor's background: GIF transparency is all or nothing, which would fray the glow. */
+const GIF_BACKGROUND = '#111214';
+
+/**
+ * An animated GIF of the word moving: blinks, sway, wandering eyes, jumps and the flowing fill.
+ * `onProgress` gets 0..1 as frames are encoded; the page stays responsive meanwhile.
+ */
+export async function wordToGif(word: Word, onProgress?: (done: number) => void): Promise<Blob> {
+  const { GIFEncoder, applyPalette, quantize } = await import('gifenc');
+  const size = sizeFor(word, 640, 160);
+  const { width, height } = sheet(word, size);
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D;
+  const gif = GIFEncoder();
+  const frames = Math.round(GIF_SECONDS * GIF_FPS);
+  for (let f = 0; f < frames; f++) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = GIF_BACKGROUND;
+    ctx.fillRect(0, 0, width, height);
+    drawWord(ctx, word, size, f / GIF_FPS);
+    const { data } = ctx.getImageData(0, 0, width, height);
+    const palette = quantize(data, 256);
+    gif.writeFrame(applyPalette(data, palette), width, height, { palette, delay: 1000 / GIF_FPS });
+    if (f % 4 === 3) {
+      onProgress?.((f + 1) / frames);
+      await new Promise((resolve) => setTimeout(resolve));
+    }
+  }
+  gif.finish();
+  return new Blob([gif.bytes()], { type: 'image/gif' });
 }
 
 const n = (v: number) => +v.toFixed(3);
