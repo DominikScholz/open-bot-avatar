@@ -4,7 +4,7 @@ import { createAnimator } from '../src/animator.ts';
 import { parseHex, toOklch, type Rgb } from '../src/color.ts';
 import { ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
-import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, computePose, resolveLook } from '../src/motion.ts';
+import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, computePose, hashString, resolveLook } from '../src/motion.ts';
 import { MOOD_MS } from '../src/mood.ts';
 import { isInside } from '../src/path.ts';
 import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
@@ -191,15 +191,32 @@ describe('marks', () => {
 describe('ribbons', () => {
   const ribbons = (frame: AvatarFrame) => frame.shapes.flatMap((s) => (s.kind === 'ribbon' ? [s] : []));
 
-  it('circle a working bot, behind the body and in front of it, and no other state at rest', () => {
+  it('sweep round a working bot every few seconds, behind the body and in front of it', () => {
+    // Over half a minute of working: when the band is out.
+    const pose = (age: number) => computePose({ seed: hashString(mug.id), time: age, reducedMotion: false, state: 'working', stateAge: age });
+    const out: number[] = [];
+    for (let age = 0; age < 30; age += 0.02) if (pose(age).ribbons > 0) out.push(age);
+    const starts = out.filter((age, i) => i === 0 || age - out[i - 1] > 0.03);
+    const ends = out.filter((age, i) => i === out.length - 1 || out[i + 1] - age > 0.03);
+    // The first sweep comes a second or two in, then one every five to eight seconds, each over in a second and a half.
+    expect(starts[0]).toBeGreaterThan(0.9);
+    expect(starts[0]).toBeLessThan(2.2);
+    expect(starts.length).toBeGreaterThanOrEqual(4);
+    starts.slice(1).forEach((start, i) => {
+      expect(start - starts[i]).toBeGreaterThan(4.9);
+      expect(start - starts[i]).toBeLessThan(8.1);
+    });
+    starts.forEach((start, i) => expect(ends[i] - start).toBeLessThan(1.55));
+
+    // During a sweep the band passes behind the body and in front of it, painted in that order.
     let front = 0, back = 0;
     for (let i = 0; i < 20; i++) {
-      const frame = avatarFrame(mug, { state: 'working', time: i * 0.13 });
+      const age = starts[0] + 0.05 + i * 0.05;
+      const frame = avatarFrame(mug, { state: 'working', time: age, stateAge: age });
       const all = ribbons(frame);
       expect(all.length).toBeGreaterThan(0);
       front += all.filter((r) => r.front).length;
       back += all.filter((r) => !r.front).length;
-      // Painted in order: those behind come before every body shape, those in front after.
       const body = frame.shapes.flatMap((s, at) => (s.kind === 'ribbon' ? [] : [at]));
       const first = body[0], lastBody = body[body.length - 1];
       frame.shapes.forEach((s, at) => {
@@ -208,8 +225,11 @@ describe('ribbons', () => {
     }
     expect(front).toBeGreaterThan(0);
     expect(back).toBeGreaterThan(0);
+    // Between sweeps, at rest, in any other state at rest and under reduced motion there are none.
+    expect(ribbons(avatarFrame(mug, { state: 'working', time: 0.5, stateAge: 0.5 })).length).toBe(0);
     for (const state of ['idle', 'thinking', 'waiting', 'blocked', 'done'] as const) expect(ribbons(avatarFrame(mug, { state, time: 1, stateAge: DONE_TURN_S + 0.5 })).length).toBe(0);
-    expect(ribbons(avatarFrame(mug, { state: 'working', time: 1, reducedMotion: true })).length).toBe(0);
+    const during = starts[0] + 0.6;
+    expect(ribbons(avatarFrame(mug, { state: 'working', time: during, stateAge: during, reducedMotion: true })).length).toBe(0);
   });
 
   it('are steps along a ramp of the body\'s own color, and stand out in front of it', () => {

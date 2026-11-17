@@ -37,9 +37,11 @@ describe('mountAvatar', () => {
     const el = document.createElement('div');
     document.body.append(el);
     const avatar = mountAvatar(el, { definition: examples[0], state: 'working', reducedMotion: false });
-    await frame();
     const fx = (side: string) => el.querySelector(`[data-fx="${side}"]`) as Element;
-    expect(fx('back').children.length + fx('front').children.length).toBeGreaterThan(0);
+    // A working bot's first sweep comes a second or two after it starts.
+    const shown = () => (fx('back')?.children.length ?? 0) + (fx('front')?.children.length ?? 0);
+    for (let i = 0; i < 240 && !shown(); i++) await frame();
+    expect(shown()).toBeGreaterThan(0);
     // Each ribbon in a color of its own, not the body's.
     const fills = [...el.querySelectorAll('[data-fx] path')].map((path) => path.getAttribute('fill'));
     expect(fills.every((fill) => /^#[0-9a-f]{6}$/.test(fill ?? ''))).toBe(true);

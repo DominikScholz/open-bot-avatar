@@ -199,7 +199,38 @@ export const DONE_TURN_S = 3.2;
 export const DONE_CYCLE_S = 7;
 const DONE_TURNS = 3;
 /** How many times the ribbons go round for each turn of the body. */
-const DONE_SWEEP = 2.5;
+const DONE_SWEEP = 2.8;
+
+/**
+ * A working bot gets on with it and every so often throws itself into the work: a band of
+ * ribbons sweeps once round it, easing in like a spring settling, then draws back in. The first comes WORK_FIRST_S
+ * (plus up to WORK_FIRST_JITTER_S) after the state begins, then one every WORK_GAP_S, each up to
+ * WORK_JITTER_S late, so several working bots do not turn together. A turn takes WORK_TURN_S.
+ */
+const WORK_FIRST_S = 1;
+const WORK_FIRST_JITTER_S = 1.1;
+const WORK_GAP_S = 6.5;
+const WORK_JITTER_S = 1.5;
+const WORK_TURN_S = 1.5;
+/** How quickly a working turn eases in to its full circle, per second. */
+const WORK_EASE = 5.4;
+
+/**
+ * Where a working bot is in its turns `age` seconds into the state: how far into the current
+ * turn (seconds), or null between turns.
+ */
+function workTurn(seed: number, age: number): number | null {
+  const first = WORK_FIRST_S + WORK_FIRST_JITTER_S * noise(seed, 41);
+  if (age < first) return null;
+  const n = Math.floor((age - first) / WORK_GAP_S);
+  // A turn may start up to WORK_JITTER_S late, so the one before may still be running.
+  for (const k of [n, n - 1]) {
+    if (k < 0) continue;
+    const start = first + k * WORK_GAP_S + (k ? WORK_JITTER_S * noise(seed, 60 + k) : 0);
+    if (age >= start && age < start + WORK_TURN_S) return age - start;
+  }
+  return null;
+}
 
 /** An angle as the nearest way round to it, -π..π, so a blend never unwinds whole turns. */
 const near = (angle: number) => angle - TAU * Math.round(angle / TAU);
@@ -270,7 +301,8 @@ function statePose(input: PoseInput): Pose {
     if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.7);
     pose.dots = 1;
   } else if (state === 'working') {
-    // Bent over the work and busy: a quick steady bob, eyes darting across it, ribbons circling.
+    // Bent over the work and busy: a quick steady bob and eyes darting across it, and every so
+    // often a turn with a band of ribbons sweeping round it.
     const beat = wave(0.7);
     pose.yaw += 0.08 * sway * wave(2.3, 0.4);
     pose.pitch -= 0.05;
@@ -287,7 +319,24 @@ function statePose(input: PoseInput): Pose {
       [pose.gazeX, pose.gazeY] = dartAt(seed, t);
       pose.blink = blinkAt(seed, t * 1.3);
     }
-    pose.ribbons = live;
+    // Counted from when the state began; without an age, from the clock.
+    const age = Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : Math.max(0, time);
+    const into = reducedMotion ? null : workTurn(seed, age);
+    if (into !== null) {
+      // A full circle that eases in like a spring settling. The band rides it round, out at the
+      // start and back in at the end; the body keeps facing the work, leaning into the sweep, and
+      // the eyes follow the band across.
+      const e = WORK_EASE * into;
+      const turn = TAU * (1 - (1 + e) * Math.exp(-e));
+      const swell = Math.sin(turn / 2);
+      pose.ribbons = clamp(into / 0.16, 0, 1) * clamp((WORK_TURN_S - into) / 0.5, 0, 1);
+      pose.sweep = near(1.15 * turn);
+      pose.yaw += 0.22 * swell;
+      pose.roll += 3 * swell;
+      pose.lift -= 1.2 * swell;
+      pose.gazeX = clamp(pose.gazeX * (1 - swell) - 0.85 * Math.sin(turn), -1, 1);
+      pose.gazeY = pose.gazeY * (1 - swell) - 0.3 * swell;
+    }
   } else if (state === 'waiting') {
     // Leans to one side, eyes flattened to slits, glancing off at whatever it is waiting on.
     // Now and then it sighs. A happy bot keeps its arcs.

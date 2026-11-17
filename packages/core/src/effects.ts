@@ -32,15 +32,17 @@ export interface RibbonPiece {
 }
 
 /**
- * The ribbons come in bands: LANES ribbons side by side on one tilted hoop, running round it
- * together like a brush stroke. Each band's hoop: how flat it looks, how far it is rolled, how
- * fast it runs, how far out it sits and how long its lanes are. The last two bands only join a
- * celebration (presence above 1), so they cross the first one into a cage.
+ * The ribbons come in bands: LANES ribbons side by side on one tipped hoop round the body's
+ * centre, running round it together like a brush stroke. Each band's hoop: how flat it looks
+ * (how far it is tipped out of the screen), how far it is rolled in the picture, how far out it
+ * sits and how long its lanes are. The first band is nearly level; the last two only join a
+ * celebration (presence above 1), rolled about a third of a turn apart, so they cross the first
+ * one into a cage.
  */
 const BANDS = [
-  { flat: 0.24, roll: -0.42, period: 1.65, reach: 1, length: 2.45, extra: false },
-  { flat: 0.3, roll: 0.82, period: 1.9, reach: 1.05, length: 2.6, extra: true },
-  { flat: 0.2, roll: 1.62, period: 1.4, reach: 1.1, length: 2.3, extra: true },
+  { flat: 0.34, roll: 0.12, reach: 1, length: 2.45, extra: false },
+  { flat: 0.36, roll: 1.16, reach: 1.16, length: 2.6, extra: true },
+  { flat: 0.32, roll: 2.21, reach: 1.24, length: 2.3, extra: true },
 ] as const;
 export const LANES = 3;
 /**
@@ -54,8 +56,13 @@ const LANE_SHAPE = [
 ] as const;
 /** Lanes sit this many lane widths apart, centre to centre: a little less than one, so they touch. */
 const LANE_GAP = 0.8;
-const REACH = Math.max(...BANDS.map((band) => band.reach));
 const SAMPLES = 24;
+/**
+ * A celebration opens the cage up: every band stands this much further out (a share of its
+ * radius) and its lanes are this much narrower, once all three bands are out.
+ */
+const CAGE_SPREAD = 0.14;
+const CAGE_THIN = 0.16;
 /** Points on each round end of a ribbon. */
 const CAP = 7;
 
@@ -65,36 +72,52 @@ const CAP = 7;
  */
 export function ribbonReach(b: Bounds): { radius: number; width: number; band: number } {
   const bw = b.maxX - b.minX, bh = b.maxY - b.minY;
-  // Wide enough that a rolled hoop still clears the body's corners.
   const width = clamp(Math.max(bw, bh) * 0.092, 3, 7.2);
-  return { radius: Math.hypot(bw, bh) / 2 + 1, width, band: width * (LANE_GAP + 0.5) };
+  // No hoop is wider than the body's larger half, out at the farthest reach.
+  const radius = (Math.max(bw, bh) / 2 * RIM + RIM_GAP) * Math.max(...BANDS.map((band) => band.reach)) * (1 + CAGE_SPREAD);
+  return { radius, width, band: width * (LANE_GAP + 0.5) };
 }
 
 /**
- * The ribbons at one moment. Each band runs round its own tilted hoop about the body's centre,
- * its lanes side by side: round at both ends, a little narrower at the tail than at the head,
- * and split where the hoop passes from behind the body to in front of it (the lower half is the
- * near side). `presence` 0..1 draws the first band out and back in; from 1 to 2 the other two
- * join it. `sweep` (radians) moves every band that much further round, on top of its own pace.
+ * A hoop's radius before its own reach: just off the body's rim along the direction it is rolled
+ * to, half the body's width when level and half its height when upright. A level band hugs a
+ * wide body instead of standing off its corners.
+ */
+function hoopRadius(b: Bounds, roll: number): number {
+  const hw = (b.maxX - b.minX) / 2, hh = (b.maxY - b.minY) / 2;
+  return Math.hypot(hw * Math.cos(roll), hh * Math.sin(roll)) * RIM + RIM_GAP;
+}
+/** How far off the rim a hoop stands: a share of the body's half size, and a little more. */
+const RIM = 1.04;
+const RIM_GAP = 0.6;
+
+/**
+ * The ribbons at one moment. Each band runs round its own hoop about the body's centre, its
+ * lanes side by side: round at both ends, a little narrower at the tail than at the head, and
+ * split where the hoop passes from behind the body to in front of it (the upper half is the near
+ * side, so a band crosses in front of the body along its top). `presence` 0..1 draws the first
+ * band out and back in; from 1 to 2 the other two join it. The bands only go round with `sweep`
+ * (radians): they ride the body's turns, and stand where they are between them.
  */
 export function ribbonPieces(b: Bounds, presence: number, seed: number, time: number, sweep = 0): RibbonPiece[] {
   const all = clamp(presence, 0, 2), more = clamp(all - 1, 0, 1);
   if (all <= 0.01) return [];
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
-  const { radius, width } = ribbonReach(b);
+  const { width } = ribbonReach(b);
   const pieces: RibbonPiece[] = [];
   BANDS.forEach((band, i) => {
     const k = band.extra ? more : Math.min(all, 1);
     if (k <= 0.01) return;
-    const r = (radius * band.reach) / REACH;
-    const lead = noise(seed, 400 + i) * TAU + (TAU * time) / band.period + sweep;
+    const r = hoopRadius(b, band.roll) * band.reach * (1 + CAGE_SPREAD * more);
+    const lane = width * (1 - CAGE_THIN * more);
+    const lead = noise(seed, 400 + i) * TAU + sweep;
     const reach = band.length * k * (1 + 0.2 * Math.sin(time * 1.1 + i * 2));
     const cr = Math.cos(band.roll), sr = Math.sin(band.roll);
     const place = (x: number, y: number): [number, number] => [cx + x * cr - y * sr, cy + x * sr + y * cr];
-    LANE_SHAPE.forEach((lane, l) => {
-      const offset = (l - (LANES - 1) / 2) * LANE_GAP * width;
-      const head = lead - lane.lag * k;
-      const length = reach * lane.length;
+    LANE_SHAPE.forEach((shape, l) => {
+      const offset = (l - (LANES - 1) / 2) * LANE_GAP * lane;
+      const head = lead - shape.lag * k;
+      const length = reach * shape.length;
       // Centre, half width, unit normal (on screen) and near side at each sample, tail to head.
       const mid: [number, number][] = [], halfs: number[] = [], norm: [number, number][] = [], near: boolean[] = [];
       for (let j = 0; j <= SAMPLES; j++) {
@@ -106,8 +129,8 @@ export function ribbonPieces(b: Bounds, presence: number, seed: number, time: nu
         const ux = nx / nl, uy = ny / nl;
         mid.push(place(Math.cos(a) * r + ux * offset, Math.sin(a) * r * band.flat + uy * offset));
         norm.push([ux * cr - uy * sr, ux * sr + uy * cr]);
-        halfs.push((width / 2) * Math.sqrt(k) * (0.6 + 0.4 * s));
-        near.push(Math.sin(a) > 0);
+        halfs.push((lane / 2) * Math.sqrt(k) * (0.6 + 0.4 * s));
+        near.push(Math.sin(a) < 0);
       }
       const side = (j: number, sign: number): [number, number] => [mid[j][0] + sign * norm[j][0] * halfs[j], mid[j][1] + sign * norm[j][1] * halfs[j]];
       // A half circle round an end, from one edge to the other through the point ahead of it (or behind).

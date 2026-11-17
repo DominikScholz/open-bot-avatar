@@ -70,8 +70,9 @@ export function createAnimator(): Animator {
           began: state === shown.state ? shown.began : now,
         };
       }
-      // An avatar that mounts in a state starts it at rest: a done bot has just finished celebrating.
-      shown ??= { state, mood, since: now, began: now - DONE_TURN_S * 1000 };
+      // An avatar that mounts done starts it at rest, as if it had just finished celebrating; any
+      // other state starts afresh (a working bot's first sweep comes a second or two in).
+      shown ??= { state, mood, since: now, began: now - (state === 'done' ? DONE_TURN_S * 1000 : 0) };
       const t = reducedMotion ? 1 : moodProgress(now - shown.since);
       let motionBlend: AvatarMotionBlend | undefined;
       if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };

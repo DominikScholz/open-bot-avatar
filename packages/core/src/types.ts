@@ -30,8 +30,8 @@ export interface AvatarDefinition {
 
 /**
  * What the bot is doing. `thinking` and `blocked` replace the body with a mark (three dots, an
- * exclamation mark); `working` adds ribbons that circle the body; `done` celebrates: it turns a
- * few times with ribbons flying, rests, and after a while does it again.
+ * exclamation mark); `working` sweeps a band of ribbons round the body every few seconds; `done`
+ * celebrates: it turns a few times with ribbons flying, rests, and after a while does it again.
  */
 export type AvatarState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done';
 
