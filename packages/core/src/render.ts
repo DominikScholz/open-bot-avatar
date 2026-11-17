@@ -402,29 +402,53 @@ export function liveFrame(definition: AvatarDefinition, options: RenderOptions =
 }
 
 /**
- * Where each ribbon's hue sits on the color wheel, in degrees from the body's: a run of related
- * hues either side of it, about 30° apart, so each body gets a family of its own (a warm run on
- * an orange body, a cool one on a blue body). A working bot's three; a celebration adds two more.
+ * The ribbons are steps along a ramp of the body's own color, painter's style: each step is
+ * RAMP_LIGHT lighter or darker in OKLCH and turns RAMP_HUE degrees with it, toward yellow as it
+ * lightens and toward blue as it darkens. Steps run +1, -1, +2, -2 and so on, skipping any that
+ * would leave RAMP_RANGE, so a working bot's three are one lighter, one darker and one lighter
+ * still on most bodies. A body lighter or darker than the range steps from its edge instead, so
+ * a white body's ribbons are all well darker than it, and a black one's well lighter.
  */
-const RIBBON_HUES = [-30, 30, 60, -60, 90];
+const RAMP_LIGHT = 0.09;
+const RAMP_HUE = 14;
+// Six steps wide: room for five besides the body's own, wherever it starts. Past it shades wash
+// out toward white or sink toward black.
+const RAMP_RANGE = [0.36, 0.9] as const;
+const WARM = 100;
 const palettes = new Map<string, { front: string; back: string }[]>();
 
+/** Turn hue `h` by up to `by` degrees toward hue `to`, never past it. */
+function turnToward(h: number, to: number, by: number): number {
+  const d = ((to - h + 540) % 360) - 180;
+  return (h + Math.sign(d) * Math.min(Math.abs(d), by) + 360) % 360;
+}
+
 /**
- * The colors of the ribbons on a body this color: vivid (OKLCH, at one chroma) in hues related
- * to the body's (see RIBBON_HUES). Their lightness is set against the body's, lighter on a
- * mid or dark body and deeper on a light one, so they show in front of it although their hues are close.
- * A white or gray body has no hue to build on, so its seed picks one.
+ * The colors of the five ribbons on a body this color: steps along its own ramp (see RAMP_LIGHT),
+ * at least as vivid as the body. A white or gray body has no hue of its own, so its seed picks one.
+ * A piece behind the body is a shade deeper than one in front of it.
  */
 function ribbonPalette(color: string | undefined, seed: number): { front: string; back: string }[] {
   const key = `${color}|${seed}`;
   let palette = palettes.get(key);
   if (palette) return palette;
   const [light, chroma, hue] = toOklch(parseHex(color) ?? (parseHex(DEFAULT_COLOR) as Rgb));
-  const base = chroma < 0.04 ? noise(seed, 500) * 360 : hue;
-  const front = light < 0.72 ? 0.8 : 0.62;
-  palette = RIBBON_HUES.map((step) => {
-    const h = (((base + step) % 360) + 360) % 360;
-    return { front: toHex(oklch(front, 0.2, h)), back: toHex(oklch(front - 0.1, 0.17, h)) };
+  // A seed's hue skips the yellows (80 to 130), whose darker steps turn olive.
+  const base = chroma < 0.04 ? (130 + noise(seed, 500) * 310) % 360 : hue;
+  const c = Math.max(chroma, 0.17);
+  const from = Math.min(RAMP_RANGE[1], Math.max(RAMP_RANGE[0], light));
+  const steps: number[] = [];
+  for (let k = 1; steps.length < 5 && k < 10; k++) {
+    for (const step of [k, -k]) {
+      const l = from + step * RAMP_LIGHT;
+      if (steps.length < 5 && l >= RAMP_RANGE[0] - 1e-9 && l <= RAMP_RANGE[1] + 1e-9) steps.push(step);
+    }
+  }
+  while (steps.length < 5) steps.push(steps[steps.length - 1] ?? 1);
+  palette = steps.map((step) => {
+    const l = from + step * RAMP_LIGHT;
+    const h = turnToward(base, step > 0 ? WARM : WARM + 180, RAMP_HUE * Math.abs(step));
+    return { front: toHex(oklch(l, c, h)), back: toHex(oklch(l - 0.08, c * 0.9, h)) };
   });
   if (palettes.size >= 64) palettes.clear();
   palettes.set(key, palette);
