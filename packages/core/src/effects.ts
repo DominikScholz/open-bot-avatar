@@ -47,7 +47,7 @@ export function ribbonReach(b: Bounds): { radius: number; width: number } {
   const bw = b.maxX - b.minX, bh = b.maxY - b.minY;
   // Wide enough that a rolled hoop still clears the body's corners.
   // The width is a ribbon's own; a celebration draws them a third as wide again.
-  return { radius: Math.hypot(bw, bh) / 2 + 1, width: clamp(Math.max(bw, bh) * 0.045, 1.6, 3.6) };
+  return { radius: Math.hypot(bw, bh) / 2 + 1, width: clamp(Math.max(bw, bh) * 0.075, 2.6, 6) };
 }
 
 /**
