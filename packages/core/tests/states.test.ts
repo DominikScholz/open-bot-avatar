@@ -212,7 +212,7 @@ describe('ribbons', () => {
     expect(ribbons(avatarFrame(mug, { state: 'working', time: 1, reducedMotion: true })).length).toBe(0);
   });
 
-  it('are vivid, each its own hue away from the body, and stand out on a white body too', () => {
+  it('are vivid, in hues that go with the body, and stand out in front of it', () => {
     const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
     const rgb = (hex: string) => parseHex(hex) as Rgb;
     for (const color of ['#1f7cf2', '#ff6a1a', '#f8a01c', '#7a7a7a', '#f4f4f4', '#151515']) {
@@ -227,13 +227,18 @@ describe('ribbons', () => {
       }
       for (const fill of [...front, ...back]) {
         const [, chroma, hue] = toOklch(rgb(fill));
-        expect(chroma).toBeGreaterThan(0.1);
-        if (body[1] > 0.04) expect(gap(hue, body[2])).toBeGreaterThan(60);
+        // Behind the body a ribbon is deeper, where sRGB holds a little less chroma for some hues.
+        expect(chroma).toBeGreaterThan(front.has(fill) ? 0.09 : 0.08);
+        if (body[1] > 0.04) expect(gap(hue, body[2])).toBeGreaterThan(25);
       }
       // Several distinct hues, not shades of one: a celebration shows all five.
       expect(front.size).toBe(5);
       const hues = [...front].map((fill) => toOklch(rgb(fill))[2]);
       hues.forEach((h, i) => hues.slice(i + 1).forEach((o) => expect(gap(h, o)).toBeGreaterThan(30)));
+      // A colorful body's triad partners, neighbours and complement.
+      if (body[1] > 0.04) for (const step of [120, 240, 35, 325, 180]) expect(hues.some((h) => gap(h, (body[2] + step) % 360) < 8)).toBe(true);
+      // In front of the body every ribbon is well apart from it in lightness, the neighbouring hues too.
+      for (const fill of front) expect(Math.abs(toOklch(rgb(fill))[0] - body[0])).toBeGreaterThan(0.075);
       // A ribbon is lighter in front of the body than behind it, in the same hue.
       for (const fill of back) {
         const [light, , hue] = toOklch(rgb(fill));
@@ -242,7 +247,7 @@ describe('ribbons', () => {
         expect((twin as number[])[0]).toBeGreaterThan(light);
       }
       // On a near-white body the pieces in front are deep enough to read against it.
-      if (body[0] > 0.85) for (const fill of front) expect(contrast(rgb(fill), rgb(color))).toBeGreaterThan(2);
+      if (body[0] > 0.85) for (const fill of front) expect(contrast(rgb(fill), rgb(color))).toBeGreaterThan(2.5);
     }
   });
 

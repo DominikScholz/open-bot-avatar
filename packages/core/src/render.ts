@@ -402,16 +402,18 @@ export function liveFrame(definition: AvatarDefinition, options: RenderOptions =
 }
 
 /**
- * Where each ribbon's hue sits on the color wheel, in degrees from the body's: the first three
- * (a working bot's) split the wheel with the body four ways, a celebration's two more fall between.
+ * Where each ribbon's hue sits on the color wheel, in degrees from the body's, so the ribbons and
+ * the body make one color harmony: a working bot's three are the body's two triad partners and its
+ * analogous neighbour; a celebration adds the other neighbour and the complement.
  */
-const RIBBON_HUES = [90, 180, 270, 135, 225];
+const RIBBON_HUES = [120, -120, 35, -35, 180];
 const palettes = new Map<string, { front: string; back: string }[]>();
 
 /**
- * The colors of the ribbons on a body this color: vivid and as bright as one another (OKLCH),
- * each ribbon its own hue away from the body's, so they show against it. A white or gray body
- * has no hue to step from, so its seed picks one. On a near-white body the ribbons are deeper.
+ * The colors of the ribbons on a body this color: vivid (OKLCH, at one chroma) in hues that go
+ * with the body's (see RIBBON_HUES). Their lightness is set against the body's, lighter on a
+ * mid or dark body and deeper on a light one, so even the neighbouring hue shows in front of it.
+ * A white or gray body has no hue to build on, so its seed picks one.
  */
 function ribbonPalette(color: string | undefined, seed: number): { front: string; back: string }[] {
   const key = `${color}|${seed}`;
@@ -419,10 +421,10 @@ function ribbonPalette(color: string | undefined, seed: number): { front: string
   if (palette) return palette;
   const [light, chroma, hue] = toOklch(parseHex(color) ?? (parseHex(DEFAULT_COLOR) as Rgb));
   const base = chroma < 0.04 ? noise(seed, 500) * 360 : hue;
-  const pale = light > 0.85;
+  const front = light < 0.72 ? 0.8 : 0.62;
   palette = RIBBON_HUES.map((step) => {
-    const h = (base + step) % 360;
-    return { front: toHex(oklch(pale ? 0.66 : 0.78, 0.2, h)), back: toHex(oklch(pale ? 0.58 : 0.66, 0.17, h)) };
+    const h = (((base + step) % 360) + 360) % 360;
+    return { front: toHex(oklch(front, 0.2, h)), back: toHex(oklch(front - 0.1, 0.17, h)) };
   });
   if (palettes.size >= 64) palettes.clear();
   palettes.set(key, palette);

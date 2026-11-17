@@ -110,7 +110,7 @@ Both functions accept `RenderOptions`:
 - `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion, blinking and marks and leaves out ribbons; gaze still applies. It does not read system preferences.
 - `motionBlend` lets a custom animation host blend from what was shown before: `{ from, t }`, with `t` from 0 to 1. `from` is `{ state, mood, age?, blend? }`, where `age` is that state's `stateAge` when the change began and `blend` an interrupted transition.
 
-A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the marks of `thinking` and `blocked` are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled in their own `fill`: each ribbon has a vivid hue of its own, set apart from the body's, and is lighter where it passes in front of the body (`front`) than behind it.
+A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the marks of `thinking` and `blocked` are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled in their own `fill`: each ribbon has a vivid hue of its own that goes with the body's (its triad partners, its neighbours and, in a celebration, its complement), and is lighter where it passes in front of the body (`front`) than behind it.
 
 ## Definitions and validation
 
