@@ -55,10 +55,10 @@ The six states are the ones an agent moves through. Each is motion on the same a
 | --- | --- |
 | `idle` | Calm: breathes, sways, blinks and looks around. A happy bot hops. |
 | `thinking` | The body gives way to three dots that hop in turn. |
-| `working` | Bent over the work with a quick bob and darting eyes, while ribbons circle the body, behind it and in front. |
+| `working` | Bent over the work with a quick bob and darting eyes, while a band of three round-ended ribbons circles the body, behind it and in front. |
 | `waiting` | Leans to one side with its eyes flattened to slits, glancing off, and sighs now and then. |
 | `blocked` | The body gives way to an exclamation mark that jumps and shakes every few seconds. |
-| `done` | Celebrates: a few turns with ribbons flying round it, then a rest, and after a while again. |
+| `done` | Celebrates: a few turns inside a cage of three crossing bands, then a rest, and after a while again. |
 
 A mood combines with any state: a bot can be working and happy. A happy bot keeps its arcs while it waits. The marks of `thinking` and `blocked` have no eyes, so a mood shows again when the body returns. Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.
 

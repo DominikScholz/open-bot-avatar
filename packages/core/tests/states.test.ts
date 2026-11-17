@@ -263,14 +263,14 @@ describe('ribbons', () => {
     for (const d of examples) {
       const b = preparedVolume(d).vol.bounds;
       const extent = avatarExtent(d);
-      const { radius, width } = ribbonReach(b);
+      const { radius, band } = ribbonReach(b);
       for (let i = 0; i < 40; i++) {
         for (const piece of ribbonPieces(b, 2, 11, i * 0.21, i * 0.4)) {
           expect(piece.box.x).toBeGreaterThanOrEqual(extent.x);
           expect(piece.box.y).toBeGreaterThanOrEqual(extent.y);
           expect(piece.box.x + piece.box.w).toBeLessThanOrEqual(extent.x + extent.size);
           expect(piece.box.y + piece.box.h).toBeLessThanOrEqual(extent.y + extent.size);
-          expect(Math.max(piece.box.w, piece.box.h)).toBeLessThanOrEqual(2 * (radius + width * 1.3));
+          expect(Math.max(piece.box.w, piece.box.h)).toBeLessThanOrEqual(2 * (radius + band));
         }
       }
     }
@@ -281,7 +281,11 @@ describe('ribbons', () => {
     expect(ribbonPieces(b, 0, 3, 1)).toEqual([]);
     const area = (k: number) => ribbonPieces(b, k, 3, 1).reduce((n, p) => n + p.box.w * p.box.h, 0);
     expect(area(0.3)).toBeLessThan(area(1));
-    // A celebration has more of them, and a sweep carries them further round.
+    // A working bot's ribbons are one band of three lanes side by side; a celebration adds two
+    // more bands, crossing it. A sweep carries them all further round.
+    const lanes = (k: number) => [...new Set(ribbonPieces(b, k, 3, 1).map((p) => p.ribbon))].sort((x, y) => x - y);
+    expect(lanes(1)).toEqual([0, 1, 2]);
+    expect(lanes(2)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
     expect(area(2)).toBeGreaterThan(area(1));
     expect(ribbonPieces(b, 1, 3, 1, 0.5)).not.toEqual(ribbonPieces(b, 1, 3, 1));
     expect(ribbonPieces(b, 1, 3, 1, 2 * Math.PI).map((p) => p.front)).toEqual(ribbonPieces(b, 1, 3, 1).map((p) => p.front));

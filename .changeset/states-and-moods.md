@@ -7,7 +7,7 @@ Six states and a mood of its own.
 `state` is what the bot is doing: `idle`, `thinking`, `working`, `waiting`, `blocked` or `done`. `mood` is how it feels: `neutral` or `happy`. A mood shapes the eyes on top of any state, so a bot can be working and happy. `mountAvatar` and `update` take both; the render functions take `state`, `mood` and `stateAge`, and `STATES`, `MOODS`, `isState`, `isMood` and `resolveLook` are exported.
 
 - `thinking` and `blocked` replace the body with a mark: three dots that hop in turn, and an exclamation mark. The body shrinks away as the mark grows in.
-- `working` draws ribbons that circle the body, behind it and in front, each a shade of the body's own color: lighter and warmer, or darker and cooler. `done` celebrates: a few turns with ribbons flying round it, a rest, and after a while again. Hosts that animate pass `stateAge`; `createAnimator` returns it.
+- `working` draws a band of three round-ended ribbons side by side that circles the body, behind it and in front, each a shade of the body's own color: lighter and warmer, or darker and cooler. `done` celebrates: a few turns inside a cage of three crossing bands, a rest, and after a while again. Hosts that animate pass `stateAge`; `createAnimator` returns it.
 - `waiting` flattens the eyes to slits.
 - Eyes morph from one shape to the next instead of swapping inside a blink. The plain pill and the happy arc are drawn as before; every other look is a filled outline.
 - Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.

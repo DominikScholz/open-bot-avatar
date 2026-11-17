@@ -24,38 +24,58 @@ export interface RibbonPiece {
   d: string;
   front: boolean;
   box: Box;
-  /** Which ribbon the piece belongs to, 0..4: the first three circle a working bot, a celebration adds the rest. */
+  /**
+   * Which ribbon the piece belongs to, 0..8: band `ribbon / LANES`, lane `ribbon % LANES`. A
+   * working bot shows the first band's three; a celebration adds the other two bands.
+   */
   ribbon: number;
 }
 
 /**
- * Each ribbon's hoop: how flat it looks, how far it is rolled, how fast it runs, how long it is.
- * The last two only join a celebration (presence above 1).
+ * The ribbons come in bands: LANES ribbons side by side on one tilted hoop, running round it
+ * together like a brush stroke. Each band's hoop: how flat it looks, how far it is rolled, how
+ * fast it runs, how far out it sits and how long its lanes are. The last two bands only join a
+ * celebration (presence above 1), so they cross the first one into a cage.
  */
-const HOOPS = [
-  { flat: 0.26, roll: -0.7, period: 1.55, reach: 1, length: 2.3, extra: false },
-  { flat: 0.2, roll: 0.5, period: 1.9, reach: 1.06, length: 1.9, extra: false },
-  { flat: 0.3, roll: 1.3, period: 1.3, reach: 1.12, length: 1.6, extra: false },
-  { flat: 0.34, roll: -1.25, period: 1.7, reach: 1.03, length: 2.1, extra: true },
-  { flat: 0.16, roll: 0.05, period: 1.45, reach: 1.09, length: 2.5, extra: true },
+const BANDS = [
+  { flat: 0.24, roll: -0.42, period: 1.65, reach: 1, length: 2.45, extra: false },
+  { flat: 0.3, roll: 0.82, period: 1.9, reach: 1.05, length: 2.6, extra: true },
+  { flat: 0.2, roll: 1.62, period: 1.4, reach: 1.1, length: 2.3, extra: true },
 ] as const;
-const REACH = Math.max(...HOOPS.map((hoop) => hoop.reach));
+export const LANES = 3;
+/**
+ * Each lane of a band, from the inside of the hoop out: its share of the band's length and how
+ * far its head trails the band's (radians), so the lanes do not start and end flush.
+ */
+const LANE_SHAPE = [
+  { length: 0.84, lag: 0.13 },
+  { length: 1, lag: 0 },
+  { length: 0.9, lag: 0.07 },
+] as const;
+/** Lanes sit this many lane widths apart, centre to centre: a little less than one, so they touch. */
+const LANE_GAP = 0.8;
+const REACH = Math.max(...BANDS.map((band) => band.reach));
 const SAMPLES = 24;
+/** Points on each round end of a ribbon. */
+const CAP = 7;
 
-/** Radius of the widest hoop and the widest a ribbon gets, for a body this size. */
-export function ribbonReach(b: Bounds): { radius: number; width: number } {
+/**
+ * For a body this size: the radius of the widest hoop, the width of one lane, and how far a band
+ * reaches out from its hoop (its outer lane's centre plus half a lane).
+ */
+export function ribbonReach(b: Bounds): { radius: number; width: number; band: number } {
   const bw = b.maxX - b.minX, bh = b.maxY - b.minY;
   // Wide enough that a rolled hoop still clears the body's corners.
-  // The width is a ribbon's own; a celebration draws them a third as wide again.
-  return { radius: Math.hypot(bw, bh) / 2 + 1, width: clamp(Math.max(bw, bh) * 0.075, 2.6, 6) };
+  const width = clamp(Math.max(bw, bh) * 0.092, 3, 7.2);
+  return { radius: Math.hypot(bw, bh) / 2 + 1, width, band: width * (LANE_GAP + 0.5) };
 }
 
 /**
- * The ribbons at one moment. Each one runs round its own tilted hoop about the body's centre:
- * thin at the tail, full near the head, and split where the hoop passes from behind the body to
- * in front of it (the lower half is the near side). `presence` 0..1 draws them out and back in;
- * from 1 to 2 it adds two more and makes them all bolder. `sweep` (radians) moves every ribbon
- * that much further round, on top of its own steady pace.
+ * The ribbons at one moment. Each band runs round its own tilted hoop about the body's centre,
+ * its lanes side by side: round at both ends, a little narrower at the tail than at the head,
+ * and split where the hoop passes from behind the body to in front of it (the lower half is the
+ * near side). `presence` 0..1 draws the first band out and back in; from 1 to 2 the other two
+ * join it. `sweep` (radians) moves every band that much further round, on top of its own pace.
  */
 export function ribbonPieces(b: Bounds, presence: number, seed: number, time: number, sweep = 0): RibbonPiece[] {
   const all = clamp(presence, 0, 2), more = clamp(all - 1, 0, 1);
@@ -63,44 +83,69 @@ export function ribbonPieces(b: Bounds, presence: number, seed: number, time: nu
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const { radius, width } = ribbonReach(b);
   const pieces: RibbonPiece[] = [];
-  HOOPS.forEach((hoop, i) => {
-    const k = hoop.extra ? more : Math.min(all, 1);
+  BANDS.forEach((band, i) => {
+    const k = band.extra ? more : Math.min(all, 1);
     if (k <= 0.01) return;
-    const r = (radius * hoop.reach) / REACH;
-    const head = noise(seed, 400 + i) * TAU + (TAU * time) / hoop.period + sweep;
-    const length = hoop.length * k * (1 + 0.25 * Math.sin(time * 1.1 + i * 2));
-    const cr = Math.cos(hoop.roll), sr = Math.sin(hoop.roll);
-    // Both edges of the ribbon at each sample, tail to head, and which side of the body it is on.
-    const left: [number, number][] = [], right: [number, number][] = [], near: boolean[] = [];
-    for (let j = 0; j <= SAMPLES; j++) {
-      const s = j / SAMPLES;
-      const a = head - length * (1 - s);
-      const half = (width / 2) * k * (1 + 0.3 * more) * Math.pow(s, 0.7) * Math.sqrt(clamp((1 - s) / 0.12, 0, 1));
-      // On the hoop before its roll: position, and the unit normal of the ellipse there.
-      const ex = Math.cos(a) * r, ey = Math.sin(a) * r * hoop.flat;
-      const nx = Math.cos(a) * hoop.flat, ny = Math.sin(a);
-      const nl = Math.hypot(nx, ny) || 1;
-      const place = (x: number, y: number): [number, number] => [cx + x * cr - y * sr, cy + x * sr + y * cr];
-      left.push(place(ex + (nx / nl) * half, ey + (ny / nl) * half));
-      right.push(place(ex - (nx / nl) * half, ey - (ny / nl) * half));
-      near.push(Math.sin(a) > 0);
-    }
-    // Runs of samples on one side each become a piece; neighbours share the sample where they meet.
-    let from = 0;
-    for (let j = 1; j <= SAMPLES; j++) {
-      if (j < SAMPLES && near[j] === near[from]) continue;
-      const to = j < SAMPLES ? j : SAMPLES;
-      const pts = [...left.slice(from, to + 1), ...right.slice(from, to + 1).reverse()];
-      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-      const x = Math.min(...xs), y = Math.min(...ys);
-      pieces.push({
-        d: `M${pts.map((p) => `${f(p[0])} ${f(p[1])}`).join('L')}Z`,
-        front: near[from],
-        box: { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y },
-        ribbon: i,
-      });
-      from = j;
-    }
+    const r = (radius * band.reach) / REACH;
+    const lead = noise(seed, 400 + i) * TAU + (TAU * time) / band.period + sweep;
+    const reach = band.length * k * (1 + 0.2 * Math.sin(time * 1.1 + i * 2));
+    const cr = Math.cos(band.roll), sr = Math.sin(band.roll);
+    const place = (x: number, y: number): [number, number] => [cx + x * cr - y * sr, cy + x * sr + y * cr];
+    LANE_SHAPE.forEach((lane, l) => {
+      const offset = (l - (LANES - 1) / 2) * LANE_GAP * width;
+      const head = lead - lane.lag * k;
+      const length = reach * lane.length;
+      // Centre, half width, unit normal (on screen) and near side at each sample, tail to head.
+      const mid: [number, number][] = [], halfs: number[] = [], norm: [number, number][] = [], near: boolean[] = [];
+      for (let j = 0; j <= SAMPLES; j++) {
+        const s = j / SAMPLES;
+        const a = head - length * (1 - s);
+        // On the hoop before its roll: the unit normal of the ellipse, and the lane's centre beside it.
+        const nx = Math.cos(a) * band.flat, ny = Math.sin(a);
+        const nl = Math.hypot(nx, ny) || 1;
+        const ux = nx / nl, uy = ny / nl;
+        mid.push(place(Math.cos(a) * r + ux * offset, Math.sin(a) * r * band.flat + uy * offset));
+        norm.push([ux * cr - uy * sr, ux * sr + uy * cr]);
+        halfs.push((width / 2) * Math.sqrt(k) * (0.6 + 0.4 * s));
+        near.push(Math.sin(a) > 0);
+      }
+      const side = (j: number, sign: number): [number, number] => [mid[j][0] + sign * norm[j][0] * halfs[j], mid[j][1] + sign * norm[j][1] * halfs[j]];
+      // A half circle round an end, from one edge to the other through the point ahead of it (or behind).
+      const cap = (j: number, ahead: boolean): [number, number][] => {
+        const o = ahead ? mid[j - 1] : mid[j + 1];
+        let tx = ahead ? mid[j][0] - o[0] : o[0] - mid[j][0], ty = ahead ? mid[j][1] - o[1] : o[1] - mid[j][1];
+        const tl = Math.hypot(tx, ty) || 1;
+        tx /= tl; ty /= tl;
+        const [nx, ny] = norm[j], h = halfs[j], out: [number, number][] = [];
+        for (let c = 1; c < CAP; c++) {
+          const t = (Math.PI * c) / CAP;
+          // Ahead: from the left edge (+normal) forward to the right; behind: from the right back to the left.
+          const e = ahead ? Math.cos(t) : -Math.cos(t), g = ahead ? Math.sin(t) : -Math.sin(t);
+          out.push([mid[j][0] + (nx * e + tx * g) * h, mid[j][1] + (ny * e + ty * g) * h]);
+        }
+        return out;
+      };
+      // Runs of samples on one side each become a piece; neighbours share the sample where they meet.
+      let from = 0;
+      for (let j = 1; j <= SAMPLES; j++) {
+        if (j < SAMPLES && near[j] === near[from]) continue;
+        const to = j;
+        const pts: [number, number][] = [];
+        for (let q = from; q <= to; q++) pts.push(side(q, 1));
+        if (to === SAMPLES) pts.push(...cap(SAMPLES, true));
+        for (let q = to; q >= from; q--) pts.push(side(q, -1));
+        if (from === 0) pts.push(...cap(0, false));
+        const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+        const x = Math.min(...xs), y = Math.min(...ys);
+        pieces.push({
+          d: `M${pts.map((p) => `${f(p[0])} ${f(p[1])}`).join('L')}Z`,
+          front: near[from],
+          box: { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y },
+          ribbon: i * LANES + l,
+        });
+        from = j;
+      }
+    });
   });
   return pieces;
 }

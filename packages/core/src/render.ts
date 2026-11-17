@@ -222,7 +222,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const [cx, cy] = pivotOf(b);
   const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
   const ribbons = ribbonReach(b);
-  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), ribbons.radius + ribbons.width * 1.3);
+  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), ribbons.radius + ribbons.band + 0.1);
   return { x: cx - half, y: cy - half, size: 2 * half };
 }
 
@@ -416,6 +416,8 @@ const RAMP_HUE = 14;
 const RAMP_RANGE = [0.36, 0.9] as const;
 const WARM = 100;
 const palettes = new Map<string, { front: string; back: string }[]>();
+/** Which shades (by their order along the ramp) each band's lanes take: a working bot's band first. */
+const BAND_SHADES = [[0, 1, 2], [3, 4, 0], [1, 3, 4]] as const;
 
 /** Turn hue `h` by up to `by` degrees toward hue `to`, never past it. */
 function turnToward(h: number, to: number, by: number): number {
@@ -424,8 +426,8 @@ function turnToward(h: number, to: number, by: number): number {
 }
 
 /**
- * The colors of the five ribbons on a body this color: steps along its own ramp (see RAMP_LIGHT),
- * at least as vivid as the body. A white or gray body has no hue of its own, so its seed picks one.
+ * The colors of the ribbons on a body this color, one per band and lane (see BAND_SHADES): five
+ * steps along its own ramp (see RAMP_LIGHT), at least as vivid as the body. A white or gray body has no hue of its own, so its seed picks one.
  * A piece behind the body is a shade deeper than one in front of it.
  */
 function ribbonPalette(color: string | undefined, seed: number): { front: string; back: string }[] {
@@ -445,11 +447,15 @@ function ribbonPalette(color: string | undefined, seed: number): { front: string
     }
   }
   while (steps.length < 5) steps.push(steps[steps.length - 1] ?? 1);
-  palette = steps.map((step) => {
+  const shades = steps.map((step) => {
     const l = from + step * RAMP_LIGHT;
     const h = turnToward(base, step > 0 ? WARM : WARM + 180, RAMP_HUE * Math.abs(step));
-    return { front: toHex(oklch(l, c, h)), back: toHex(oklch(l - 0.08, c * 0.9, h)) };
+    return { step, front: toHex(oklch(l, c, h)), back: toHex(oklch(l - 0.08, c * 0.9, h)) };
   });
+  // Each band takes three of the shades, lightest on the inside lane to darkest on the outside.
+  palette = BAND_SHADES.flatMap((pick) =>
+    pick.map((n) => shades[n]).sort((x, y) => y.step - x.step).map(({ front, back }) => ({ front, back })),
+  );
   if (palettes.size >= 64) palettes.clear();
   palettes.set(key, palette);
   return palette;
