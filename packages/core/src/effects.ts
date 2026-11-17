@@ -24,6 +24,8 @@ export interface RibbonPiece {
   d: string;
   front: boolean;
   box: Box;
+  /** Which ribbon the piece belongs to, 0..4: the first three circle a working bot, a celebration adds the rest. */
+  ribbon: number;
 }
 
 /**
@@ -95,6 +97,7 @@ export function ribbonPieces(b: Bounds, presence: number, seed: number, time: nu
         d: `M${pts.map((p) => `${f(p[0])} ${f(p[1])}`).join('L')}Z`,
         front: near[from],
         box: { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y },
+        ribbon: i,
       });
       from = j;
     }

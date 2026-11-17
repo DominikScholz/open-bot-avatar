@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createAnimator } from '../src/animator.ts';
+import { contrast, parseHex, toOklch, type Rgb } from '../src/color.ts';
 import { ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
 import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, computePose, resolveLook } from '../src/motion.ts';
@@ -196,13 +197,13 @@ describe('ribbons', () => {
       const frame = avatarFrame(mug, { state: 'working', time: i * 0.13 });
       const all = ribbons(frame);
       expect(all.length).toBeGreaterThan(0);
-      front += all.filter((r) => r.tint !== 0).length;
-      back += all.filter((r) => r.tint === 0).length;
+      front += all.filter((r) => r.front).length;
+      back += all.filter((r) => !r.front).length;
       // Painted in order: those behind come before every body shape, those in front after.
       const body = frame.shapes.flatMap((s, at) => (s.kind === 'ribbon' ? [] : [at]));
       const first = body[0], lastBody = body[body.length - 1];
       frame.shapes.forEach((s, at) => {
-        if (s.kind === 'ribbon') expect(s.tint !== 0 ? at > lastBody : at < first).toBe(true);
+        if (s.kind === 'ribbon') expect(s.front ? at > lastBody : at < first).toBe(true);
       });
     }
     expect(front).toBeGreaterThan(0);
@@ -211,12 +212,38 @@ describe('ribbons', () => {
     expect(ribbons(avatarFrame(mug, { state: 'working', time: 1, reducedMotion: true })).length).toBe(0);
   });
 
-  it('are a shade apart from the body in front of it: lighter, or darker on a light body', () => {
-    const tints = (color: string) => ribbons(avatarFrame(mug, { state: 'working', time: 0.4, color })).map((r) => r.tint);
-    expect(tints('#1f7cf2').some((t) => t > 0)).toBe(true);
-    expect(tints('#1f7cf2').every((t) => t >= 0)).toBe(true);
-    expect(tints('#f4f4f4').some((t) => t < 0)).toBe(true);
-    expect(tints('#f4f4f4').every((t) => t <= 0)).toBe(true);
+  it('are vivid, each its own hue away from the body, and stand out on a white body too', () => {
+    const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+    const rgb = (hex: string) => parseHex(hex) as Rgb;
+    for (const color of ['#1f7cf2', '#ff6a1a', '#f8a01c', '#7a7a7a', '#f4f4f4', '#151515']) {
+      const body = toOklch(rgb(color));
+      // Every piece of a celebration's ribbons over a few frames.
+      const front = new Set<string>(), back = new Set<string>();
+      for (let i = 0; i < 16; i++) {
+        for (const r of ribbons(avatarFrame(mug, { state: 'done', time: i * 0.17, stateAge: 0.5 + i * 0.05, color }))) {
+          expect(r.fill).toMatch(/^#[0-9a-f]{6}$/);
+          (r.front ? front : back).add(r.fill);
+        }
+      }
+      for (const fill of [...front, ...back]) {
+        const [, chroma, hue] = toOklch(rgb(fill));
+        expect(chroma).toBeGreaterThan(0.1);
+        if (body[1] > 0.04) expect(gap(hue, body[2])).toBeGreaterThan(60);
+      }
+      // Several distinct hues, not shades of one: a celebration shows all five.
+      expect(front.size).toBe(5);
+      const hues = [...front].map((fill) => toOklch(rgb(fill))[2]);
+      hues.forEach((h, i) => hues.slice(i + 1).forEach((o) => expect(gap(h, o)).toBeGreaterThan(30)));
+      // A ribbon is lighter in front of the body than behind it, in the same hue.
+      for (const fill of back) {
+        const [light, , hue] = toOklch(rgb(fill));
+        const twin = [...front].map((f) => toOklch(rgb(f))).find((o) => gap(o[2], hue) < 6);
+        expect(twin).toBeDefined();
+        expect((twin as number[])[0]).toBeGreaterThan(light);
+      }
+      // On a near-white body the pieces in front are deep enough to read against it.
+      if (body[0] > 0.85) for (const fill of front) expect(contrast(rgb(fill), rgb(color))).toBeGreaterThan(2);
+    }
   });
 
   it('stay where they are while the body hops and rolls', () => {

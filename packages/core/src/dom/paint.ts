@@ -216,15 +216,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       eye(ctx, shape.mark);
       ctx.fillStyle = fill;
     } else {
-      const ribbon = new Path2D(shape.d);
-      ctx.fill(ribbon);
-      if (shape.tint) {
-        ctx.fillStyle = shape.tint > 0 ? '#fff' : '#000';
-        ctx.globalAlpha = Math.abs(shape.tint);
-        ctx.fill(ribbon);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = fill;
-      }
+      ctx.fillStyle = shape.fill;
+      ctx.fill(new Path2D(shape.d));
+      ctx.fillStyle = fill;
     }
   }
 }

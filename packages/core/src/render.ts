@@ -19,13 +19,13 @@
  * the marks a thinking or blocked bot turns into. Those stay where they are while the body hops
  * and rolls.
  */
-import { parseHex, toHex } from './color.ts';
+import { oklch, parseHex, toHex, toOklch } from './color.ts';
 import type { Rgb } from './color.ts';
 import { bodyScale, markParts, ribbonPieces, ribbonReach } from './effects.ts';
 import type { Box } from './effects.ts';
 import { eyePath, plainLook } from './eyes.ts';
 import type { EyeSpot } from './eyes.ts';
-import { computePose, hashString } from './motion.ts';
+import { computePose, hashString, noise } from './motion.ts';
 import type { EyeLook, Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
@@ -342,15 +342,16 @@ export type FrameShape =
   | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
   | {
       /**
-       * A piece of a ribbon: fill `d` in the body color, then, where it passes in front of the
-       * body, in white at `tint` opacity on top (in black at `-tint` when `tint` is negative).
+       * A piece of a ribbon: fill `d` in `fill`. Each ribbon has a hue of its own, set apart from
+       * the body's; a piece `front` of the body is lighter than one behind it.
        */
       kind: 'ribbon';
       key: string;
       d: string;
       box: { x: number; y: number; w: number; h: number };
       matrix: Matrix;
-      tint: number;
+      front: boolean;
+      fill: string;
     };
 
 /** One cross-section outline, shared by every shape that draws it. */
@@ -401,20 +402,38 @@ export function liveFrame(definition: AvatarDefinition, options: RenderOptions =
 }
 
 /**
- * Ribbons are a shade apart from the body where they pass in front of it, so they show against
- * it: lighter on most colors, darker on a body too light to lighten.
+ * Where each ribbon's hue sits on the color wheel, in degrees from the body's: the first three
+ * (a working bot's) split the wheel with the body four ways, a celebration's two more fall between.
  */
-function ribbonTint(color: string | undefined): number {
-  const rgb = parseHex(color) ?? (parseHex(DEFAULT_COLOR) as Rgb);
-  const light = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
-  return light > 0.7 ? -0.16 : 0.4;
+const RIBBON_HUES = [90, 180, 270, 135, 225];
+const palettes = new Map<string, { front: string; back: string }[]>();
+
+/**
+ * The colors of the ribbons on a body this color: vivid and as bright as one another (OKLCH),
+ * each ribbon its own hue away from the body's, so they show against it. A white or gray body
+ * has no hue to step from, so its seed picks one. On a near-white body the ribbons are deeper.
+ */
+function ribbonPalette(color: string | undefined, seed: number): { front: string; back: string }[] {
+  const key = `${color}|${seed}`;
+  let palette = palettes.get(key);
+  if (palette) return palette;
+  const [light, chroma, hue] = toOklch(parseHex(color) ?? (parseHex(DEFAULT_COLOR) as Rgb));
+  const base = chroma < 0.04 ? noise(seed, 500) * 360 : hue;
+  const pale = light > 0.85;
+  palette = RIBBON_HUES.map((step) => {
+    const h = (base + step) % 360;
+    return { front: toHex(oklch(pale ? 0.66 : 0.78, 0.2, h)), back: toHex(oklch(pale ? 0.58 : 0.66, 0.17, h)) };
+  });
+  if (palettes.size >= 64) palettes.clear();
+  palettes.set(key, palette);
+  return palette;
 }
 
 /** What a frame draws besides the body, in viewBox units outside the body's own motion. */
 interface Effects {
   /** How much of its size the body keeps while it gives way to a mark (0 = gone). */
   body: number;
-  ribbons: { d: string; box: Box; front: boolean }[];
+  ribbons: { d: string; box: Box; front: boolean; fill: string }[];
   marks: { id: string; d: string; box: Box; matrix: M }[];
 }
 
@@ -425,7 +444,10 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const [cx, cy] = pivotOf(b);
   return {
     body: bodyScale(pose.bang, pose.dots),
-    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep),
+    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep).map((r) => {
+      const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
+      return { d: r.d, box: r.box, front: r.front, fill: r.front ? hue.front : hue.back };
+    }),
     marks: markParts(b, pose.bang, pose.dots, p.seed, time, still).map((part) => {
       const turn: M = [Math.cos(part.turn), Math.sin(part.turn), -Math.sin(part.turn), Math.cos(part.turn), 0, 0];
       return {
@@ -481,12 +503,11 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     items.sort((a, c) => a.depth - c.depth);
   }
 
-  const tint = ribbonTint(options.color);
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
   const fixed = fx.ribbons.length || fx.marks.length ? invert(root) : null;
   const ribbon = (front: boolean): FrameShape[] =>
     fx.ribbons.flatMap((r, i) =>
-      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, tint: front ? tint : 0 }] : [],
+      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill }] : [],
     );
   const marks = fx.marks.map((mark, i): FrameShape => {
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
@@ -509,10 +530,7 @@ function eyeSvg(mark: EyeMark, ink: string): string {
   return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" fill="${ink}"/>`;
 }
 
-/** A ribbon piece inside a group filled with the body color: the color, then white over it where it is tinted. */
-function ribbonSvg(d: string, tint: number): string {
-  return `<path d="${d}"/>` + (tint ? `<path d="${d}" fill="${tint > 0 ? '#fff' : '#000'}" fill-opacity="${f(Math.abs(tint))}"/>` : '');
-}
+const ribbonSvg = (d: string, fill: string) => `<path d="${d}" fill="${fill}"/>`;
 
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
@@ -522,7 +540,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
     .map((s) =>
       s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
-      : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.tint)}</g>`,
+      : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.fill)}</g>`,
     )
     .join('');
   const size = Number.isFinite(options.size) && (options.size as number) > 0 ? f(clamp(options.size as number, 8, 4096)) : null;
@@ -665,8 +683,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, options.size);
   const fx = effectsOf(p, pose, options);
-  const tint = ribbonTint(options.color);
-  const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, front ? tint : 0)).join('');
+  const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, r.fill)).join('');
   let k = 0;
   return {
     scene: p.id,

@@ -40,6 +40,9 @@ describe('mountAvatar', () => {
     await frame();
     const fx = (side: string) => el.querySelector(`[data-fx="${side}"]`) as Element;
     expect(fx('back').children.length + fx('front').children.length).toBeGreaterThan(0);
+    // Each ribbon in a color of its own, not the body's.
+    const fills = [...el.querySelectorAll('[data-fx] path')].map((path) => path.getAttribute('fill'));
+    expect(fills.every((fill) => /^#[0-9a-f]{6}$/.test(fill ?? ''))).toBe(true);
 
     avatar.update({ state: 'idle', mood: 'happy' });
     await frame();
