@@ -212,7 +212,7 @@ describe('ribbons', () => {
     expect(ribbons(avatarFrame(mug, { state: 'working', time: 1, reducedMotion: true })).length).toBe(0);
   });
 
-  it('are vivid, in hues that go with the body, and stand out in front of it', () => {
+  it('are vivid, in hues related to the body\'s, and stand out in front of it', () => {
     const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
     const rgb = (hex: string) => parseHex(hex) as Rgb;
     for (const color of ['#1f7cf2', '#ff6a1a', '#f8a01c', '#7a7a7a', '#f4f4f4', '#151515']) {
@@ -234,10 +234,11 @@ describe('ribbons', () => {
       // Several distinct hues, not shades of one: a celebration shows all five.
       expect(front.size).toBe(5);
       const hues = [...front].map((fill) => toOklch(rgb(fill))[2]);
-      hues.forEach((h, i) => hues.slice(i + 1).forEach((o) => expect(gap(h, o)).toBeGreaterThan(30)));
-      // A colorful body's triad partners, neighbours and complement.
-      if (body[1] > 0.04) for (const step of [120, 240, 35, 325, 180]) expect(hues.some((h) => gap(h, (body[2] + step) % 360) < 8)).toBe(true);
-      // In front of the body every ribbon is well apart from it in lightness, the neighbouring hues too.
+      hues.forEach((h, i) => hues.slice(i + 1).forEach((o) => expect(gap(h, o)).toBeGreaterThan(20)));
+      // A run of related hues either side of a colorful body's own, none of them far from it.
+      if (body[1] > 0.04) for (const step of [330, 30, 60, 300, 90]) expect(hues.some((h) => gap(h, (body[2] + step) % 360) < 8)).toBe(true);
+      if (body[1] > 0.04) for (const h of hues) expect(gap(h, body[2])).toBeLessThan(100);
+      // In front of the body every ribbon is well apart from it in lightness, since their hues are close.
       for (const fill of front) expect(Math.abs(toOklch(rgb(fill))[0] - body[0])).toBeGreaterThan(0.075);
       // A ribbon is lighter in front of the body than behind it, in the same hue.
       for (const fill of back) {

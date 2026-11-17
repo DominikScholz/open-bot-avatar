@@ -402,17 +402,17 @@ export function liveFrame(definition: AvatarDefinition, options: RenderOptions =
 }
 
 /**
- * Where each ribbon's hue sits on the color wheel, in degrees from the body's, so the ribbons and
- * the body make one color harmony: a working bot's three are the body's two triad partners and its
- * analogous neighbour; a celebration adds the other neighbour and the complement.
+ * Where each ribbon's hue sits on the color wheel, in degrees from the body's: a run of related
+ * hues either side of it, about 30° apart, so each body gets a family of its own (a warm run on
+ * an orange body, a cool one on a blue body). A working bot's three; a celebration adds two more.
  */
-const RIBBON_HUES = [120, -120, 35, -35, 180];
+const RIBBON_HUES = [-30, 30, 60, -60, 90];
 const palettes = new Map<string, { front: string; back: string }[]>();
 
 /**
- * The colors of the ribbons on a body this color: vivid (OKLCH, at one chroma) in hues that go
- * with the body's (see RIBBON_HUES). Their lightness is set against the body's, lighter on a
- * mid or dark body and deeper on a light one, so even the neighbouring hue shows in front of it.
+ * The colors of the ribbons on a body this color: vivid (OKLCH, at one chroma) in hues related
+ * to the body's (see RIBBON_HUES). Their lightness is set against the body's, lighter on a
+ * mid or dark body and deeper on a light one, so they show in front of it although their hues are close.
  * A white or gray body has no hue to build on, so its seed picks one.
  */
 function ribbonPalette(color: string | undefined, seed: number): { front: string; back: string }[] {
