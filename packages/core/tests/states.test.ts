@@ -4,11 +4,14 @@ import { createAnimator } from '../src/animator.ts';
 import { parseHex, toOklch, type Rgb } from '../src/color.ts';
 import { ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
-import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, computePose, hashString, resolveLook } from '../src/motion.ts';
+import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hashString, resolveLook } from '../src/motion.ts';
+
+const TAU = 2 * Math.PI;
 import { MOOD_MS } from '../src/mood.ts';
 import { isInside } from '../src/path.ts';
-import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
+import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, ribbonRim, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
 import { analyzeBody } from '../src/validate.ts';
+import { edgeDistance } from '../src/volume.ts';
 import type { AvatarDefinition, RenderOptions } from '../src/types.ts';
 
 const mug = getExample('mug')!;
@@ -198,13 +201,13 @@ describe('ribbons', () => {
     for (let age = 0; age < 30; age += 0.02) if (pose(age).ribbons > 0) out.push(age);
     const starts = out.filter((age, i) => i === 0 || age - out[i - 1] > 0.03);
     const ends = out.filter((age, i) => i === out.length - 1 || out[i + 1] - age > 0.03);
-    // The first sweep comes a second or two in, then one every five to eight seconds, each over in a second and a half.
-    expect(starts[0]).toBeGreaterThan(0.9);
-    expect(starts[0]).toBeLessThan(2.2);
+    // The first sweep comes 1.2 to 2.4 seconds in, then one every six to nine seconds, each over in a second and a half.
+    expect(starts[0]).toBeGreaterThan(1.1);
+    expect(starts[0]).toBeLessThan(2.5);
     expect(starts.length).toBeGreaterThanOrEqual(4);
     starts.slice(1).forEach((start, i) => {
-      expect(start - starts[i]).toBeGreaterThan(4.9);
-      expect(start - starts[i]).toBeLessThan(8.1);
+      expect(start - starts[i]).toBeGreaterThan(5.9);
+      expect(start - starts[i]).toBeLessThan(9.1);
     });
     starts.forEach((start, i) => expect(ends[i] - start).toBeLessThan(1.55));
 
@@ -232,38 +235,39 @@ describe('ribbons', () => {
     expect(ribbons(avatarFrame(mug, { state: 'working', time: during, stateAge: during, reducedMotion: true })).length).toBe(0);
   });
 
-  it('are steps along a ramp of the body\'s own color, and stand out in front of it', () => {
+  it('are steps along a ramp of the body\'s own color, each running further from it along its length', () => {
     const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
     const rgb = (hex: string) => parseHex(hex) as Rgb;
     for (const color of ['#1f7cf2', '#ff6a1a', '#f8a01c', '#f2384b', '#a8693f', '#7a7a7a', '#f4f4f4', '#151515']) {
       const body = toOklch(rgb(color));
-      // Every piece of a celebration's ribbons over a few frames.
-      const front = new Set<string>(), back = new Set<string>();
       for (let i = 0; i < 16; i++) {
-        for (const r of ribbons(avatarFrame(mug, { state: 'done', time: i * 0.17, stateAge: 0.5 + i * 0.05, color }))) {
-          expect(r.fill).toMatch(/^#[0-9a-f]{6}$/);
-          (r.front ? front : back).add(r.fill);
+        const shapes = ribbons(avatarFrame(mug, { state: 'done', time: i * 0.17, stateAge: 0.6 + i * 0.12, color }));
+        for (const r of shapes) {
+          const stops = r.gradient.stops.map((c) => toOklch(rgb(c)));
+          expect(r.gradient.stops[1]).toBe(r.fill);
+          for (const [light, chroma, hue] of stops) {
+            // On a colorful body vivid (a little paler at the lightest tips); on a white, gray or
+            // black one grays with a hint of tint. Either way well apart from the body in
+            // lightness (their hues are close to its own).
+            if (body[1] > 0.04) expect(chroma).toBeGreaterThan(0.055);
+            else expect(chroma).toBeLessThan(0.035);
+            expect(Math.abs(light - body[0])).toBeGreaterThan(0.085);
+            // Within reach of a colorful body's hue.
+            if (body[1] > 0.04) expect(gap(hue, body[2])).toBeLessThan(110);
+          }
+          // Along a piece the colour moves steadily away from the body's lightness, tail to head (hex
+          // rounding aside, where the run reaches its lightest or darkest).
+          const away = stops.map(([light]) => Math.abs(light - body[0]));
+          expect(away[1]).toBeGreaterThanOrEqual(away[0] - 3e-3);
+          expect(away[2]).toBeGreaterThanOrEqual(away[1] - 3e-3);
         }
-      }
-      // Five shades, none of them the body's own.
-      expect(front.size).toBe(5);
-      const shades = [...front].map((fill) => toOklch(rgb(fill)));
-      for (const [light, chroma, hue] of shades) {
-        // Well apart from the body in lightness, since their hues are close to its own.
-        expect(Math.abs(light - body[0])).toBeGreaterThan(0.085);
-        expect(chroma).toBeGreaterThan(0.07);
-        // Close to a colorful body's hue, turned warmer as they lighten and cooler as they darken.
-        if (body[1] > 0.04) {
-          expect(gap(hue, body[2])).toBeLessThan(75);
-          const warm = gap(hue, 100) < gap(body[2], 100);
-          if (gap(hue, body[2]) > 3 && gap(body[2], 100) > 3 && gap(body[2], 280) > 3) expect(warm).toBe(light > body[0]);
+        // Where one piece of a ribbon meets the next (in front of the body or behind it), the
+        // colour carries straight on: no step in colour where a ribbon passes behind the body.
+        const ordered = [...shapes].sort((x, y) => Number(x.key.split('-')[1]) - Number(y.key.split('-')[1]));
+        for (let k = 1; k < ordered.length; k++) {
+          const p = ordered[k - 1].gradient, n = ordered[k].gradient;
+          if (Math.hypot(p.x2 - n.x1, p.y2 - n.y1) < 1e-6) expect(n.stops[0]).toBe(p.stops[2]);
         }
-      }
-      // A piece behind the body is a shade deeper than the same ribbon in front of it.
-      for (const fill of back) {
-        const [light, , hue] = toOklch(rgb(fill));
-        const twin = shades.find((o) => gap(o[2], hue) < 4 && o[0] - light > 0.05 && o[0] - light < 0.11);
-        expect(twin).toBeDefined();
       }
     }
   });
@@ -279,13 +283,14 @@ describe('ribbons', () => {
     }
   });
 
-  it('stay within the reach the canvas allows for, on every starter', () => {
-    for (const d of examples) {
+  it('stay within the reach the canvas allows for, on every avatar', () => {
+    for (const d of everyone) {
       const b = preparedVolume(d).vol.bounds;
+      const rim = ribbonRim(analyzeBody(d.body.path).polys, b);
       const extent = avatarExtent(d);
-      const { radius, band } = ribbonReach(b);
+      const { radius, band } = ribbonReach(rim.max);
       for (let i = 0; i < 40; i++) {
-        for (const piece of ribbonPieces(b, 2, 11, i * 0.21, i * 0.4)) {
+        for (const piece of ribbonPieces(b, 1, 11, i * 0.21, i * 0.6, i % 2, rim)) {
           expect(piece.box.x).toBeGreaterThanOrEqual(extent.x);
           expect(piece.box.y).toBeGreaterThanOrEqual(extent.y);
           expect(piece.box.x + piece.box.w).toBeLessThanOrEqual(extent.x + extent.size);
@@ -296,19 +301,85 @@ describe('ribbons', () => {
     }
   });
 
+  it('ride hoops that hug each avatar\'s outline, and pass behind it only outside it', () => {
+    expect(everyone.length).toBeGreaterThan(20);
+    for (const d of everyone) {
+      const b = preparedVolume(d).vol.bounds;
+      const { polys } = analyzeBody(d.body.path);
+      const rim = ribbonRim(polys, b);
+      const seed = hashString(d.id);
+      let nearest = Infinity, far = 0;
+      for (const [state, from, to] of [['done', 0.3, DONE_TURN_S], ['working', 0, 9]] as const) {
+        for (let t = from; t <= to; t += 0.05) {
+          const pose = computePose({ seed, time: t, reducedMotion: false, state, stateAge: t });
+          const pieces = ribbonPieces(b, pose.ribbons, seed, t, pose.sweep, pose.cage, rim);
+          // The body as it is posed this frame (leaning, lifted, stretched): the ribbons stay put.
+          const [m0, m1, m2, m3, m4, m5] = avatarFrame(d, { state, time: t, stateAge: t }).root;
+          const posed = polys.map((poly) => poly.map(([x, y]) => [m0 * x + m2 * y + m4, m1 * x + m3 * y + m5] as [number, number]));
+          for (let k = 1; k < pieces.length; k++) {
+            const [p, n] = [pieces[k - 1], pieces[k]];
+            if (p.ribbon !== n.ribbon || p.front === n.front) continue;
+            // Where a ribbon passes from one layer to the other, its centre is clear of the body...
+            const [x, y] = n.from;
+            expect(isInside(posed, x, y)).toBe(false);
+            nearest = Math.min(nearest, edgeDistance(posed, x, y));
+          }
+          for (const q of pieces) far = Math.max(far, Math.hypot(q.to[0] - rim.cx, q.to[1] - rim.cy));
+        }
+      }
+      // ...but only just: the innermost ribbons pass close by the outline, on every avatar.
+      if (Number.isFinite(nearest)) expect(nearest).toBeLessThan(10);
+      const { radius, band } = ribbonReach(rim.max);
+      expect(far).toBeLessThanOrEqual(radius + band);
+    }
+  }, 30_000);
+
+  it('move smoothly from frame to frame, drawing in included: no stroke jumps', () => {
+    const b = preparedVolume(mug).vol.bounds;
+    const seed = hashString(mug.id);
+    const { radius } = ribbonReach();
+    for (const [state, from, to] of [['done', 0.3, DONE_TURN_S], ['working', 0, 12]] as const) {
+      let last = new Map<number, [number, number]>(), sweep = 0, worst = 0;
+      for (let t = from; t <= to; t += 1 / 60) {
+        const pose = computePose({ seed, time: t, reducedMotion: false, state, stateAge: t });
+        const heads = new Map<number, [number, number]>();
+        for (const p of ribbonPieces(b, pose.ribbons, seed, t, pose.sweep, pose.cage)) if (p.along[1] === 1) heads.set(p.ribbon, p.to);
+        // At most as far as the turn carried it this frame round the widest hoop, plus its own drift.
+        const allowed = Math.abs(pose.sweep - sweep) * radius + 1.5;
+        for (const [id, [x, y]] of heads) {
+          const before = last.get(id);
+          if (before) worst = Math.max(worst, Math.hypot(x - before[0], y - before[1]) / allowed);
+        }
+        last = heads;
+        sweep = pose.sweep;
+      }
+      expect(worst).toBeLessThan(1);
+    }
+  });
+
   it('draw out and back in with their presence', () => {
     const b = preparedVolume(mug).vol.bounds;
     expect(ribbonPieces(b, 0, 3, 1)).toEqual([]);
-    const area = (k: number) => ribbonPieces(b, k, 3, 1).reduce((n, p) => n + p.box.w * p.box.h, 0);
+    // Placed by how far a turn has carried them: with no sweep there is nothing to draw yet.
+    expect(ribbonPieces(b, 1, 3, 1, 0)).toEqual([]);
+    const area = (k: number, sweep = 4, cage = 0) => ribbonPieces(b, k, 3, 1, sweep, cage).reduce((n, p) => n + p.box.w * p.box.h, 0);
     expect(area(0.3)).toBeLessThan(area(1));
-    // A working bot's ribbons are one band of three lanes side by side; a celebration adds two
-    // more bands, crossing it. A sweep carries them all further round.
-    const lanes = (k: number) => [...new Set(ribbonPieces(b, k, 3, 1).map((p) => p.ribbon))].sort((x, y) => x - y);
-    expect(lanes(1)).toEqual([0, 1, 2]);
-    expect(lanes(2)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(area(2)).toBeGreaterThan(area(1));
-    expect(ribbonPieces(b, 1, 3, 1, 0.5)).not.toEqual(ribbonPieces(b, 1, 3, 1));
-    expect(ribbonPieces(b, 1, 3, 1, 2 * Math.PI).map((p) => p.front)).toEqual(ribbonPieces(b, 1, 3, 1).map((p) => p.front));
+    // A celebration has three ribbons on each of three crossing hoops. A sweep carries them all further round.
+    const lanes = (cage: number) => [...new Set(ribbonPieces(b, 1, 3, 1, 12, cage).map((p) => p.ribbon))].sort((x, y) => x - y);
+    // A working turn: three to five ribbons on one hoop.
+    const working = lanes(0);
+    expect(working.length).toBeGreaterThanOrEqual(3);
+    expect(working.length).toBeLessThanOrEqual(5);
+    expect(working).toEqual(working.map((_, i) => i));
+    expect(lanes(1)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    // A second and a half into each: a celebration's turn has gone much further by then.
+    expect(area(1, 22, 1)).toBeGreaterThan(area(1, 6));
+    // Drawing in keeps the layout: fewer, shorter ribbons in the same places, never a jump to another layout.
+    const layout = (k: number) => ribbonPieces(b, k, 3, 1, 30, 1).map((p) => p.ribbon);
+    expect(new Set(layout(0.3))).toEqual(new Set(layout(1)));
+    expect(ribbonPieces(b, 1, 3, 1, 2.5)).not.toEqual(ribbonPieces(b, 1, 3, 1, 2));
+    // Turning the other way, they go round the other way.
+    expect(ribbonPieces(b, 1, 3, 1, -2)).not.toEqual(ribbonPieces(b, 1, 3, 1, 2));
   });
 });
 
@@ -322,7 +393,8 @@ describe('done', () => {
     // Without an age it is at rest.
     expect(computePose(base)).toEqual(resting);
     const mid = computePose({ ...base, stateAge: DONE_TURN_S / 2 });
-    expect(mid.ribbons).toBeGreaterThan(1);
+    expect(mid.ribbons).toBe(1);
+    expect(mid.cage).toBe(1);
     expect(mid.lift).toBeLessThan(resting.lift);
     // The body faces every way in turn, and ends where it rests.
     let turned = 0, last = 0;
@@ -337,26 +409,35 @@ describe('done', () => {
   });
 
   it('celebrates again after a rest, the other way round, at a pace of its own', () => {
-    // When the second celebration starts: each avatar's cycle is DONE_CYCLE_S or up to a third longer.
+    // When the second celebration starts (to the millisecond): each avatar's cycle is DONE_CYCLE_S or up to 15% longer.
     const again = (seed: number) => {
       for (let age = DONE_TURN_S; age < 2 * DONE_CYCLE_S; age += 0.001) if (computePose({ ...base, seed, stateAge: age }).ribbons > 0) return age;
       return NaN;
     };
     const cycle = again(5);
     expect(cycle).toBeGreaterThanOrEqual(DONE_CYCLE_S);
-    expect(cycle).toBeLessThan(DONE_CYCLE_S * 1.34);
+    expect(cycle).toBeLessThan(DONE_CYCLE_S * 1.16);
     const first = computePose({ ...base, stateAge: 1 }).yaw - resting.yaw;
     const second = computePose({ ...base, stateAge: cycle + 1 }).yaw - resting.yaw;
-    expect(second).toBeCloseTo(-first, 2);
+    // A millisecond of the turn is a hundredth of a radian at full speed.
+    expect(second).toBeCloseTo(-first, 1);
     expect(Math.abs(again(6) - cycle)).toBeGreaterThan(0.05);
   });
 
-  it('never unwinds: the angle stays the short way round from the resting one', () => {
+  it('never unwinds: the body stays the short way round from rest, the ribbons go on round with it', () => {
+    let last = 0;
     for (let u = 0.01; u < 1; u += 0.01) {
       const p = computePose({ ...base, stateAge: u * DONE_TURN_S });
       expect(Math.abs(p.yaw - resting.yaw)).toBeLessThanOrEqual(Math.PI + 1e-9);
-      expect(Math.abs(p.sweep)).toBeLessThanOrEqual(Math.PI + 1e-9);
+      // The sweep is not wrapped: past the wind-up it only grows, to three times the body's turns.
+      if (u > 0.2) expect(p.sweep).toBeGreaterThanOrEqual(last);
+      last = p.sweep;
     }
+    expect(last).toBeGreaterThan(8 * TAU);
+    // Leaving the state mid-celebration, the ribbons fade where they are instead of winding back.
+    const mid = computePose({ ...base, stateAge: DONE_TURN_S / 2 });
+    const away = blendPoses(mid, computePose({ ...base, state: 'idle', stateAge: 0 }), 0.5);
+    expect(away.sweep).toBe(mid.sweep);
     // Neither angle wraps while the state is still easing in.
     for (let age = 0; age < MOOD_MS / 1000; age += 0.01) {
       const p = computePose({ ...base, stateAge: age });

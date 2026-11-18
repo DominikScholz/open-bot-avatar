@@ -19,9 +19,11 @@
  * the marks a thinking or blocked bot turns into. Those stay where they are while the body hops
  * and rolls.
  */
-import { oklch, parseHex, toHex, toOklch } from './color.ts';
+import { mix, oklch, parseHex, toHex, toOklch } from './color.ts';
 import type { Rgb } from './color.ts';
-import { bodyScale, markParts, ribbonPieces, ribbonReach } from './effects.ts';
+import { bodyScale, markParts, ribbonPieces, ribbonReach, rimOf } from './effects.ts';
+import type { Rim } from './effects.ts';
+import { insideRow } from './path.ts';
 import type { Box } from './effects.ts';
 import { eyePath, plainLook } from './eyes.ts';
 import type { EyeSpot } from './eyes.ts';
@@ -58,6 +60,8 @@ interface Prepared {
   ids: Map<string, string>;
   /** Slices kept at a rendered size, per stack, keyed by stack and rounded size. */
   detail: Map<string, boolean[]>;
+  /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRim). */
+  rim: () => Rim;
 }
 
 const cache = new Map<string, Prepared>();
@@ -71,6 +75,39 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 function depthOption(options: RenderOptions): number {
   const d = clamp(Number.isFinite(options.depth) ? (options.depth as number) : DEFAULT_DEPTH, 0, MAX_DEPTH);
   return Math.round(d * 2) / 2;
+}
+
+const lazy = <T>(make: () => T): (() => T) => {
+  let value: T | undefined;
+  return () => (value ??= make());
+};
+
+/**
+ * Where the ribbons' hoops are centred, the middle of the body's mass (so they ring the body, not
+ * the empty middle of its box, on a shape like a brush), and how far the body reaches from there
+ * along each direction while it shows ribbons.
+ * The ribbons stay put while the body leans, lifts and stretches under them (see rootMatrix), so
+ * this is the farthest over the poses it takes then: leaning -2° to 7° (a working bot leans into
+ * its sweep), lifted up to 3.4 and stretched up to 5.5% (a celebration). The hoops stand outside
+ * it, so the body never moves through the point where a ribbon passes behind it.
+ */
+export function ribbonRim(polys: Point[][], b: Bounds): Rim {
+  // The middle of the body's mass: the mean of a grid of points over it, a unit apart.
+  let sx = 0, sy = 0, n = 0;
+  const xs: number[] = [];
+  for (let x = Math.floor(b.minX); x <= b.maxX; x++) xs.push(x + 0.5);
+  const row = new Uint8Array(xs.length);
+  for (let y = Math.floor(b.minY) + 0.5; y <= b.maxY; y++) {
+    insideRow(polys, y, xs, row);
+    for (let k = 0; k < xs.length; k++) if (row[k]) { sx += xs[k]; sy += y; n++; }
+  }
+  const [cx, cy] = n ? [sx / n, sy / n] : pivotOf(b);
+  const poses: M[] = [];
+  for (const roll of [-2, 0, 3.5, 7]) for (const lift of [0, -3.4]) for (const sy of [1, 1.055]) {
+    poses.push(rootMatrix({ roll, lift, sx: 1.01, sy } as Pose, b));
+  }
+  const at = (m: M, [x, y]: Point): Point => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  return rimOf(poses.map((m) => polys.map((poly) => poly.map((pt) => at(m, pt)))), cx, cy);
 }
 
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
@@ -93,6 +130,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     id,
     ids,
     detail: new Map(),
+    rim: lazy(() => ribbonRim(body.polys, vol.bounds)),
   };
   if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
   cache.set(key, prepared);
@@ -217,12 +255,16 @@ const POSE_SWAY = 0.2;
  * canvas renderer uses it only as an upper bound: it sizes each bitmap to what is actually painted.
  */
 export function avatarExtent(definition: AvatarDefinition, depth?: number): { x: number; y: number; size: number } {
-  const { vol } = prepare(definition, depthOption({ depth }));
+  const p = prepare(definition, depthOption({ depth }));
+  const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
   const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
-  const ribbons = ribbonReach(b);
-  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), ribbons.radius + ribbons.band + 0.1);
+  const rim = p.rim(), ribbons = ribbonReach(rim.max);
+  // Ribbons reach their hoop plus their band from the hoops' centre (the body's mass, a little off
+  // the middle of its box), and keep the canvas's antialiasing margin (FIT_PAD) inside.
+  const off = Math.hypot(rim.cx - cx, rim.cy - cy);
+  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), off + ribbons.radius + ribbons.band + 1.2);
   return { x: cx - half, y: cy - half, size: 2 * half };
 }
 
@@ -351,7 +393,13 @@ export type FrameShape =
       box: { x: number; y: number; w: number; h: number };
       matrix: Matrix;
       front: boolean;
+      /** The ribbon's colour where it is plainest (the middle of its gradient). */
       fill: string;
+      /**
+       * A linear gradient along the whole ribbon, in the same coordinates as `d`: from its tail
+       * (x1, y1) to its head (x2, y2), the stops evenly spaced. Every piece of a ribbon shares it.
+       */
+      gradient: { x1: number; y1: number; x2: number; y2: number; stops: string[] };
     };
 
 /** One cross-section outline, shared by every shape that draws it. */
@@ -415,9 +463,24 @@ const RAMP_HUE = 14;
 // out toward white or sink toward black.
 const RAMP_RANGE = [0.36, 0.9] as const;
 const WARM = 100;
-const palettes = new Map<string, { front: string; back: string }[]>();
-/** Which shades (by their order along the ramp) each band's lanes take: a working bot's band first. */
-const BAND_SHADES = [[0, 1, 2], [3, 4, 0], [1, 3, 4]] as const;
+const palettes = new Map<string, Rgb[][]>();
+/**
+ * How far a ribbon's colour runs from its tail (its shade) to its head: further from the body's
+ * lightness by GRADIENT_LIGHT, turning GRADIENT_HUE degrees with it (warmer as it lightens,
+ * cooler as it darkens). GRADIENT_STOPS colours along the way.
+ */
+const GRADIENT_LIGHT = 0.13;
+const GRADIENT_HUE = 25;
+const GRADIENT_STOPS = 5;
+/** Below this chroma a body counts as white, gray or black, and its ribbons are grays with this much tint. */
+const NEUTRAL = 0.04;
+const NEUTRAL_TINT = 0.025;
+/**
+ * Which shades (by their order along the ramp: +1, -1, +2, -2, +3 on most bodies) each band's lanes
+ * take, a working bot's band first. A celebration's two bands lean to the lighter shades, so the
+ * cage stays bright against a dark page.
+ */
+const BAND_SHADES = [[0, 1, 2], [2, 0, 3], [1, 2, 0]] as const;
 
 /** Turn hue `h` by up to `by` degrees toward hue `to`, never past it. */
 function turnToward(h: number, to: number, by: number): number {
@@ -427,17 +490,25 @@ function turnToward(h: number, to: number, by: number): number {
 
 /**
  * The colors of the ribbons on a body this color, one per band and lane (see BAND_SHADES): five
- * steps along its own ramp (see RAMP_LIGHT), at least as vivid as the body. A white or gray body has no hue of its own, so its seed picks one.
+ * steps along its own ramp (see RAMP_LIGHT), at least as vivid as the body. A white, gray or
+ * black body gets grays: lighter or darker than it, with just a hint of a hue its seed picks.
  * A piece behind the body is a shade deeper than one in front of it.
  */
-function ribbonPalette(color: string | undefined, seed: number): { front: string; back: string }[] {
+/** The colour `t` (0..1) of the way along a colour run, in sRGB between its stops. */
+function runAt(run: Rgb[], t: number): string {
+  const x = clamp(t, 0, 1) * (run.length - 1), n = Math.min(Math.floor(x), run.length - 2);
+  return toHex(mix(run[n], run[n + 1], x - n));
+}
+
+function ribbonPalette(color: string | undefined, seed: number): Rgb[][] {
   const key = `${color}|${seed}`;
   let palette = palettes.get(key);
   if (palette) return palette;
   const [light, chroma, hue] = toOklch(parseHex(color) ?? (parseHex(DEFAULT_COLOR) as Rgb));
   // A seed's hue skips the yellows (80 to 130), whose darker steps turn olive.
-  const base = chroma < 0.04 ? (130 + noise(seed, 500) * 310) % 360 : hue;
-  const c = Math.max(chroma, 0.17);
+  const neutral = chroma < NEUTRAL;
+  const base = neutral ? (130 + noise(seed, 500) * 310) % 360 : hue;
+  const c = neutral ? NEUTRAL_TINT : Math.max(chroma, 0.17);
   const from = Math.min(RAMP_RANGE[1], Math.max(RAMP_RANGE[0], light));
   const steps: number[] = [];
   for (let k = 1; steps.length < 5 && k < 10; k++) {
@@ -450,12 +521,17 @@ function ribbonPalette(color: string | undefined, seed: number): { front: string
   const shades = steps.map((step) => {
     const l = from + step * RAMP_LIGHT;
     const h = turnToward(base, step > 0 ? WARM : WARM + 180, RAMP_HUE * Math.abs(step));
-    return { step, front: toHex(oklch(l, c, h)), back: toHex(oklch(l - 0.08, c * 0.9, h)) };
+    // Tail to head, away from the body's lightness: lighter and warmer, or darker and cooler.
+    const away = step > 0 ? 1 : -1;
+    const run = Array.from({ length: GRADIENT_STOPS }, (_, n) => {
+      const t = n / (GRADIENT_STOPS - 1);
+      const hue = turnToward(h, away > 0 ? WARM : WARM + 180, GRADIENT_HUE * t);
+      return oklch(clamp(l + away * GRADIENT_LIGHT * t, 0.26, 0.9), c, hue);
+    });
+    return { step, run };
   });
   // Each band takes three of the shades, lightest on the inside lane to darkest on the outside.
-  palette = BAND_SHADES.flatMap((pick) =>
-    pick.map((n) => shades[n]).sort((x, y) => y.step - x.step).map(({ front, back }) => ({ front, back })),
-  );
+  palette = BAND_SHADES.flatMap((pick) => pick.map((n) => shades[n]).sort((x, y) => y.step - x.step).map(({ run }) => run));
   if (palettes.size >= 64) palettes.clear();
   palettes.set(key, palette);
   return palette;
@@ -465,7 +541,7 @@ function ribbonPalette(color: string | undefined, seed: number): { front: string
 interface Effects {
   /** How much of its size the body keeps while it gives way to a mark (0 = gone). */
   body: number;
-  ribbons: { d: string; box: Box; front: boolean; fill: string }[];
+  ribbons: { d: string; box: Box; front: boolean; fill: string; gradient: RibbonGradient }[];
   marks: { id: string; d: string; box: Box; matrix: M }[];
 }
 
@@ -476,9 +552,17 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const [cx, cy] = pivotOf(b);
   return {
     body: bodyScale(pose.bang, pose.dots),
-    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep).map((r) => {
+    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, p.rim()).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
-      return { d: r.d, box: r.box, front: r.front, fill: r.front ? hue.front : hue.back };
+      // The piece's stretch of its ribbon's colour run, front and back alike.
+      const [s0, s1] = r.along;
+      const stops = [s0, (s0 + s1) / 2, s1].map((t) => runAt(hue, t));
+      // A gradient needs some length; a piece too short to have one takes its middle colour.
+      const long = Math.hypot(r.to[0] - r.from[0], r.to[1] - r.from[1]) > 0.01;
+      return {
+        d: r.d, box: r.box, front: r.front, fill: stops[1],
+        gradient: long ? { x1: r.from[0], y1: r.from[1], x2: r.to[0], y2: r.to[1], stops } : { x1: r.from[0], y1: r.from[1], x2: r.from[0] + 0.01, y2: r.from[1], stops: [stops[1], stops[1], stops[1]] },
+      };
     }),
     marks: markParts(b, pose.bang, pose.dots, p.seed, time, still).map((part) => {
       const turn: M = [Math.cos(part.turn), Math.sin(part.turn), -Math.sin(part.turn), Math.cos(part.turn), 0, 0];
@@ -539,7 +623,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const fixed = fx.ribbons.length || fx.marks.length ? invert(root) : null;
   const ribbon = (front: boolean): FrameShape[] =>
     fx.ribbons.flatMap((r, i) =>
-      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill }] : [],
+      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient }] : [],
     );
   const marks = fx.marks.map((mark, i): FrameShape => {
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
@@ -562,7 +646,20 @@ function eyeSvg(mark: EyeMark, ink: string): string {
   return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" fill="${ink}"/>`;
 }
 
-const ribbonSvg = (d: string, fill: string) => `<path d="${d}" fill="${fill}"/>`;
+type RibbonGradient = { x1: number; y1: number; x2: number; y2: number; stops: string[] };
+
+/**
+ * A ribbon piece with its gradient alongside it. The id is taken from the gradient itself, so
+ * repeats on a page (the same avatar at the same moment) share one harmlessly.
+ */
+function ribbonSvg(d: string, g: RibbonGradient): string {
+  const id = `oba-g${hashString(`${f(g.x1)},${f(g.y1)},${f(g.x2)},${f(g.y2)},${g.stops.join()}`).toString(36)}`;
+  const stops = g.stops.map((c, i) => `<stop offset="${f(i / (g.stops.length - 1))}" stop-color="${c}"/>`).join('');
+  return (
+    `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${f(g.x1)}" y1="${f(g.y1)}" x2="${f(g.x2)}" y2="${f(g.y2)}">${stops}</linearGradient>` +
+    `<path d="${d}" fill="url(#${id})"/>`
+  );
+}
 
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
@@ -572,7 +669,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
     .map((s) =>
       s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
-      : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.fill)}</g>`,
+      : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
     .join('');
   const size = Number.isFinite(options.size) && (options.size as number) > 0 ? f(clamp(options.size as number, 8, 4096)) : null;
@@ -715,7 +812,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, options.size);
   const fx = effectsOf(p, pose, options);
-  const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, r.fill)).join('');
+  const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, r.gradient)).join('');
   let k = 0;
   return {
     scene: p.id,

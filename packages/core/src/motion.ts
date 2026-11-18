@@ -36,9 +36,14 @@ export interface Pose {
   squintL: number;
   squintR: number;
   eyes: EyeLook;
-  /** Presence of the ribbons that circle the body: 0..1 draws them out, up to 2 adds more of them, bolder. */
+  /** Presence of the ribbons that circle the body: 0..1 draws them out and back in. */
   ribbons: number;
-  /** How far the ribbons have run ahead of their own steady pace, radians (they fly with a turn). */
+  /** Which layout the ribbons take: 0 a working turn's one hoop, 1 a celebration's cage of three. */
+  cage: number;
+  /**
+   * How far the body's turn has carried the ribbons round, radians, signed and not wrapped: each
+   * ribbon goes its own share of it, so a whole turn more does not put them back where they were.
+   */
   sweep: number;
   /** How far the body has given way to a mark, 0..1 each: the exclamation mark and the three dots. */
   bang: number;
@@ -169,12 +174,17 @@ export interface PoseInput {
 export function blendPoses(a: Pose, b: Pose, t: number): Pose {
   const k = clamp(t, 0, 1);
   const m = (x: number, y: number) => mix(x, y, k);
+  // The ribbons stay where the side that shows them has carried them: mixing a celebration's many
+  // turns with a pose that has none would wind them back round while they fade.
+  const sweep = a.ribbons > 0 && b.ribbons > 0 ? m(a.sweep, b.sweep) : a.ribbons > 0 ? a.sweep : b.sweep;
+  // Likewise their layout: a celebration fading out keeps its cage.
+  const cage = a.ribbons > 0 && b.ribbons > 0 ? m(a.cage, b.cage) : a.ribbons > 0 ? a.cage : b.cage;
   return {
     yaw: m(a.yaw, b.yaw), pitch: m(a.pitch, b.pitch), roll: m(a.roll, b.roll), lift: m(a.lift, b.lift),
     sx: m(a.sx, b.sx), sy: m(a.sy, b.sy), gazeX: m(a.gazeX, b.gazeX), gazeY: m(a.gazeY, b.gazeY),
     blink: m(a.blink, b.blink), squintL: m(a.squintL, b.squintL), squintR: m(a.squintR, b.squintR),
     eyes: { arc: m(a.eyes.arc, b.eyes.arc), slit: m(a.eyes.slit, b.eyes.slit) },
-    ribbons: m(a.ribbons, b.ribbons), sweep: m(a.sweep, b.sweep), bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
+    ribbons: m(a.ribbons, b.ribbons), cage, sweep, bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
   };
 }
 
@@ -191,15 +201,20 @@ export function computePose(input: PoseInput): Pose {
 }
 
 /**
- * Done celebrates in cycles: this many turns over DONE_TURN_S seconds, then a rest. A cycle lasts
- * DONE_CYCLE_S or up to a third longer, differently for each avatar, so several done bots on a
+ * Done celebrates in cycles, timed as PR #14 measured the Grok Bot demo: the ribbons go round
+ * DONE_SWEEPS times while the body turns DONE_SWEEPS / 3 times (see celebration), then they draw
+ * back in and the bot rests. DONE_TURN_S covers the turn and the drawing in. A cycle lasts
+ * DONE_CYCLE_S or up to a seventh longer, differently for each avatar, so several done bots on a
  * page drift apart instead of turning together.
  */
-export const DONE_TURN_S = 3.2;
-export const DONE_CYCLE_S = 7;
-const DONE_TURNS = 3;
-/** How many times the ribbons go round for each turn of the body. */
-const DONE_SWEEP = 2.8;
+export const DONE_TURN_S = 3.87;
+export const DONE_CYCLE_S = 6.2;
+const DONE_SWEEPS = 9;
+/**
+ * How long the ribbons take to draw back in, seconds: they start once the turn has slowed below
+ * about 0.9 rad/s, 3.37 s in, and are gone at DONE_TURN_S.
+ */
+const DONE_DRAW_IN_S = 0.5;
 
 /**
  * A working bot gets on with it and every so often throws itself into the work: a band of
@@ -207,13 +222,13 @@ const DONE_SWEEP = 2.8;
  * (plus up to WORK_FIRST_JITTER_S) after the state begins, then one every WORK_GAP_S, each up to
  * WORK_JITTER_S late, so several working bots do not turn together. A turn takes WORK_TURN_S.
  */
-const WORK_FIRST_S = 1;
-const WORK_FIRST_JITTER_S = 1.1;
-const WORK_GAP_S = 6.5;
+const WORK_FIRST_S = 1.2;
+const WORK_FIRST_JITTER_S = 1.2;
+const WORK_GAP_S = 7.5;
 const WORK_JITTER_S = 1.5;
 const WORK_TURN_S = 1.5;
-/** How quickly a working turn eases in to its full circle, per second. */
-const WORK_EASE = 5.4;
+/** How quickly a working turn eases in to its full circle, per second: a critically damped spring's rate. */
+const WORK_EASE = 6.2;
 
 /**
  * Where a working bot is in its turns `age` seconds into the state: how far into the current
@@ -236,11 +251,20 @@ function workTurn(seed: number, age: number): number | null {
 const near = (angle: number) => angle - TAU * Math.round(angle / TAU);
 
 /**
- * How far a celebration has turned by `u` (0..1 of its length), radians: it winds up a little
- * the other way, runs, and eases to a stop having made DONE_TURNS turns.
+ * How far a celebration's ribbons have gone round `t` seconds in, radians, on PR #14's curve: half
+ * a radian of wind-up the other way over 0.24 s, a speed-up to a steady run, then from 2.54 s a
+ * slow-down that lands, at 3.79 s, on DONE_SWEEPS whole turns.
  */
-function celebration(u: number): number {
-  return DONE_TURNS * TAU * smooth(u) - 0.45 * Math.sin(Math.PI * clamp(u / 0.16, 0, 1));
+const CELEBRATION_END_S = 3.79;
+const CELEBRATION_SPEED = (DONE_SWEEPS * TAU + 0.5) / 2.4625;
+function celebration(t: number): number {
+  const v = CELEBRATION_SPEED;
+  if (t <= 0) return 0;
+  if (t < 0.24) return -0.25 * (1 - Math.cos((Math.PI * t) / 0.24));
+  if (t < 0.54) return -0.5 + (v * (t - 0.24) ** 2) / 0.6;
+  if (t < 2.54) return -0.5 + v * (t - 0.39);
+  if (t < CELEBRATION_END_S) return -0.5 + v * 2.15 + (1.25 * v * (1 - (1 - (t - 2.54) / 1.25) ** 4)) / 4;
+  return DONE_SWEEPS * TAU;
 }
 
 function statePose(input: PoseInput): Pose {
@@ -260,7 +284,7 @@ function statePose(input: PoseInput): Pose {
   const pose: Pose = {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
-    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, sweep: 0, bang: 0, dots: 0,
+    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, bang: 0, dots: 0,
   };
   /** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
   const rest = (pace: number) => {
@@ -330,7 +354,7 @@ function statePose(input: PoseInput): Pose {
       const turn = TAU * (1 - (1 + e) * Math.exp(-e));
       const swell = Math.sin(turn / 2);
       pose.ribbons = clamp(into / 0.16, 0, 1) * clamp((WORK_TURN_S - into) / 0.5, 0, 1);
-      pose.sweep = near(1.15 * turn);
+      pose.sweep = turn;
       pose.yaw += 0.22 * swell;
       pose.roll += 3 * swell;
       pose.lift -= 1.2 * swell;
@@ -364,17 +388,21 @@ function statePose(input: PoseInput): Pose {
     rest(1.25);
     // Counted from when the state began. Without an age it is at rest.
     const age = !reducedMotion && Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : DONE_TURN_S;
-    const length = DONE_CYCLE_S * (1 + 0.33 * noise(seed, 31));
+    const length = DONE_CYCLE_S * (1 + 0.15 * noise(seed, 31));
     const cycle = Math.floor(age / length), since = age - cycle * length;
     if (since < DONE_TURN_S) {
-      const u = since / DONE_TURN_S;
-      const swell = Math.sin(Math.PI * u);
-      const turn = celebration(u) * (cycle % 2 ? -1 : 1);
-      pose.yaw += near(turn);
+      const swell = Math.sin((Math.PI * since) / DONE_TURN_S);
+      const way = cycle % 2 ? -1 : 1;
+      const sweep = celebration(since) * way;
+      // The body turns a third as often as the ribbons go round.
+      pose.yaw += near(sweep / 3);
       pose.lift -= 2.2 * swell;
       pose.sy += 0.04 * swell;
-      pose.ribbons = clamp(2.6 * swell, 0, 2);
-      pose.sweep = near(DONE_SWEEP * turn);
+      // All the ribbons out at full strength while the turn is quick, drawn back in as it settles.
+      pose.ribbons = clamp(since / 0.1, 0, 1) * clamp((DONE_TURN_S - since) / DONE_DRAW_IN_S, 0, 1);
+      pose.cage = 1;
+      // The ribbons only set off once the turn goes forward: the wind-up does not carry them.
+      pose.sweep = way * Math.max(0, celebration(since));
     }
   } else {
     rest(1);

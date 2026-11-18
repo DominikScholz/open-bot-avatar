@@ -42,9 +42,12 @@ describe('mountAvatar', () => {
     const shown = () => (fx('back')?.children.length ?? 0) + (fx('front')?.children.length ?? 0);
     for (let i = 0; i < 240 && !shown(); i++) await frame();
     expect(shown()).toBeGreaterThan(0);
-    // Each ribbon in a color of its own, not the body's.
-    const fills = [...el.querySelectorAll('[data-fx] path')].map((path) => path.getAttribute('fill'));
-    expect(fills.every((fill) => /^#[0-9a-f]{6}$/.test(fill ?? ''))).toBe(true);
+    // Each ribbon filled with a gradient of its own, in colours that are not the body's.
+    const fills = [...el.querySelectorAll('[data-fx] path')].map((path) => path.getAttribute('fill') ?? '');
+    expect(fills.every((fill) => /^url\(#oba-g[0-9a-z]+\)$/.test(fill))).toBe(true);
+    const stops = [...el.querySelectorAll('[data-fx] linearGradient stop')].map((stop) => stop.getAttribute('stop-color') ?? '');
+    expect(stops.length).toBeGreaterThan(0);
+    expect(stops.every((c) => /^#[0-9a-f]{6}$/.test(c))).toBe(true);
 
     avatar.update({ state: 'idle', mood: 'happy' });
     await frame();

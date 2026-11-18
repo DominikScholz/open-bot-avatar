@@ -55,10 +55,10 @@ The six states are the ones an agent moves through. Each is motion on the same a
 | --- | --- |
 | `idle` | Calm: breathes, sways, blinks and looks around. A happy bot hops. |
 | `thinking` | The body gives way to three dots that hop in turn. |
-| `working` | Bent over the work with a quick bob and darting eyes. Every few seconds a band of three round-ended ribbons sweeps once round the body, in front of it along the top and behind it along the bottom, and the eyes follow it. |
+| `working` | Bent over the work with a quick bob and darting eyes. Every few seconds three to five round-ended ribbons sweep once round the body side by side, in front of it along the top and behind it along the bottom, and the eyes follow them. |
 | `waiting` | Leans to one side with its eyes flattened to slits, glancing off, and sighs now and then. |
 | `blocked` | The body gives way to an exclamation mark that jumps and shakes every few seconds. |
-| `done` | Celebrates: a few turns inside a cage of three crossing bands, then a rest, and after a while again. |
+| `done` | Celebrates: a few turns inside a cage of nine ribbons on three crossing hoops, then a rest, and after a while again. |
 
 A mood combines with any state: a bot can be working and happy. A happy bot keeps its arcs while it waits. The marks of `thinking` and `blocked` have no eyes, so a mood shows again when the body returns. Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.
 
@@ -110,7 +110,7 @@ Both functions accept `RenderOptions`:
 - `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion, blinking and marks and leaves out ribbons; gaze still applies. It does not read system preferences.
 - `motionBlend` lets a custom animation host blend from what was shown before: `{ from, t }`, with `t` from 0 to 1. `from` is `{ state, mood, age?, blend? }`, where `age` is that state's `stateAge` when the change began and `blend` an interrupted transition.
 
-A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the marks of `thinking` and `blocked` are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled in their own `fill`: each ribbon is a shade of the body's own color, a step lighter or darker and turned a little warmer or cooler with it, and is lighter where it passes in front of the body (`front`) than behind it.
+A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the marks of `thinking` and `blocked` are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled with a linear `gradient` along their ribbon (`fill` is its middle colour): each ribbon is a shade of the body's own color, a step lighter or darker and turned a little warmer or cooler with it, and runs further from the body's lightness towards its head; on a white, gray or black body the ribbons are grays. `front` says whether the piece is drawn in front of the body. The ribbons ride hoops centred on the body that stand just outside its outline, so they pass behind it only off its edge.
 
 ## Definitions and validation
 

@@ -216,7 +216,10 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       eye(ctx, shape.mark);
       ctx.fillStyle = fill;
     } else {
-      ctx.fillStyle = shape.fill;
+      const g = shape.gradient;
+      const paint = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
+      g.stops.forEach((c, i) => paint.addColorStop(i / (g.stops.length - 1), c));
+      ctx.fillStyle = paint;
       ctx.fill(new Path2D(shape.d));
       ctx.fillStyle = fill;
     }
