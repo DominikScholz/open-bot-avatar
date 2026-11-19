@@ -23,7 +23,6 @@ import { mix, oklch, parseHex, toHex, toOklch } from './color.ts';
 import type { Rgb } from './color.ts';
 import { bodyScale, markParts, ribbonPieces, ribbonReach, rimOf } from './effects.ts';
 import type { Rim } from './effects.ts';
-import { insideRow } from './path.ts';
 import type { Box } from './effects.ts';
 import { eyePath, plainLook } from './eyes.ts';
 import type { EyeSpot } from './eyes.ts';
@@ -60,8 +59,8 @@ interface Prepared {
   ids: Map<string, string>;
   /** Slices kept at a rendered size, per stack, keyed by stack and rounded size. */
   detail: Map<string, boolean[]>;
-  /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRim). */
-  rim: () => Rim;
+  /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRims). */
+  rims: () => { work: Rim; cage: Rim };
 }
 
 const cache = new Map<string, Prepared>();
@@ -83,31 +82,40 @@ const lazy = <T>(make: () => T): (() => T) => {
 };
 
 /**
- * Where the ribbons' hoops are centred, the middle of the body's mass (so they ring the body, not
- * the empty middle of its box, on a shape like a brush), and how far the body reaches from there
- * along each direction while it shows ribbons.
- * The ribbons stay put while the body leans, lifts and stretches under them (see rootMatrix), so
- * this is the farthest over the poses it takes then: leaning -2° to 7° (a working bot leans into
- * its sweep), lifted up to 3.4 and stretched up to 5.5% (a celebration). The hoops stand outside
- * it, so the body never moves through the point where a ribbon passes behind it.
+ * How far the body reaches from the middle of its box, for a working turn's hoop and for a
+ * celebration's cage. The hoops' centre hops and stretches with the body (see ribbonsFollow) but
+ * does not lean or sway with it, so each is measured over the leans its state takes, the body
+ * stretched about the centre: a working bot leans 2.4° to 6.6° and squashes to 98%; a celebrating
+ * one sways ±1.7° and stretches up to 5.5%. The hoops stand just outside that, so the body never
+ * moves through a point where a ribbon passes behind it.
  */
-export function ribbonRim(polys: Point[][], b: Bounds): Rim {
-  // The middle of the body's mass: the mean of a grid of points over it, a unit apart.
-  let sx = 0, sy = 0, n = 0;
-  const xs: number[] = [];
-  for (let x = Math.floor(b.minX); x <= b.maxX; x++) xs.push(x + 0.5);
-  const row = new Uint8Array(xs.length);
-  for (let y = Math.floor(b.minY) + 0.5; y <= b.maxY; y++) {
-    insideRow(polys, y, xs, row);
-    for (let k = 0; k < xs.length; k++) if (row[k]) { sx += xs[k]; sy += y; n++; }
-  }
-  const [cx, cy] = n ? [sx / n, sy / n] : pivotOf(b);
-  const poses: M[] = [];
-  for (const roll of [-2, 0, 3.5, 7]) for (const lift of [0, -3.4]) for (const sy of [1, 1.055]) {
-    poses.push(rootMatrix({ roll, lift, sx: 1.01, sy } as Pose, b));
-  }
-  const at = (m: M, [x, y]: Point): Point => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-  return rimOf(poses.map((m) => polys.map((poly) => poly.map((pt) => at(m, pt)))), cx, cy);
+export function ribbonRims(polys: Point[][], b: Bounds): { work: Rim; cage: Rim } {
+  const [cx, cy] = pivotOf(b);
+  const bx = (b.minX + b.maxX) / 2, by = b.maxY;
+  /** The body leaned by each of `rolls` (degrees, about its base) and stretched by each of `sys` about the centre. */
+  const posed = (rolls: number[], sys: number[]) => {
+    const out: Point[][][] = [];
+    for (const roll of rolls) {
+      const r = (roll * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
+      for (const k of sys) {
+        out.push(polys.map((poly) => poly.map(([x, y]): Point => {
+          const lx = bx + c * (x - bx) - sn * (y - by), ly = by + sn * (x - bx) + c * (y - by);
+          return [cx + 1.01 * (lx - cx), cy + k * (ly - cy)];
+        })));
+      }
+    }
+    return out;
+  };
+  return { work: rimOf(posed([2.4, 4.5, 6.6], [0.98, 1]), cx, cy), cage: rimOf(posed([-1.7, 0, 1.7], [0.99, 1.055]), cx, cy) };
+}
+
+/**
+ * The rim moved to where the hoops' centre is in this pose: it hops and stretches with the body
+ * (the root motion's lift and scale about the base) but does not lean or sway with it.
+ */
+export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, b: Bounds): Rim {
+  const bx = (b.minX + b.maxX) / 2, by = b.maxY;
+  return { ...rim, cx: bx + pose.sx * (rim.cx - bx), cy: by + pose.sy * (rim.cy - by) + pose.lift };
 }
 
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
@@ -130,7 +138,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     id,
     ids,
     detail: new Map(),
-    rim: lazy(() => ribbonRim(body.polys, vol.bounds)),
+    rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
   };
   if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
   cache.set(key, prepared);
@@ -260,11 +268,15 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
   const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
-  const rim = p.rim(), ribbons = ribbonReach(rim.max);
-  // Ribbons reach their hoop plus their band from the hoops' centre (the body's mass, a little off
-  // the middle of its box), and keep the canvas's antialiasing margin (FIT_PAD) inside.
-  const off = Math.hypot(rim.cx - cx, rim.cy - cy);
-  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), off + ribbons.radius + ribbons.band + 1.2);
+  // Ribbons reach their hoop plus their band from the middle of the body's box, and keep the
+  // canvas's antialiasing margin (FIT_PAD) inside.
+  const { work, cage } = p.rims();
+  // The hoops' centre also hops and stretches with the body: as far as the body's own pose moves it.
+  const reach = (rim: Rim) => {
+    const r = ribbonReach(rim.max);
+    return Math.hypot(rim.cx - cx, rim.cy - cy) + POSE_LIFT + POSE_SWAY * Math.abs(b.maxY - rim.cy) + r.radius + r.band + 1.2;
+  };
+  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), reach(work), reach(cage));
   return { x: cx - half, y: cy - half, size: 2 * half };
 }
 
@@ -552,7 +564,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const [cx, cy] = pivotOf(b);
   return {
     body: bodyScale(pose.bang, pose.dots),
-    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, p.rim()).map((r) => {
+    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
       // The piece's stretch of its ribbon's colour run, front and back alike.
       const [s0, s1] = r.along;

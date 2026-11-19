@@ -9,7 +9,7 @@ import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hash
 const TAU = 2 * Math.PI;
 import { MOOD_MS } from '../src/mood.ts';
 import { isInside } from '../src/path.ts';
-import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, ribbonRim, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
+import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, ribbonRims, ribbonsFollow, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
 import { analyzeBody } from '../src/validate.ts';
 import { edgeDistance } from '../src/volume.ts';
 import type { AvatarDefinition, RenderOptions } from '../src/types.ts';
@@ -286,11 +286,12 @@ describe('ribbons', () => {
   it('stay within the reach the canvas allows for, on every avatar', () => {
     for (const d of everyone) {
       const b = preparedVolume(d).vol.bounds;
-      const rim = ribbonRim(analyzeBody(d.body.path).polys, b);
+      const rims = ribbonRims(analyzeBody(d.body.path).polys, b);
       const extent = avatarExtent(d);
-      const { radius, band } = ribbonReach(rim.max);
       for (let i = 0; i < 40; i++) {
-        for (const piece of ribbonPieces(b, 1, 11, i * 0.21, i * 0.6, i % 2, rim)) {
+        const rim = i % 2 ? rims.cage : rims.work;
+        const { radius, band } = ribbonReach(rim.max);
+        for (const piece of ribbonPieces(b, 1, hashString(d.id), i * 0.21, i * 0.6, i % 2, rim)) {
           expect(piece.box.x).toBeGreaterThanOrEqual(extent.x);
           expect(piece.box.y).toBeGreaterThanOrEqual(extent.y);
           expect(piece.box.x + piece.box.w).toBeLessThanOrEqual(extent.x + extent.size);
@@ -306,12 +307,14 @@ describe('ribbons', () => {
     for (const d of everyone) {
       const b = preparedVolume(d).vol.bounds;
       const { polys } = analyzeBody(d.body.path);
-      const rim = ribbonRim(polys, b);
       const seed = hashString(d.id);
-      let nearest = Infinity, far = 0;
+      const rims = ribbonRims(polys, b);
+      let nearest = Infinity;
+      const far = { work: 0, cage: 0 };
       for (const [state, from, to] of [['done', 0.3, DONE_TURN_S], ['working', 0, 9]] as const) {
         for (let t = from; t <= to; t += 0.05) {
           const pose = computePose({ seed, time: t, reducedMotion: false, state, stateAge: t });
+          const which = pose.cage >= 0.5 ? 'cage' : 'work', rim = ribbonsFollow(rims[which], pose, b);
           const pieces = ribbonPieces(b, pose.ribbons, seed, t, pose.sweep, pose.cage, rim);
           // The body as it is posed this frame (leaning, lifted, stretched): the ribbons stay put.
           const [m0, m1, m2, m3, m4, m5] = avatarFrame(d, { state, time: t, stateAge: t }).root;
@@ -324,13 +327,15 @@ describe('ribbons', () => {
             expect(isInside(posed, x, y)).toBe(false);
             nearest = Math.min(nearest, edgeDistance(posed, x, y));
           }
-          for (const q of pieces) far = Math.max(far, Math.hypot(q.to[0] - rim.cx, q.to[1] - rim.cy));
+          for (const q of pieces) far[which] = Math.max(far[which], Math.hypot(q.to[0] - rim.cx, q.to[1] - rim.cy));
         }
       }
       // ...but only just: the innermost ribbons pass close by the outline, on every avatar.
       if (Number.isFinite(nearest)) expect(nearest).toBeLessThan(10);
-      const { radius, band } = ribbonReach(rim.max);
-      expect(far).toBeLessThanOrEqual(radius + band);
+      for (const which of ['work', 'cage'] as const) {
+        const { radius, band } = ribbonReach(rims[which].max);
+        expect(far[which]).toBeLessThanOrEqual(radius + band);
+      }
     }
   }, 30_000);
 

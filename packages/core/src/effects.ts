@@ -70,12 +70,34 @@ const RIM_MARGIN = 2;
 const RING = 38.8 * (116 / 114.2705);
 
 /**
- * How far an outline reaches from (cx, cy) along a direction (radians), either way: the farthest
- * crossing of the line through the centre with any of `outlines` (the body in each pose it takes).
- * Sampled once at RIM_STEPS directions over a half turn and read back between them; `max` is the
- * farthest over all directions.
+ * How far `outlines` (the body in each pose it takes) reach from (cx, cy): `at` along a direction
+ * (radians), either way, worked out exactly each time it is asked (a hoop asks once a frame, along
+ * its own roll); `max` the farthest over all directions, from RIM_STEPS samples over a half turn.
  */
 const RIM_STEPS = 180;
+
+/** How far `outlines` reach from (cx, cy) along a direction (radians), either way, exactly. */
+function reachAlong(outlines: Point[][][], cx: number, cy: number, a: number): number {
+  const ux = Math.cos(a), uy = Math.sin(a);
+  let far = 0;
+  for (const poly of outlines.flat()) {
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
+      const ex = x2 - x1, ey = y2 - y1, den = ux * ey - uy * ex;
+      if (Math.abs(den) < 1e-12) continue;
+      // Where the line through the centre crosses this edge: t along the line, s along the edge.
+      const t = ((x1 - cx) * ey - (y1 - cy) * ex) / den, s = ((x1 - cx) * uy - (y1 - cy) * ux) / den;
+      if (s >= 0 && s <= 1) far = Math.max(far, Math.abs(t));
+    }
+  }
+  return far;
+}
+
+/** How each hoop is rolled in the picture, for an avatar's seed: hoop 0 is a working turn's. */
+function hoopRolls(seed: number): number[] {
+  return Array.from({ length: HOOPS }, (_, i) => HOOP_ROLL + (i * Math.PI) / HOOPS + (noise(seed, 450 + i) - 0.5) * HOOP_JITTER);
+}
+
 /** Where a body's hoops are centred, and how far the body reaches from there (see rimOf). */
 export interface Rim {
   cx: number;
@@ -84,29 +106,10 @@ export interface Rim {
   max: number;
 }
 export function rimOf(outlines: Point[][][], cx: number, cy: number): Rim {
-  const ray = (a: number) => {
-    const ux = Math.cos(a), uy = Math.sin(a);
-    let far = 0;
-    for (const poly of outlines.flat()) {
-      for (let i = 0; i < poly.length; i++) {
-        const [x1, y1] = poly[i], [x2, y2] = poly[(i + 1) % poly.length];
-        const ex = x2 - x1, ey = y2 - y1, den = ux * ey - uy * ex;
-        if (Math.abs(den) < 1e-12) continue;
-        // Where the line through the centre crosses this edge: t along the line, s along the edge.
-        const t = ((x1 - cx) * ey - (y1 - cy) * ex) / den, s = ((x1 - cx) * uy - (y1 - cy) * ux) / den;
-        if (s >= 0 && s <= 1) far = Math.max(far, Math.abs(t));
-      }
-    }
-    return far;
-  };
-  const steps = Array.from({ length: RIM_STEPS }, (_, k) => ray((k * Math.PI) / RIM_STEPS));
-  // Between samples, the larger neighbour: an outline never pokes out between two directions unseen.
-  const at = (angle: number) => {
-    const x = ((((angle / Math.PI) * RIM_STEPS) % RIM_STEPS) + RIM_STEPS) % RIM_STEPS;
-    const k = Math.floor(x);
-    return Math.max(steps[k], steps[(k + 1) % RIM_STEPS]);
-  };
-  return { cx, cy, at, max: Math.max(...steps) };
+  const at = (angle: number) => reachAlong(outlines, cx, cy, angle);
+  const steps = Array.from({ length: RIM_STEPS }, (_, k) => at((k * Math.PI) / RIM_STEPS));
+  // A spike between two samples can reach a little further than either: allow for a degree's sweep.
+  return { cx, cy, at, max: Math.max(...steps) * 1.02 };
 }
 const HOOP_TILT = 0.386;
 const HOOP_ROLL = 0.157;
@@ -192,7 +195,7 @@ export function ribbonPieces(
   const k = clamp(presence, 0, 1), more = cage >= 0.5 ? 1 : 0;
   if (k <= 0.01) return [];
   const cx = rim ? rim.cx : (b.minX + b.maxX) / 2, cy = rim ? rim.cy : (b.minY + b.maxY) / 2;
-  const rollOf = (i: number) => HOOP_ROLL + (i * Math.PI) / HOOPS + (noise(seed, 450 + i) - 0.5) * HOOP_JITTER;
+  const rolls = hoopRolls(seed), rollOf = (i: number) => rolls[i];
   const cageRing = rim ? Math.max(...[0, 1, 2].map((i) => rim.at(rollOf(i)))) + RIM_MARGIN : RING;
   const unit = UNIT;
   const dir = sweep < 0 ? -1 : 1;
