@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
-import { ChoiceMenu, Icon } from "./ui";
-import { FaceToggle, MOODS, MatrixButton, MoodPills, MoodTiles, PickerSwitch, STATES, StatePills, StateTiles, moodPreviewState, useMediaQuery, usePickerVariant, type Look } from "./pickers";
+import { Icon } from "./ui";
+import { FaceToggle, MOODS, STATES, StatePills } from "./pickers";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
@@ -37,13 +37,7 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
 
   useEffect(() => () => cancelAnimationFrame(easing.current), []);
 
-  // PROTOTYPE: which state and mood picker to show (see pickers.tsx).
-  const [variant, setVariant] = usePickerVariant();
-  // The two-column desktop layout has room for tiles beside the avatar; the short, embedded one has room for pills only.
-  const wide = useMediaQuery("(min-aspect-ratio: 5/4) and (min-width: 900px) and (min-height: 561px)");
-  const embedded = useMediaQuery("(max-height: 560px) and (min-aspect-ratio: 5/4)");
-  const picker = variant === "columns" ? (embedded ? "pills" : wide ? "columns-side" : "columns-rows") : variant;
-  const look: Look = { definition, color, state, mood, reducedMotion, onState, onMood };
+  // What a key on the preview just picked, for screen readers.
   const [said, setSaid] = useState("");
 
   const reset = () => {
@@ -147,7 +141,7 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
         reducedMotion={reducedMotion}
         label=""
       />
-      {picker === "face" ? <FaceToggle mood={mood} onMood={onMood} /> : null}
+      <FaceToggle mood={mood} onMood={onMood} />
       <button
         type="button"
         className="stage-reset"
@@ -164,59 +158,17 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
   );
 
   return (
-    <section className={`stage stage-picker-${picker}`} aria-label={`${definition.name} preview`}>
+    <section className="stage" aria-label={`${definition.name} preview`}>
       {/* The avatar's name, for screen readers only: the picker shows which one it is. */}
       <h1 className="sr-only">{definition.name}</h1>
-      {picker === "columns-side" ? (
-        <div className="stage-row">
-          <StateTiles look={look} />
-          {preview}
-          <MoodTiles look={look} />
-        </div>
-      ) : (
-        preview
-      )}
-      {picker === "menus" ? (
-        <div className="stage-picks">
-          {/* Each choice is shown on this avatar, live: a state in the mood picked, a mood on this state (idle where the body is hidden). */}
-          <ChoiceMenu
-            label="State"
-            value={state}
-            options={STATES}
-            onChange={onState}
-            preview={(value) => <BotAvatar definition={definition} color={color} state={value} mood={mood} reducedMotion={reducedMotion} label="" />}
-          />
-          <ChoiceMenu
-            label="Mood"
-            value={mood}
-            options={MOODS}
-            onChange={onMood}
-            preview={(value) => <BotAvatar definition={definition} color={color} state={moodPreviewState(state)} mood={value} reducedMotion={reducedMotion} label="" />}
-          />
-        </div>
-      ) : picker === "pills" || picker === "matrix" ? (
-        <div className="stage-picks stage-picks-pills">
-          <StatePills state={state} onState={onState} />
-          <div className="pills-line">
-            <MoodPills mood={mood} onMood={onMood} />
-            {picker === "matrix" ? <MatrixButton look={look} /> : null}
-          </div>
-        </div>
-      ) : picker === "face" ? (
-        <div className="stage-picks stage-picks-pills">
-          <StatePills state={state} onState={onState} />
-        </div>
-      ) : picker === "columns-rows" ? (
-        <div className="stage-picks stage-picks-rows">
-          <StateTiles look={look} />
-          <MoodTiles look={look} />
-        </div>
-      ) : null}
+      {preview}
+      <div className="stage-picks">
+        <StatePills state={state} onState={onState} />
+      </div>
       {children}
       <span className="sr-only" role="status">
         {said}
       </span>
-      <PickerSwitch value={variant} onChange={setVariant} />
     </section>
   );
 }
