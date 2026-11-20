@@ -18,9 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          # The previous commit too: the release script publishes only when a push changes the version.
-          fetch-depth: 2
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -31,7 +28,7 @@ jobs:
       - run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
       # With changesets waiting: opens or updates a "Version packages" pull request. Without: publishes
-      # the package to npm if this push changed its version (merging that pull request does).
+      # the package to npm if its version isn't there yet (merging that pull request does).
       - uses: changesets/action@v1
         with:
           version: pnpm changeset version
