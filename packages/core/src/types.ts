@@ -67,6 +67,16 @@ export interface AvatarMotionBlend {
 export interface RenderOptions {
   /** Body color as #rgb or #rrggbb. Invalid values fall back to the default. */
   color?: string;
+  /**
+   * Body material. 'flat' (default) paints every cross-section the body colour.
+   * 'soft' shades each cross-section by its depth in the implied volume with a
+   * subsurface ramp of the body colour (see material.ts): the surface keeps the
+   * exact colour, deeper slices sink into a richer saturated tone. Needs a hex
+   * `color`; CSS colour variables fall back to flat.
+   */
+  material?: 'flat' | 'soft';
+  /** Tuning for the 'soft' material (density, ambient, spread, lift, liftColor). */
+  soft?: import('./material.ts').SoftMaterial;
   /** Eye color as #rgb or #rrggbb. Defaults to a plain near-black ink. */
   eyeColor?: string;
   /**

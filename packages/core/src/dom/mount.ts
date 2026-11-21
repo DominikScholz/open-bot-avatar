@@ -18,6 +18,7 @@ import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
+import type { SoftMaterial } from '../material.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -27,6 +28,13 @@ export interface AvatarOptions {
   definition: AvatarDefinition;
   /** Body color: #rgb or #rrggbb, or any CSS color (e.g. var(--brand)). */
   color?: string;
+  /**
+   * Body material: 'flat' (default) or 'soft' — a subsurface ramp of the body colour
+   * through the implied volume (see material.ts). 'soft' needs a hex color.
+   */
+  material?: 'flat' | 'soft';
+  /** Tuning for the 'soft' material. */
+  soft?: SoftMaterial;
   /** Eye color: #rgb or #rrggbb, or any CSS color. Defaults to a near-black ink. */
   eyeColor?: string;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
@@ -79,8 +87,8 @@ interface Scene {
   last: Record<string, string>;
 }
 
-function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number | undefined): Scene {
-  el.innerHTML = renderAvatarScene(definition, { depth });
+function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number | undefined, materialOpts: Pick<RenderOptions, 'material' | 'soft' | 'color'> = {}): Scene {
+  el.innerHTML = renderAvatarScene(definition, { depth, ...materialOpts });
   const q = (s: string) => el.querySelector(s) as HTMLElement;
   const stacks = { z: q('[data-stack="z"]'), x: q('[data-stack="x"]') };
   return {
@@ -245,6 +253,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
+          material: p.material,
+          soft: p.soft,
           state: look.state,
           mood: look.mood,
           view: p.view,
@@ -269,6 +279,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
+        material: p.material,
+        soft: p.soft,
         state: look.state,
         mood: look.mood,
         stateAge: step.stateAge,
@@ -296,7 +308,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       if (surface) clear();
       const frame = sceneFrame(p.definition, { ...options, color: p.color });
       if (!scene || scene.key !== frame.scene || scene.geometry !== geometryKey(p.definition) || !host.contains(scene.view)) {
-        scene = mountScene(host, p.definition, p.depth);
+        scene = mountScene(host, p.definition, p.depth, { material: p.material, soft: p.soft, color: p.color });
       }
       apply(scene, frame);
       failed = false;

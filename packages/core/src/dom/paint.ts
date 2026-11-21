@@ -14,6 +14,7 @@
  */
 import { avatarExtent } from '../render.ts';
 import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
+import { rampHexAt } from '../material.ts';
 import type { AvatarDefinition } from '../types.ts';
 
 /** A square in viewBox units. */
@@ -210,7 +211,10 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
+      // The soft ramp is keyed to the frame's own hex colour; a CSS fill override paints flat.
+      if (frame.ramp && fill === frame.color) ctx.fillStyle = rampHexAt(frame.ramp, shape.tone);
       ctx.fill(section.path, section.rule);
+      if (frame.ramp && fill === frame.color) ctx.fillStyle = fill;
     } else if (shape.kind === 'eye') {
       ctx.fillStyle = ink;
       eye(ctx, shape.mark);
