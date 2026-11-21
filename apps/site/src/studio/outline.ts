@@ -1,4 +1,4 @@
-import { renderAvatarSvg, type AvatarDefinition } from "open-bot-avatar";
+import { renderAvatarSvg, type AvatarDefinition, type AvatarTexture } from "open-bot-avatar";
 
 /** Gap between silhouette and ring, and the ring's width, in viewBox units (a thumbnail is ~50-65px for 100 units). */
 const GAP = 7;
@@ -19,24 +19,25 @@ const cache = new Map<string, string>();
  * out). Their union, filled and stroked with round joins, grows evenly; masking
  * out a smaller growth leaves a thin ring that hugs the whole silhouette, and
  * small holes simply fill in. Painted in currentColor. Color-independent and
- * memoized; "" if the definition can't be rendered.
+ * memoized; "" if the definition can't be rendered. A fluffy still gets a ring
+ * around its fur.
  */
-export function outlineSvg(definition: AvatarDefinition): string {
-  const key = JSON.stringify([definition?.id, definition?.body?.path, definition?.eyes]);
+export function outlineSvg(definition: AvatarDefinition, texture: AvatarTexture = "smooth"): string {
+  const key = JSON.stringify([definition?.id, definition?.body?.path, definition?.eyes, texture]);
   let markup = cache.get(key);
   if (markup === undefined) {
-    markup = build(definition);
+    markup = build(definition, texture);
     if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
     cache.set(key, markup);
   }
   return markup;
 }
 
-function build(definition: AvatarDefinition): string {
+function build(definition: AvatarDefinition, texture: AvatarTexture): string {
   let svg: string;
   try {
     // The options an AvatarView still uses, minus color.
-    svg = renderAvatarSvg(definition, { time: 0, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK });
+    svg = renderAvatarSvg(definition, { time: 0, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK, texture });
   } catch {
     return "";
   }

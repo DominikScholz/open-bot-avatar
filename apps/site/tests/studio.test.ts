@@ -111,6 +111,14 @@ describe("share links", () => {
     expect(readShare("?avatar=mug")).toEqual({ avatar: "mug" });
   });
 
+  it("carry the fluffy texture, and leave out the smooth one", () => {
+    const fluffy = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), state: "idle", mood: "neutral", texture: "fluffy" });
+    expect(fluffy).toBe("https://example.test/?avatar=mug&texture=fluffy");
+    expect(readShare(new URL(fluffy).search)).toEqual({ avatar: "mug", texture: "fluffy" });
+    expect(shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), state: "idle", mood: "neutral", texture: "smooth" })).toBe("https://example.test/?avatar=mug");
+    expect(readShare("?avatar=mug&texture=woolly")).toEqual({ avatar: "mug" });
+  });
+
   it("leave out an avatar's own color", () => {
     const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: defaultColor("mug"), state: "idle", mood: "neutral" });
     expect(link).toBe("https://example.test/?avatar=mug");
@@ -154,6 +162,12 @@ describe("avatar colors", () => {
     expect(reviveLook({ state: "blocked", mood: "neutral", motion: "happy" })).toMatchObject({ state: "blocked", mood: "neutral" });
     expect(reviveLook({})).toMatchObject({ state: "idle", mood: "neutral" });
     expect(reviveLook({ motion: "happy" })).not.toHaveProperty("motion");
+  });
+
+  it("keeps a stored texture and falls back to smooth", () => {
+    expect(reviveLook({ texture: "fluffy" })?.texture).toBe("fluffy");
+    expect(reviveLook({ texture: "woolly" })?.texture).toBe("smooth");
+    expect(reviveLook({})?.texture).toBe("smooth");
   });
 
   it("drops invalid stored colors", () => {

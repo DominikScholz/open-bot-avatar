@@ -1,7 +1,8 @@
 /**
  * Renderers for a validated silhouette + eye placement with implied volume
  * (see volume.ts). One flat body color, two plain dark eyes; no gradients,
- * gloss, rim light or shadows. Output is built only from numbers and the
+ * gloss, rim light or shadows; the fluffy texture is geometry too (see fur.ts).
+ * Output is built only from numbers and the
  * renderer's own markup.
  *
  * - avatarFrame: one frame flattened to plain data (paths, matrices, eyes),
@@ -26,6 +27,8 @@ import type { Rim } from './effects.ts';
 import type { Box } from './effects.ts';
 import { eyePath, plainLook } from './eyes.ts';
 import type { EyeSpot } from './eyes.ts';
+import { FUR_HEIGHT, FUR_INSET, FUR_REACH, SWAY_LEVELS, furLayout, furPath, isTexture, swayLevel } from './fur.ts';
+import type { AvatarTexture, FurBase, FurLayout } from './fur.ts';
 import { computePose, hashString, noise } from './motion.ts';
 import type { EyeLook, Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
@@ -51,6 +54,7 @@ const EYE_LIFT = 1.5;
 interface Prepared {
   def: AvatarDefinition;
   vol: Volume;
+  texture: AvatarTexture;
   range: GazeRange;
   seed: number;
   /** Prefix for SVG ids; equal geometry and depth always give equal ids, so repeats on a page are safe. */
@@ -61,6 +65,10 @@ interface Prepared {
   detail: Map<string, boolean[]>;
   /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRims). */
   rims: () => { work: Rim; cage: Rim };
+  /** Fluffy texture: where each cross-section's tufts sit (by slice id), laid out a part's stack at a time. */
+  layouts: Map<string, FurLayout>;
+  /** Fluffy cross-sections by slice id and sway level, built as a view first draws them. */
+  fur: Map<string, FramePath>;
 }
 
 const cache = new Map<string, Prepared>();
@@ -70,6 +78,10 @@ const f = (n: number) => {
   return (Object.is(r, -0) ? 0 : r).toString();
 };
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+function textureOption(options: Pick<RenderOptions, 'texture'>): AvatarTexture {
+  return isTexture(options.texture) ? options.texture : 'smooth';
+}
 
 function depthOption(options: RenderOptions): number {
   const d = clamp(Number.isFinite(options.depth) ? (options.depth as number) : DEFAULT_DEPTH, 0, MAX_DEPTH);
@@ -118,31 +130,64 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
   return { ...rim, cx: bx + pose.sx * (rim.cx - bx), cy: by + pose.sy * (rim.cy - by) + pose.lift };
 }
 
-function prepare(definition: AvatarDefinition, depth: number): Prepared {
-  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth]);
+function prepare(definition: AvatarDefinition, depth: number, texture: AvatarTexture = 'smooth'): Prepared {
+  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth, texture]);
   const hit = cache.get(key);
   if (hit) return hit;
+  const prepared = texture === 'smooth' ? prepareSmooth(definition, depth) : prepareFluffy(prepare(definition, depth), depth);
+  if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
+  cache.set(key, prepared);
+  return prepared;
+}
+
+function sliceIds(vol: Volume, id: string): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const part of vol.parts) for (const s of [...part.zSlices, ...part.xSlices]) if (!ids.has(s.d)) ids.set(s.d, `${id}-${ids.size}`);
+  return ids;
+}
+
+function prepareSmooth(definition: AvatarDefinition, depth: number): Prepared {
   const res = validateAvatar(definition);
   if (!res.ok) throw new Error(`Invalid avatar definition: ${res.errors.join('; ')}`);
   const def = res.value;
   const body = analyzeBody(def.body.path);
   const vol = buildVolume(def, depth / DEFAULT_DEPTH, body);
   const id = `oba-${hashString(`${def.id}|${def.body.path}|${depth}`).toString(36)}`;
-  const ids = new Map<string, string>();
-  for (const part of vol.parts) for (const s of [...part.zSlices, ...part.xSlices]) if (!ids.has(s.d)) ids.set(s.d, `${id}-${ids.size}`);
-  const prepared: Prepared = {
+  return {
     def,
     vol,
+    texture: 'smooth',
     range: gazeRange(body.polys, { ...def.eyes, scale: vol.eyeScale }),
     seed: hashString(def.id),
     id,
-    ids,
+    ids: sliceIds(vol, id),
     detail: new Map(),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
+    layouts: new Map(),
+    fur: new Map(),
   };
-  if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
-  cache.set(key, prepared);
-  return prepared;
+}
+
+/**
+ * The fluffy texture over the smooth avatar's volume, which it shares (switching texture builds
+ * only fur), with ids of its own: a page may show both, and a mounted scene must tell them apart.
+ */
+function prepareFluffy(smooth: Prepared, depth: number): Prepared {
+  const id = `oba-${hashString(`${smooth.def.id}|${smooth.def.body.path}|${depth}|fluffy`).toString(36)}`;
+  // Fur stands out past the outline: the ribbons' hoops stand that much further out.
+  const furry = (rim: Rim): Rim => ({ ...rim, at: (angle) => rim.at(angle) + FUR_HEIGHT, max: rim.max + FUR_HEIGHT });
+  return {
+    ...smooth,
+    texture: 'fluffy',
+    id,
+    ids: sliceIds(smooth.vol, id),
+    rims: lazy(() => {
+      const rims = smooth.rims();
+      return { work: furry(rims.work), cage: furry(rims.cage) };
+    }),
+    layouts: new Map(),
+    fur: new Map(),
+  };
 }
 
 /** The validated definition and its cached volume, exactly as the renderers use them. Throws if invalid. */
@@ -262,8 +307,8 @@ const POSE_SWAY = 0.2;
  * A square of viewBox units that holds the avatar at every view and pose. Throws if invalid. The
  * canvas renderer uses it only as an upper bound: it sizes each bitmap to what is actually painted.
  */
-export function avatarExtent(definition: AvatarDefinition, depth?: number): { x: number; y: number; size: number } {
-  const p = prepare(definition, depthOption({ depth }));
+export function avatarExtent(definition: AvatarDefinition, depth?: number, texture?: AvatarTexture): { x: number; y: number; size: number } {
+  const p = prepare(definition, depthOption({ depth }), textureOption({ texture }));
   const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
@@ -276,7 +321,9 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
     const r = ribbonReach(rim.max);
     return Math.hypot(rim.cx - cx, rim.cy - cy) + POSE_LIFT + POSE_SWAY * Math.abs(b.maxY - rim.cy) + r.radius + r.band + 1.2;
   };
-  const half = Math.max(radius + POSE_LIFT + POSE_SWAY * (radius + b.maxY - cy), reach(work), reach(cage));
+  // Fur reaches past the outline (the rims already allow for it).
+  const fur = p.texture === 'fluffy' ? FUR_REACH : 0;
+  const half = Math.max(radius + fur + POSE_LIFT + POSE_SWAY * (radius + fur + b.maxY - cy), reach(work), reach(cage));
   return { x: cx - half, y: cy - half, size: 2 * half };
 }
 
@@ -306,6 +353,79 @@ function sliceCull(v: ViewBasis): (s: VolumeSlice) => boolean {
   const sweep = Math.hypot(v.sY, v.cY * v.sP);
   const inset = Math.min(Math.abs(v.cY), Math.abs(v.cP));
   return (s) => s.axis !== 'z' || s.inset <= 0 || Math.abs(s.at) * sweep > s.inset * inset;
+}
+
+/**
+ * How a cross-section is drawn: its own path, or with the fluffy texture its fur, leaning by sway
+ * `level` (see swayLevel); front cross-sections deeper than FUR_INSET stay smooth. Fur paths are
+ * built once per slice and level. Mirrored z-slices share a path, so they share their fur too.
+ */
+function sliceLook(p: Prepared, s: VolumeSlice, part: number, level: number): FramePath {
+  const base = p.ids.get(s.d) as string;
+  if (p.texture !== 'fluffy' || (s.axis === 'z' && s.inset > FUR_INSET)) return { id: base, d: s.d, evenOdd: s.evenOdd, box: s.box };
+  const id = `${base}-f${level + SWAY_LEVELS}`;
+  let look = p.fur.get(id);
+  if (!look) {
+    if (!p.layouts.has(base)) layOutFur(p, part, s.axis);
+    const fur = furPath(p.layouts.get(base) as FurLayout, level / SWAY_LEVELS);
+    look = { id, d: fur.d, evenOdd: false, box: fur.box };
+    if (p.fur.size >= 4096) p.fur.clear();
+    p.fur.set(id, look);
+  }
+  return look;
+}
+
+/**
+ * Tuft layouts for every slice of one part's stack, each following its neighbor's so the tufts
+ * line up through the stack (see fur.ts): z-slices from the core outward (refinement slices, clipped
+ * to a thin region, follow but are not followed), x-slices from the largest outward both ways.
+ */
+function layOutFur(p: Prepared, part: number, axis: 'z' | 'x') {
+  const set = (s: VolumeSlice, prev: FurBase[] | null): FurBase[] => {
+    const id = p.ids.get(s.d) as string;
+    let layout = p.layouts.get(id);
+    if (!layout) p.layouts.set(id, (layout = furLayout(s.loops, prev)));
+    return layout.bases;
+  };
+  const vp = p.vol.parts[part];
+  if (axis === 'z') {
+    let prev: FurBase[] | null = null;
+    for (const s of vp.zSlices.filter((z) => z.at >= 0).sort((a, b) => a.at - b.at)) {
+      const bases = set(s, prev);
+      if (!s.clipped) prev = bases;
+    }
+    return;
+  }
+  const xs = vp.xSlices;
+  if (!xs.length) return;
+  let mid = 0;
+  xs.forEach((s, k) => { if (s.box.w * s.box.h > xs[mid].box.w * xs[mid].box.h) mid = k; });
+  const start = set(xs[mid], null);
+  let prev = start;
+  for (let k = mid + 1; k < xs.length; k++) prev = set(xs[k], prev);
+  prev = start;
+  for (let k = mid - 1; k >= 0; k--) prev = set(xs[k], prev);
+}
+
+/** Seconds back the sway looks to see how fast the body is rolling and turning. */
+const SWAY_DT = 1 / 15;
+
+/**
+ * Which way the fur leans this frame (a sway level, see swayLevel): a slow breeze of its own,
+ * and a lag behind the body, the tips trailing as it rolls and turns. Upright when the texture is
+ * smooth or motion is reduced.
+ */
+function furLevel(p: Prepared, options: RenderOptions, pose: Pose): number {
+  if (p.texture !== 'fluffy' || options.reducedMotion === true) return 0;
+  const time = Number.isFinite(options.time) ? (options.time as number) : 0;
+  const age = Number.isFinite(options.stateAge) ? (options.stateAge as number) - SWAY_DT : undefined;
+  const before = poseOf(p, { ...options, time: time - SWAY_DT, stateAge: age === undefined ? undefined : Math.max(0, age) });
+  // Degrees and radians per second. Rolling clockwise moves the top right, turning (yaw) moves the
+  // front right: the tips trail to the left of both.
+  const roll = (pose.roll - before.roll) / SWAY_DT, yaw = (pose.yaw - before.yaw) / SWAY_DT;
+  const phase = noise(p.seed, 600) * Math.PI * 2;
+  const breeze = 0.45 * Math.sin(time * 1.9 + phase) + 0.2 * Math.sin(time * 3.3 + 2 * phase);
+  return swayLevel(breeze - 0.08 * roll - 0.5 * yaw);
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +709,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
 }
 
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
-  const p = prepare(definition, depthOption(options));
+  const p = prepare(definition, depthOption(options), textureOption(options));
   const { vol } = p;
   const b = vol.bounds;
   const { color, ink } = colors(options);
@@ -599,6 +719,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const stack = activeStack(v);
   const eyesMid: Point = [p.def.eyes.x, p.def.eyes.y];
   const fx = effectsOf(p, pose, options);
+  const level = furLevel(p, options, pose);
   const root = rootMatrix(pose, b);
   // The body shrinks toward its center as it gives way to a mark.
   const shrink = (m: M): M => (fx.body < 1 ? mul(about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]), m) : m);
@@ -608,10 +729,11 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const items: { depth: number; shape: FrameShape }[] = [];
   if (fx.body > 0) {
     drawnSlices(p, v, size, (s, m, i, j) => {
-      let path = paths.get(s.d);
+      const look = sliceLook(p, s, i, level);
+      let path = paths.get(look.id);
       if (!path) {
-        path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
-        paths.set(s.d, path);
+        path = { ...look, box: { ...look.box } };
+        paths.set(look.id, path);
       }
       // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
       const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
@@ -705,17 +827,17 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
 const u = (n: number) => `${f(n)}cqw`;
 const FILL = 'position:absolute;left:0;top:0;width:100%;height:100%;';
 
-function sliceMarkup(s: VolumeSlice): string {
+function sliceMarkup(s: VolumeSlice, look: FramePath): string {
   const pad = 0.3;
-  const x = s.box.x - pad, y = s.box.y - pad, w = s.box.w + 2 * pad, h = s.box.h + 2 * pad;
-  const rule = s.evenOdd ? ' fill-rule="evenodd"' : '';
+  const x = look.box.x - pad, y = look.box.y - pad, w = look.box.w + 2 * pad, h = look.box.h + 2 * pad;
+  const rule = look.evenOdd ? ' fill-rule="evenodd"' : '';
   const place = s.axis === 'z'
     ? `left:${u(x)};top:${u(y)};transform:translateZ(${u(s.at)})`
     : // The side plane's u = 0 line sits at x = s.at; turning it 90° about that line maps u to -z.
       `left:${u(s.at + x)};top:${u(y)};transform-origin:${u(-x)} 50%;transform:rotateY(90deg)`;
   return (
     `<svg viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}" style="position:absolute;width:${u(w)};height:${u(h)};overflow:visible;${place}" aria-hidden="true">` +
-    `<path d="${s.d}"${rule} fill="currentColor"/></svg>`
+    `<path d="${look.d}"${rule} fill="currentColor"/></svg>`
   );
 }
 
@@ -723,19 +845,19 @@ const overlay = (side: 'back' | 'front') =>
   `<svg data-fx="${side}" viewBox="0 0 100 100" style="${FILL}overflow:visible;pointer-events:none" fill="currentColor" aria-hidden="true"></svg>`;
 
 /**
- * Static markup of the live scene for a definition and depth. Mount it once,
+ * Static markup of the live scene for a definition, depth and texture. Mount it once,
  * then apply `sceneFrame` every frame. Body color comes from CSS `color` on
- * an ancestor, eye ink from `--avatar-ink`.
+ * an ancestor, eye ink from `--avatar-ink`. Fur stands upright here: the scene does not sway.
  */
-export function renderAvatarScene(definition: AvatarDefinition, options: Pick<RenderOptions, 'depth'> = {}): string {
-  const p = prepare(definition, depthOption(options));
+export function renderAvatarScene(definition: AvatarDefinition, options: Pick<RenderOptions, 'depth' | 'texture'> = {}): string {
+  const p = prepare(definition, depthOption(options), textureOption(options));
   const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
   const ink = `var(--avatar-ink,${DEFAULT_EYE_COLOR})`;
   const stack = (axis: 'z' | 'x') =>
     `<div data-stack="${axis}" style="${FILL}transform-style:preserve-3d">` +
-    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
+    vol.parts.map((part, i) => (axis === 'z' ? part.zSlices : part.xSlices).map((s) => sliceMarkup(s, sliceLook(p, s, i, 0))).join('')).join('') +
     `</div>`;
   const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
     const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
@@ -816,7 +938,7 @@ function sliceDetail(p: Prepared, stack: 'z' | 'x', size: number | undefined): b
 
 /** Per-frame CSS for a mounted scene. Pure and cheap: no geometry is rebuilt. */
 export function sceneFrame(definition: AvatarDefinition, options: RenderOptions = {}): SceneFrame {
-  const p = prepare(definition, depthOption(options));
+  const p = prepare(definition, depthOption(options), textureOption(options));
   const pose = poseOf(p, options);
   const v = viewBasis(pose.yaw, pose.pitch);
   const states = eyeStates(p, pose);

@@ -1498,6 +1498,11 @@
       cursor: default;
     }
 
+    /* The hovered toggle comes to the front, so its tooltip shows over the toggle below it. */
+    .face-toggle:hover {
+      z-index: 4;
+    }
+
     .face-segmented {
       display: flex;
       gap: 2px;
@@ -1505,6 +1510,11 @@
       border-radius: 999px;
       background: #181818;
       border: 1px solid var(--line);
+    }
+
+    /* The texture toggle sits under the mood's (34px tall). */
+    .texture-toggle {
+      top: 48px;
     }
 
     .face-option {

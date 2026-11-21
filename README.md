@@ -69,6 +69,7 @@ avatar.destroy();
 | `holdGaze` | Keep looking where it looks now. Default: `false`. |
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
+| `texture` | `"smooth"` (default) or `"fluffy"`: soft tufts of fur that sway. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
 | `still` | One static SVG, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |

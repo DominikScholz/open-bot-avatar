@@ -1,4 +1,4 @@
-export type { AvatarDefinition, AvatarEyes, AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState, RenderOptions, ValidationResult } from './types.ts';
+export type { AvatarDefinition, AvatarEyes, AvatarMood, AvatarTexture, AvatarMotion, AvatarMotionBlend, AvatarState, RenderOptions, ValidationResult } from './types.ts';
 export { validateAvatar } from './validate.ts';
 export {
   avatarFrame,
@@ -19,3 +19,4 @@ export type { FollowState } from './follow.ts';
 export { createAnimator } from './animator.ts';
 export type { Animator, AnimatorInput, AnimatorStep } from './animator.ts';
 export { examples, getExample } from './examples.ts';
+export { TEXTURES, isTexture } from './fur.ts';

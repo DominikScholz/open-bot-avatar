@@ -1,9 +1,10 @@
 /*
- * How the editor picks the avatar's state and mood: the state as a row of pills under the
- * preview, the mood as a toggle of eyes in the preview's corner.
+ * How the editor picks the avatar's state, mood and texture: the state as a row of pills under
+ * the preview, the mood as a toggle of eyes in the preview's corner and the texture as a toggle
+ * of a smooth and a fluffy blob under it.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { AvatarMood, AvatarState } from "open-bot-avatar";
+import type { AvatarMood, AvatarState, AvatarTexture } from "open-bot-avatar";
 import type { Choice } from "./ui";
 
 export const STATES: Choice<AvatarState>[] = [
@@ -13,6 +14,11 @@ export const STATES: Choice<AvatarState>[] = [
   { value: "waiting", label: "Waiting", hint: "Leaning, eyes flat" },
   { value: "blocked", label: "Blocked", hint: "An exclamation mark" },
   { value: "done", label: "Done", hint: "Spins inside a cage of ribbons, then rests" },
+];
+
+export const TEXTURES: Choice<AvatarTexture>[] = [
+  { value: "smooth", label: "Smooth", hint: "A plain, smooth surface" },
+  { value: "fluffy", label: "Fluffy", hint: "Soft tufts of fur that sway" },
 ];
 
 export const MOODS: Choice<AvatarMood>[] = [
@@ -119,6 +125,31 @@ export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: 
   return (
     <div className="face-toggle" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />
+    </div>
+  );
+}
+
+/* The texture as a second toggle under the mood: a smooth blob and a fluffy one. */
+
+function Blob({ texture }: { texture: AvatarTexture }) {
+  return (
+    <svg className="eyes-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {texture === "fluffy" ? (
+        <path
+          d="M12 5.4A2.3 2.3 0 0 1 15.88 6.66A2.3 2.3 0 0 1 18.28 9.96A2.3 2.3 0 0 1 18.28 14.04A2.3 2.3 0 0 1 15.88 17.34A2.3 2.3 0 0 1 12 18.6A2.3 2.3 0 0 1 8.12 17.34A2.3 2.3 0 0 1 5.72 14.04A2.3 2.3 0 0 1 5.72 9.96A2.3 2.3 0 0 1 8.12 6.66A2.3 2.3 0 0 1 12 5.4Z"
+          fill="currentColor"
+        />
+      ) : (
+        <circle cx="12" cy="12" r="7" fill="currentColor" />
+      )}
+    </svg>
+  );
+}
+
+export function TextureToggle({ texture, onTexture }: { texture: AvatarTexture; onTexture: (texture: AvatarTexture) => void }) {
+  return (
+    <div className="face-toggle texture-toggle" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <RadioGroup label="Texture" value={texture} options={TEXTURES} onChange={onTexture} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Blob texture={o.value} />} />
     </div>
   );
 }

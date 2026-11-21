@@ -42,6 +42,7 @@ avatar.destroy();
 | `holdGaze` | Keep the current look direction. Default: `false`. |
 | `view` | Extra `{ yaw, pitch }` rotation in radians, relative to the resting view. |
 | `depth` | Volume amount from 0 to 14. Default: 6; 0 is flat. |
+| `texture` | `"smooth"` (default) or `"fluffy"`: the outline grows soft tufts of fur that sway gently and trail behind the body as it rolls and turns. The fur stands still under reduced motion and in the `"scene"` renderer. |
 | `reducedMotion` | `true`, `false` or `"system"` (default), which follows `prefers-reduced-motion`. |
 | `still` | Render a static SVG without animation. Default: `false`. |
 | `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
@@ -102,7 +103,7 @@ const frame = avatarFrame(result.value, options);
 
 Both functions accept `RenderOptions`:
 
-- `color`, `eyeColor`, `depth` and `view` work as in the mount API.
+- `color`, `eyeColor`, `depth`, `texture` and `view` work as in the mount API. With `texture: "fluffy"` the fur's sway follows `time`.
 - `state` and `mood` select what is shown (defaults: `"idle"`, `"neutral"`); `time` sets the animation clock in seconds (default: 0). `motion` (`"idle"`, `"thinking"` or `"happy"`) is the single option that came before them and still works.
 - `stateAge` is the time in seconds since `state` began. `done` celebrates from the moment it begins, so a host that animates passes it (`createAnimator` returns it); without it the state is drawn at rest.
 - `gaze` sets a fixed direction: `{ x, y, weight? }`. Each axis ranges from -1 to 1; `weight` ranges from 0 to 1 and defaults to 1.
