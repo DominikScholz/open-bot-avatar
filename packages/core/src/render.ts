@@ -21,6 +21,7 @@
  */
 import { mix, oklch, parseHex, toHex, toOklch } from './color.ts';
 import type { Rgb } from './color.ts';
+import { rampAt, rampHexAt, sliceTone, softRamp } from './material.ts';
 import { bodyScale, markParts, ribbonPieces, ribbonReach, rimOf } from './effects.ts';
 import type { Rim } from './effects.ts';
 import type { Box } from './effects.ts';
@@ -392,6 +393,8 @@ export type FrameShape =
       /** Id of an entry in AvatarFrame.paths. */
       path: string;
       matrix: Matrix;
+      /** Depth in the part's volume, 0 (surface) .. 1 (deepest); indexes AvatarFrame.ramp. */
+      tone: number;
     }
   | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
   | {
@@ -436,6 +439,12 @@ export interface AvatarFrame {
   name: string;
   color: string;
   ink: string;
+  /**
+   * The soft material's colour ramp, surface first, as hex stops — present only when
+   * `material: 'soft'` and the body colour is hex. Slice shapes index it by `tone`;
+   * without it every slice paints `color`.
+   */
+  ramp?: string[];
   /**
    * Distinct cross-section paths this frame uses; ids are stable for equal geometry and depth.
    * `box` bounds `d` in its own coordinates, before a shape's matrix.
@@ -616,7 +625,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
       const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
       const depth = stack === 'z' ? projectPoint(v, [rx, ry, s.at], pivot)[2] : projectPoint(v, [s.at, ry, 0], pivot)[2];
-      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
+      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m), tone: sliceTone(vol.parts[i], s) } });
     });
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
@@ -639,16 +648,22 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     );
   const marks = fx.marks.map((mark, i): FrameShape => {
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
-    return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
+    return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix), tone: 0 };
   });
+  const ramp = options.material === 'soft' && parseHex(options.color) ? softRamp(parseHex(color) as Rgb, options.soft).map(toHex) : undefined;
   return {
-    name: p.def.name, color, ink, paths: [...paths.values()], root,
+    name: p.def.name, color, ink, paths: [...paths.values()], root, ramp,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
   };
 }
 
 // ---------------------------------------------------------------------------
 // Standalone SVG still
+
+/** Scene markup identity: the soft material bakes per-slice colours, so it is part of the key. */
+function sceneKey(id: string, options: Pick<RenderOptions, 'material' | 'soft' | 'color'>): string {
+  return options.material === 'soft' ? `${id}|soft|${options.color ?? ''}|${JSON.stringify(options.soft ?? {})}` : id;
+}
 
 function eyeSvg(mark: EyeMark, ink: string): string {
   if (mark.shape === 'path') return `<path d="${mark.d}" fill="${ink}"/>`;
@@ -679,7 +694,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) =>
-      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${frame.ramp ? ` fill="${rampHexAt(frame.ramp, s.tone)}"` : ''}/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
@@ -705,7 +720,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
 const u = (n: number) => `${f(n)}cqw`;
 const FILL = 'position:absolute;left:0;top:0;width:100%;height:100%;';
 
-function sliceMarkup(s: VolumeSlice): string {
+function sliceMarkup(s: VolumeSlice, color?: string): string {
   const pad = 0.3;
   const x = s.box.x - pad, y = s.box.y - pad, w = s.box.w + 2 * pad, h = s.box.h + 2 * pad;
   const rule = s.evenOdd ? ' fill-rule="evenodd"' : '';
@@ -714,7 +729,7 @@ function sliceMarkup(s: VolumeSlice): string {
     : // The side plane's u = 0 line sits at x = s.at; turning it 90° about that line maps u to -z.
       `left:${u(s.at + x)};top:${u(y)};transform-origin:${u(-x)} 50%;transform:rotateY(90deg)`;
   return (
-    `<svg viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}" style="position:absolute;width:${u(w)};height:${u(h)};overflow:visible;${place}" aria-hidden="true">` +
+    `<svg viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}" style="position:absolute;width:${u(w)};height:${u(h)};overflow:visible;${color ? `color:${color};` : ''}${place}" aria-hidden="true">` +
     `<path d="${s.d}"${rule} fill="currentColor"/></svg>`
   );
 }
@@ -727,15 +742,17 @@ const overlay = (side: 'back' | 'front') =>
  * then apply `sceneFrame` every frame. Body color comes from CSS `color` on
  * an ancestor, eye ink from `--avatar-ink`.
  */
-export function renderAvatarScene(definition: AvatarDefinition, options: Pick<RenderOptions, 'depth'> = {}): string {
+export function renderAvatarScene(definition: AvatarDefinition, options: Pick<RenderOptions, 'depth' | 'material' | 'soft' | 'color'> = {}): string {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
   const ink = `var(--avatar-ink,${DEFAULT_EYE_COLOR})`;
+  const ramp = options.material === 'soft' && parseHex(options.color) ? softRamp(parseHex(options.color) as Rgb, options.soft) : undefined;
+  const sliceColor = (part: Volume['parts'][number], s: VolumeSlice) => (ramp ? toHex(rampAt(ramp, sliceTone(part, s))) : undefined);
   const stack = (axis: 'z' | 'x') =>
     `<div data-stack="${axis}" style="${FILL}transform-style:preserve-3d">` +
-    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
+    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map((s) => sliceMarkup(s, sliceColor(part, s))).join('')).join('') +
     `</div>`;
   const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
     const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
@@ -751,7 +768,7 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     );
   });
   return (
-    `<div data-avatar-scene="${p.id}" style="position:relative;width:100%;height:100%;container-type:size">` +
+    `<div data-avatar-scene="${sceneKey(p.id, options)}" style="position:relative;width:100%;height:100%;container-type:size">` +
     // Ribbons behind the body; they and the marks are written each frame they show.
     overlay('back') +
     // will-change pins the slices' raster scale: without it every hop and squash re-rasterizes each slice.
@@ -827,7 +844,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, r.gradient)).join('');
   let k = 0;
   return {
-    scene: p.id,
+    scene: sceneKey(p.id, options),
     motion: `translate(0,${u(pose.lift)}) rotate(${f(pose.roll)}deg) scale(${r4(pose.sx)},${r4(pose.sy)})`,
     view: (fx.body < 1 ? `scale(${r4(fx.body)}) ` : '') + `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
     body: fx.body,

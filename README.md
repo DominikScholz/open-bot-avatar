@@ -34,6 +34,8 @@ One SVG path in a `0 0 100 100` box, and the eyes.
 
 The volume is inferred from the outline as stacked cross-sections. Live avatars project them and paint each frame to one canvas; stills are projected into one SVG. A CSS 3D scene with one SVG per cross-section is available as `renderer: "scene"`.
 
+With `material: "soft"` each cross-section is coloured by its depth in that volume — a subsurface ramp of the body colour, ported from the soft-shape shader of the Hark design study — instead of one flat fill. States, moods and gaze work unchanged. `HARK_ROSTER` ships eight bots tuned for the Hark design system; see [docs/material.md](docs/material.md).
+
 ## Install
 
 ```sh
@@ -62,6 +64,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
+| `material`, `soft` | `'flat'` (default) or `'soft'`: a subsurface ramp of the body colour through the volume, tuned by `soft` ([docs](docs/material.md)). Needs a hex `color`. |
 | `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`. |
 | `mood` | How it feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on any state. |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
