@@ -1,4 +1,4 @@
-import { resolveLook, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import { isTexture, resolveLook, type AvatarMood, type AvatarState, type AvatarTexture } from "open-bot-avatar";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
@@ -9,6 +9,8 @@ export interface LookState {
   /** What the bot is doing, and how it feels. */
   state: AvatarState;
   mood: AvatarMood;
+  /** Smooth or fluffy, for every avatar. */
+  texture: AvatarTexture;
   followCursor: boolean;
   motionPreference: MotionPreference;
 }
@@ -34,6 +36,7 @@ export const DEFAULT_LOOK: LookState = {
   colors: {},
   state: "idle",
   mood: "neutral",
+  texture: "smooth",
   followCursor: true,
   motionPreference: "system",
 };
@@ -77,6 +80,7 @@ export function reviveLook(raw: unknown): LookState | undefined {
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
     ...resolveLook({ state: r.state, mood: r.mood, motion: r.motion }),
+    texture: isTexture(r.texture) ? r.texture : "smooth",
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",
   };

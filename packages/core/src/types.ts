@@ -35,6 +35,9 @@ export interface AvatarDefinition {
  */
 export type AvatarState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done';
 
+/** How the body's surface is drawn: plain, or grown into soft tufts of fur. */
+export type AvatarTexture = 'smooth' | 'fluffy';
+
 /** How the bot feels. It shapes the eyes on top of any state; in `idle` a happy bot also hops. */
 export type AvatarMood = 'neutral' | 'happy';
 
@@ -76,6 +79,12 @@ export interface RenderOptions {
   size?: number;
   /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. */
   depth?: number;
+  /**
+   * Surface texture (default `smooth`). `fluffy` grows the outline into soft tufts of fur that
+   * sway in a breeze and trail behind the body as it rolls and turns (upright under reduced
+   * motion, and in the CSS 3D scene). Unknown values fall back to `smooth`.
+   */
+  texture?: AvatarTexture;
   /** Extra view rotation in radians on top of the resting view (drag-to-turn). yaw turns left/right, pitch tips. */
   view?: { yaw: number; pitch: number };
   /** Animation clock in seconds. Same inputs always produce the same SVG. */

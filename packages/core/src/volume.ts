@@ -40,6 +40,8 @@ export interface VolumeSlice {
   box: { x: number; y: number; w: number; h: number };
   /** z-slices: smallest distance from this cross-section to the outline (0 for the core and walls). */
   inset: number;
+  /** A refinement cross-section clipped to a thin region's box: only part of the level. */
+  clipped?: boolean;
 }
 
 export interface VolumePart {
@@ -570,7 +572,7 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
         if (!loops.length) return false;
         const sample = loops.flat().filter((_, k) => k % 3 === 0);
         const inset = Math.min(...sample.map(([x, y]) => edgeDistance(polys, x, y)));
-        const slice = { axis: 'z' as const, d: loopsToPath(loops), loops, evenOdd: true, box: loopBox(loops), inset };
+        const slice = { axis: 'z' as const, d: loopsToPath(loops), loops, evenOdd: true, box: loopBox(loops), inset, ...(box ? { clipped: true } : {}) };
         zSlices.push({ ...slice, at: level }, { ...slice, at: -level });
         return true;
       };

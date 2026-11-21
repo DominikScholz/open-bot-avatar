@@ -27,6 +27,16 @@ describe('thumbnail selection ring', () => {
     expect(outlineSvg(def)).not.toMatch(/#[0-9a-f]{3,6}"/i);
   });
 
+  it('traces a fluffy still from its fur', () => {
+    const def = examples[0];
+    const still = renderAvatarSvg(def, { time: 0, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK, texture: 'fluffy' });
+    const ring = outlineSvg(def, 'fluffy');
+    expect(ring).not.toBe(outlineSvg(def));
+    // The ring's paths are the fluffy still's, with its own ids.
+    const paths = (svg: string) => [...svg.matchAll(/<path id="[^"]+" d="([^"]+)"/g)].map((m) => m[1]);
+    expect(paths(ring)).toEqual(paths(still));
+  });
+
   it('is empty for a definition that cannot render', () => {
     expect(outlineSvg({ ...examples[0], id: 'broken', body: { path: 'M0 0Z' } })).toBe('');
   });

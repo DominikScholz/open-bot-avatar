@@ -8,7 +8,7 @@ import { shareLink } from "./share";
 import { Icon, MenuButton } from "./ui";
 
 /** Export and Copy for the avatar on the stage, each offering its two versions, and Remove for one of yours. */
-export function Actions({ entry, color, state, mood, onRemove }: { entry: LibraryEntry; color: string; state: LookState["state"]; mood: LookState["mood"]; onRemove: (key: string) => void }) {
+export function Actions({ entry, color, state, mood, texture, onRemove }: { entry: LibraryEntry; color: string; state: LookState["state"]; mood: LookState["mood"]; texture: LookState["texture"]; onRemove: (key: string) => void }) {
   const [copied, flashCopied] = useFlash();
   const [problem, setProblem] = useState<string | null>(null);
   const { definition } = entry;
@@ -30,10 +30,10 @@ export function Actions({ entry, color, state, mood, onRemove }: { entry: Librar
           items={[
             {
               label: "Image",
-              hint: "SVG still, this color",
+              hint: texture === "fluffy" ? "SVG still, this color, fluffy" : "SVG still, this color",
               onSelect: () => {
                 try {
-                  downloadText(`${definition.id}.svg`, "image/svg+xml", renderAvatarSvg(definition, { color, size: 512, time: 0, reducedMotion: true }));
+                  downloadText(`${definition.id}.svg`, "image/svg+xml", renderAvatarSvg(definition, { color, texture, size: 512, time: 0, reducedMotion: true }));
                   setProblem(null);
                 } catch (error) {
                   setProblem(`Couldn’t render ${definition.name}: ${error instanceof Error ? error.message : String(error)}`);
@@ -51,9 +51,9 @@ export function Actions({ entry, color, state, mood, onRemove }: { entry: Librar
             { label: "JSON", hint: "The definition", onSelect: () => void copy(json, "Couldn’t reach the clipboard; use Export instead.") },
             {
               label: "Link",
-              hint: "Opens it in this color, state and mood",
+              hint: "Opens it in this color, state, mood and texture",
               onSelect: () => {
-                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, state, mood });
+                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, state, mood, texture });
                 void copy(link, `Couldn’t reach the clipboard. The link: ${link}`);
               },
             },

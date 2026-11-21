@@ -14,7 +14,7 @@
  */
 import { avatarExtent } from '../render.ts';
 import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
-import type { AvatarDefinition } from '../types.ts';
+import type { AvatarDefinition, AvatarTexture } from '../types.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -159,8 +159,8 @@ export interface CanvasSurface {
   top: number;
 }
 
-export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefinition, depth: number | undefined): CanvasSurface {
-  const cap = avatarExtent(definition, depth);
+export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefinition, depth: number | undefined, texture?: AvatarTexture): CanvasSurface {
+  const cap = avatarExtent(definition, depth, texture);
   const wrap = document.createElement('div');
   // In flow at the content box, like the scene's root, so the host's padding and border place it.
   wrap.style.cssText = 'position:relative;width:100%;height:100%;pointer-events:none';

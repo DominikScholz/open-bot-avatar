@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
+import type { AvatarDefinition, AvatarMood, AvatarState, AvatarTexture } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
-import { FaceToggle, MOODS, STATES, StatePills } from "./pickers";
+import { FaceToggle, MOODS, STATES, StatePills, TextureToggle } from "./pickers";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
@@ -11,6 +11,7 @@ interface StageProps {
   color: string;
   state: AvatarState;
   mood: AvatarMood;
+  texture: AvatarTexture;
   followCursor: boolean;
   /** Forced on or off, or "system" to follow prefers-reduced-motion. */
   reducedMotion: boolean | "system";
@@ -20,6 +21,7 @@ interface StageProps {
   onView: (view: ViewAngle) => void;
   onState: (state: AvatarState) => void;
   onMood: (mood: AvatarMood) => void;
+  onTexture: (texture: AvatarTexture) => void;
   /** Shown under the state and mood (the avatar's actions). */
   children?: ReactNode;
 }
@@ -29,7 +31,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
+export function Stage({ definition, color, state, mood, texture, followCursor, reducedMotion, reduced, view, onView, onState, onMood, onTexture, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -135,6 +137,7 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
         color={color}
         state={state}
         mood={mood}
+        texture={texture}
         view={view}
         followPointer={followCursor}
         holdGaze={dragging}
@@ -142,6 +145,7 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
         label=""
       />
       <FaceToggle mood={mood} onMood={onMood} />
+      <TextureToggle texture={texture} onTexture={onTexture} />
       <button
         type="button"
         className="stage-reset"

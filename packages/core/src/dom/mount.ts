@@ -17,7 +17,7 @@ import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
-import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
+import type { AvatarDefinition, AvatarMood, AvatarState, AvatarTexture, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -31,6 +31,8 @@ export interface AvatarOptions {
   eyeColor?: string;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
+  /** `smooth` (default) or `fluffy`: soft tufts of fur that sway (upright in the 'scene' renderer). */
+  texture?: AvatarTexture;
   /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
   state?: AvatarState;
   /**
@@ -79,8 +81,8 @@ interface Scene {
   last: Record<string, string>;
 }
 
-function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number | undefined): Scene {
-  el.innerHTML = renderAvatarScene(definition, { depth });
+function mountScene(el: HTMLElement, definition: AvatarDefinition, depth: number | undefined, texture: AvatarTexture | undefined): Scene {
+  el.innerHTML = renderAvatarScene(definition, { depth, texture });
   const q = (s: string) => el.querySelector(s) as HTMLElement;
   const stacks = { z: q('[data-stack="z"]'), x: q('[data-stack="x"]') };
   return {
@@ -245,6 +247,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
+          texture: p.texture,
           state: look.state,
           mood: look.mood,
           view: p.view,
@@ -269,6 +272,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
+        texture: p.texture,
         state: look.state,
         mood: look.mood,
         stateAge: step.stateAge,
@@ -282,8 +286,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       if (p.renderer !== 'scene' && canvasSupported()) {
         if (scene) clear();
         const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
-        const key = `${geometryKey(p.definition)}|${p.depth}`;
-        if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+        const key = `${geometryKey(p.definition)}|${p.depth}|${p.texture}`;
+        if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth, p.texture);
         // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
         // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
         const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
@@ -296,7 +300,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       if (surface) clear();
       const frame = sceneFrame(p.definition, { ...options, color: p.color });
       if (!scene || scene.key !== frame.scene || scene.geometry !== geometryKey(p.definition) || !host.contains(scene.view)) {
-        scene = mountScene(host, p.definition, p.depth);
+        scene = mountScene(host, p.definition, p.depth, p.texture);
       }
       apply(scene, frame);
       failed = false;

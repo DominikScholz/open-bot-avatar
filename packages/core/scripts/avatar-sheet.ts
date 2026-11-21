@@ -32,6 +32,9 @@ const variants: [string, RenderOptions][] = [
   ['working', { state: 'working', time: 0.8 }],
   ['waiting', { state: 'waiting', time: 0.8 }],
   ['happy', { mood: 'happy', time: 0.25 }],
+  ['fluffy', { reducedMotion: true, texture: 'fluffy' }],
+  ['fluffy turned', { reducedMotion: true, texture: 'fluffy', view: { yaw: 1.35, pitch: -0.1 } }],
+  ['fluffy swaying', { texture: 'fluffy', time: 1.6 }],
 ];
 
 const rows = defs.map((def, i) => {
@@ -39,9 +42,9 @@ const rows = defs.map((def, i) => {
   const cells = variants
     .map(([label, o]) => `<figure>${renderAvatarSvg(def, { color, size: 140, ...o })}<figcaption>${label}</figcaption></figure>`)
     .join('');
-  const small = [40, 28].map((s) => renderAvatarSvg(def, { color, size: s })).join('');
+  const small = [40, 28].map((s) => renderAvatarSvg(def, { color, size: s })).join('') + renderAvatarSvg(def, { color, size: 40, texture: 'fluffy' });
   const dark = renderAvatarSvg(def, { color: '#7a7a7a', size: 64 });
-  return `<section><h2>${def.name}</h2><div class="row">${cells}<figure class="small">${small}${dark}<figcaption>40 / 28 / gray</figcaption></figure></div></section>`;
+  return `<section><h2>${def.name}</h2><div class="row">${cells}<figure class="small">${small}${dark}<figcaption>40 / 28 / fluffy 40 / gray</figcaption></figure></div></section>`;
 });
 
 writeFileSync(

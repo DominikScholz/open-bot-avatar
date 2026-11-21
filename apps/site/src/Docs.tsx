@@ -80,6 +80,7 @@ const PROPS: [string, string][] = [
   ["holdGaze", "Keep looking where it looks now. Default: false."],
   ["view", "Extra rotation, { yaw, pitch } in radians."],
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
+  ["texture", '"smooth" (default) or "fluffy": soft tufts of fur that sway.'],
   ["reducedMotion", 'true, false or "system" (default).'],
   ["still", "One static SVG, no animation. Default: false."],
   ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],

@@ -28,7 +28,7 @@ function fullHex(hex: string): string {
 }
 
 /**
- * Every avatar (starters, the gallery, yours), each in its own color, scrolling above a fixed bar
+ * Every avatar (starters, the gallery, yours), each in its own color and the chosen texture, scrolling above a fixed bar
  * of colors for the selected one. Names show as tooltips after a moment.
  */
 export function BotPanel({ entries, selected, look, color, onSelect, onColor, onNew }: BotPanelProps) {
@@ -58,7 +58,7 @@ export function BotPanel({ entries, selected, look, color, onSelect, onColor, on
           {entries.map((entry) => {
             const on = entry.key === selected.key;
             // Built lazily (selected and hovered only) and memoized; it overlays the still exactly.
-            const ring = on || entry.key === hovered ? outlineSvg(entry.definition) : "";
+            const ring = on || entry.key === hovered ? outlineSvg(entry.definition, look.texture) : "";
             return (
               <li key={entry.key}>
                 <button
@@ -77,6 +77,7 @@ export function BotPanel({ entries, selected, look, color, onSelect, onColor, on
                       className="avatar-view"
                       definition={entry.definition}
                       color={colorOf(look, entry.key, entry.definition.id)}
+                      texture={look.texture}
                       still
                       view={THUMB_VIEW}
                       lookAt={THUMB_LOOK}

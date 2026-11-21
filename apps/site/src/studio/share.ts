@@ -1,4 +1,4 @@
-import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import { isMood, isState, isTexture, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState, type AvatarTexture } from "open-bot-avatar";
 import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
 
 /**
@@ -9,6 +9,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *   &state=working           idle, thinking, working, waiting, blocked or done
  *   &mood=happy              neutral or happy; an older link's mood=thinking
  *                            still opens the thinking state
+ *   &texture=fluffy          smooth or fluffy
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
@@ -18,6 +19,7 @@ export interface SharedLook {
   color?: string;
   state?: AvatarState;
   mood?: AvatarMood;
+  texture?: AvatarTexture;
   /** Why `def` was left out, if it didn't decode or validate. */
   problem?: string;
 }
@@ -78,18 +80,20 @@ export function readShare(search: string): SharedLook {
   // A link that names a state or a mood sets both: the one it leaves out is at its default. Before
   // the two were separate, `mood` was idle, thinking or happy, and those links open as they did.
   if (isState(state) || isMood(mood) || mood === "idle" || mood === "thinking") Object.assign(shared, resolveLook({ state, mood, motion: mood }));
+  const texture = params.get("texture")?.trim().toLowerCase();
+  if (isTexture(texture)) shared.texture = texture;
   return shared;
 }
 
 /**
  * A link to this avatar in this look: a starter or gallery avatar by id, one of yours with its
- * definition. The color, state and mood are left out at their defaults (the avatar's own color,
- * idle, neutral).
+ * definition. The color, state, mood and texture are left out at their defaults (the avatar's own
+ * color, idle, neutral, smooth).
  */
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { color: string; state: LookState["state"]; mood: LookState["mood"] },
+  look: { color: string; state: LookState["state"]; mood: LookState["mood"]; texture?: LookState["texture"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);
@@ -101,5 +105,6 @@ export function shareLink(
   }
   if (look.state !== DEFAULT_LOOK.state) params.set("state", look.state);
   if (look.mood !== DEFAULT_LOOK.mood) params.set("mood", look.mood);
+  if (look.texture && look.texture !== DEFAULT_LOOK.texture) params.set("texture", look.texture);
   return `${base}?${params}`;
 }
