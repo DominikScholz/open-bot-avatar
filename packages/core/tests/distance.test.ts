@@ -27,6 +27,9 @@ const outlines = all.flatMap((def) => {
   return [{ id: def.id, polys: body.polys }, ...body.subpaths.map((s, k) => ({ id: `${def.id}/${k}`, polys: s.polys }))];
 });
 
+// Long slanted edges that cross the whole body, over and over: each passes through many buckets.
+outlines.push({ id: 'zigzag', polys: [Array.from({ length: 60 }, (_, k): Point => [k % 2 ? 88 - k / 3 : 12 + k / 3, 10 + (k * 80) / 59])] });
+
 /** Points that land on the outline (its corners, the middles of its edges, rows and columns through its bounds) and off it. */
 function probes(polys: Point[][]): Point[] {
   const b = bounds(polys), out: Point[] = [];
@@ -204,7 +207,7 @@ describe('ribbon rims', () => {
       }
       return far;
     };
-    const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2, 7.3, -11.9, 1e-9, Math.PI - 1e-9, ...Array.from({ length: 60 }, (_, k) => (k * Math.PI) / 180 * 3), ...Array.from({ length: 40 }, (_, k) => 0.1234 + k * 0.777)];
+    const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2, 7.3, -11.9, 1e-9, Math.PI - 1e-9, -1e-20, 1e20, -3.7e15, NaN, Infinity, ...Array.from({ length: 60 }, (_, k) => (k * Math.PI) / 180 * 3), ...Array.from({ length: 40 }, (_, k) => 0.1234 + k * 0.777)];
     for (const def of all) {
       const body = analyzeBody(def.body.path), b = body.bounds;
       // The body itself about the middle of its box, about one of its own corners, and the rims the renderer builds.

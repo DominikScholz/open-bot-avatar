@@ -156,18 +156,7 @@ export function gazeRange(polys: Point[][], eyes: AvatarEyes): GazeRange {
   return { left: reach(-1, 0), right: reach(1, 0), up: reach(0, -1), down: reach(0, 1) };
 }
 
-/** The last analysis: validating a definition and then preparing it analyzes one path twice. */
-let analyzed: { path: string; body: BodyAnalysis } | undefined;
-
-/** Measure a body path. The result is shared between callers and must not be changed. */
 export function analyzeBody(path: string): BodyAnalysis {
-  if (analyzed?.path === path) return analyzed.body;
-  const body = measureBody(path);
-  analyzed = { path, body };
-  return body;
-}
-
-function measureBody(path: string): BodyAnalysis {
   const segs = parsePath(path);
   const polys = flattenPath(segs);
   const b = bounds(polys);

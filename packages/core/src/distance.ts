@@ -39,7 +39,10 @@ let d2 = new Float64Array(0), vx = new Float64Array(0), vy = new Float64Array(0)
 /** A regular grid of sample points: x0 + i * step, y0 + j * step. */
 export interface SampleGrid { x0: number; y0: number; step: number; nx: number; ny: number }
 
-/** Edges bucketed on a coarse grid, for nearest-edge queries that only visit edges that can matter. */
+/**
+ * Edges bucketed on a coarse grid, for nearest-edge queries that only visit edges that can matter.
+ * The grid is dense and CELL units to a bucket: made for outlines in the 0..100 viewBox.
+ */
 export class EdgeIndex {
   /** ax, ay, dx, dy, dx² + dy² per edge: the terms of segDist2 that do not depend on the point. */
   private readonly e: Float64Array;
@@ -65,7 +68,7 @@ export class EdgeIndex {
     const e = this.e = new Float64Array(5 * count);
     this.ox = b.minX - 4; this.oy = b.minY - 4;
     const span = this.span = Math.ceil((Math.max(b.maxX - b.minX, b.maxY - b.minY) + 8) / CELL) + 1;
-    // Counting sort of the edges into every bucket their box touches: count, then place.
+    // Counting sort of the edges into every bucket they pass through: count, then place.
     const start = this.start = new Int32Array(span * span + 1);
     let items = this.items = new Int32Array(0), next = start;
     for (const place of [false, true]) {
@@ -80,9 +83,19 @@ export class EdgeIndex {
           const ax = poly[j][0], ay = poly[j][1], bx = poly[i][0], by = poly[i][1];
           const dx = bx - ax, dy = by - ay;
           e[k] = ax; e[k + 1] = ay; e[k + 2] = dx; e[k + 3] = dy; e[k + 4] = dx * dx + dy * dy;
-          const cx1 = this.cx(Math.max(ax, bx)), cy1 = this.cy(Math.max(ay, by));
-          for (let cy = this.cy(Math.min(ay, by)); cy <= cy1; cy++) {
-            for (let cx = this.cx(Math.min(ax, bx)); cx <= cx1; cx++) {
+          const cy0 = this.cy(Math.min(ay, by)), cy1 = this.cy(Math.max(ay, by));
+          for (let cy = cy0; cy <= cy1; cy++) {
+            // The stretch of the edge inside this row of buckets, a little generously, so a long
+            // slanted edge is not listed in every bucket of its box. The outermost rows also hold
+            // whatever lies beyond them, so there the whole edge counts.
+            let x0 = Math.min(ax, bx), x1 = Math.max(ax, bx);
+            if (cy0 < cy1 && cy > 0 && cy < span - 1) {
+              const t0 = Math.min(1, Math.max(0, (this.oy + cy * CELL - SLACK - ay) / dy));
+              const t1 = Math.min(1, Math.max(0, (this.oy + (cy + 1) * CELL + SLACK - ay) / dy));
+              x0 = Math.min(ax + t0 * dx, ax + t1 * dx) - SLACK;
+              x1 = Math.max(ax + t0 * dx, ax + t1 * dx) + SLACK;
+            }
+            for (let cx = this.cx(x0), end = this.cx(x1); cx <= end; cx++) {
               if (place) items[next[cy * span + cx]++] = k;
               else start[cy * span + cx + 1]++;
             }
@@ -119,6 +132,7 @@ export class EdgeIndex {
           if (cx < 0 || cx >= span) continue;
           const b = cy * span + cx;
           for (let q = start[b], end = start[b + 1]; q < end; q++) {
+            // segDist2, written out here and in `nearest` and `survey`: all three must stay the same.
             const k = items[q];
             const ax = e[k], ay = e[k + 1], dx = e[k + 2], dy = e[k + 3], len = e[k + 4];
             let t = len > 0 ? ((x - ax) * dx + (y - ay) * dy) / len : 0;
@@ -189,6 +203,8 @@ export class EdgeIndex {
   /** Lists every edge with a point in the square of `reach` around (x, y) at the start of `lists`. */
   private collect(x: number, y: number, reach: number): number {
     const { items, start, span } = this;
+    // Stamps are 32-bit: start over long before the count of collections could wrap.
+    if (tags >= 0x7fffff00) { stamp.fill(0); tags = 0; }
     const tag = ++tags;
     let n = 0;
     const cx1 = this.cx(x + reach), cy1 = this.cy(y + reach);

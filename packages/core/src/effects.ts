@@ -120,8 +120,10 @@ function reachFinder(outlines: Point[][][], cx: number, cy: number): (a: number)
 
   return (a) => {
     const ux = Math.cos(a), uy = Math.sin(a);
-    const fan = Math.floor((a / Math.PI - Math.floor(a / Math.PI)) * RIM_FANS);
-    // Any angle that is not a number of a fan is tested against every edge.
+    // The fan of the direction itself, so an angle of any size lands in the right one.
+    const turns = Math.atan2(uy, ux) / Math.PI;
+    const fan = Math.floor((turns - Math.floor(turns)) * RIM_FANS);
+    // A direction that is in no fan (not a number) is tested against every edge.
     const known = fan >= 0 && fan < RIM_FANS;
     let far = 0;
     for (let n = known ? start[fan] : 0, end = known ? start[fan + 1] : count; n < end; n++) {
