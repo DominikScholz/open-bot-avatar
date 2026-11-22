@@ -1,7 +1,6 @@
 import { EYE_TILE, exposedHeight, SOCKET_PAD, eyeBox, eyeDistanceTile } from './eye.ts';
 import type { EyeMark, ViewBasis } from '../render.ts';
-import type { Volume } from '../volume.ts';
-import { coatMesh } from './coat-mesh.ts';
+import { coatHalfDepth, coatMesh, type CoatVolume } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
 import { coatRamp, COAT_RAMP_SIZE } from './coat-ramp.ts';
 
@@ -108,12 +107,15 @@ function makePainter(){
     if(!divisor)gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,elements);
   }
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-  let previous:Volume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
+  let previous:CoatVolume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
   let lastColor='', lastInk='';
   let lastPixels=0, lastView:ViewBasis|undefined, lastCoat:Coat|undefined;
   let lastLighting: CoatLighting | undefined;
   const swatch=document.createElement('canvas').getContext('2d',{willReadFrequently:true})!;
-  return (vol:Volume,v:ViewBasis,color:string,coat:Coat,scale:number,ink:string,eyes:EyeMark[],lighting:CoatLighting='current')=>{
+  return (
+    vol: CoatVolume, v: ViewBasis, color: string, coat: Coat, scale: number, ink: string, eyes: EyeMark[],
+    lighting: CoatLighting = 'current', eyeZ: readonly number[] = 'eyeZ' in vol ? vol.eyeZ : [],
+  ) => {
     if(gl.isContextLost())return null;
     const geometryChanged = previous !== vol;
     if(geometryChanged){
@@ -123,7 +125,7 @@ function makePainter(){
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,mesh.indices,gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER,hairBuffer);gl.bufferData(gl.ARRAY_BUFFER,mesh.roots,gl.STATIC_DRAW);
       const b=vol.bounds,rx=(b.maxX-b.minX)/2,ry=(b.maxY-b.minY)/2;
-      const rz=Math.max(.5,...vol.parts.map(p=>p.depth/2));
+      const rz=coatHalfDepth(vol);
       cx=b.minX+rx; cy=b.minY+ry; radius=Math.ceil(Math.hypot(rx,ry,rz)+4);
       gl.uniform3f(u.pivot,cx,cy,0); gl.uniform3f(u.extent,rx,ry,rz);
       gl.uniform1f(u.radius,radius);
@@ -135,7 +137,7 @@ function makePainter(){
       const { x, y, w, h } = eyeBox(mark);
       const cx = x+w/2, cy = y+h/2, span = Math.max(w,h)+2*SOCKET_PAD;
       eyeSizes.set([w, h*exposedHeight(w,h)], 2*slot);
-      regions.set([cx, cy, span, vol.eyeZ[slot]+.8], 4*slot);
+      regions.set([cx, cy, span, eyeZ[slot]+.8], 4*slot);
       // Gaze translates the tile. Only a change of contour needs a new distance field.
       const key = mark.shape === 'pill' ? [w,h,mark.radius].join('|') : JSON.stringify(mark);
       if (key !== contours[slot]) {

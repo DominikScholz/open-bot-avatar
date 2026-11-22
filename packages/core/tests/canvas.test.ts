@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
-import { avatarExtent } from '../src/render.ts';
+import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
+import * as fleece from '../src/dom/fleece.ts';
+import { avatarExtent, liveFrame } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
 interface Recorder {
@@ -19,7 +21,7 @@ beforeAll(() => {
     const rec: Recorder = { calls: [] };
     recorders.set(this, rec);
     const ctx: Record<string, unknown> = { fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, lineCap: 'butt' };
-    for (const op of ['setTransform', 'clearRect', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath']) {
+    for (const op of ['setTransform', 'clearRect', 'drawImage', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath']) {
       ctx[op] = () => rec.calls.push({ op, fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
     }
     if (withRoundRect) ctx.roundRect = () => rec.calls.push({ op: 'roundRect', fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
@@ -104,6 +106,25 @@ describe('mountAvatar on a canvas', () => {
     expect(calls.find((c) => c.op === 'fill')?.fill).not.toBe('#ff6a1a');
     expect(calls.find((c) => c.op === 'roundRect')?.fill).toBe('red');
     avatar.destroy();
+  });
+
+  it('reuses coated dots through a hop and falls back to filled marks without WebGL', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(fleece, 'renderCoat').mockReturnValue({ canvas: tile, radius: 24, cx: 0, cy: 0 });
+    try {
+      const def = examples[0], el = host();
+      const surface = mountCanvas(el, 'marks', def, 6);
+      const markFrame = (state: 'thinking' | 'blocked', time: number) => liveFrame(def, { state, time, size: 96 });
+      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'brushed');
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(6);
+
+      render.mockReturnValue(null);
+      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'shell');
+      expect(painted(el).filter(call => call.op === 'fill')).toHaveLength(2);
+    } finally {
+      render.mockRestore();
+    }
   });
 
   it('draws pill eyes without roundRect', async () => {

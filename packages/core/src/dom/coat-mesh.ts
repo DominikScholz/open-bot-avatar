@@ -1,7 +1,7 @@
 // Surface nets on the union of the avatar parts. One vertex per boundary cell
 // gives the coat a closed surface, including the backs of ears and the walls of holes.
 import { edgeDistance, type Volume } from '../volume.ts';
-import { isInside } from '../path.ts';
+import { isInside, type Bounds } from '../path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC } from '../validate.ts';
 import { SOCKET_PAD } from './eye.ts';
 
@@ -11,30 +11,62 @@ export interface CoatMesh {
   roots: Float32Array; // independent, area-weighted samples for instancing
 }
 
-export function coatMesh(vol: Volume): CoatMesh {
+/** A mark is a vertical capsule centered at the origin; equal width and height give a sphere. */
+export interface CoatCapsule {
+  bounds: Bounds;
+  radius: number;
+}
+
+export type CoatVolume = Volume | CoatCapsule;
+
+export function coatHalfDepth(vol: CoatVolume): number {
+  return 'radius' in vol ? vol.radius : Math.max(.5, ...vol.parts.map(p => p.depth / 2));
+}
+
+// The blocked state alternates between the two mark meshes when its dye changes.
+const capsuleMeshes = new WeakMap<CoatCapsule, CoatMesh>();
+
+export function coatMesh(vol: CoatVolume): CoatMesh {
+  if ('radius' in vol) {
+    const cached = capsuleMeshes.get(vol);
+    if (cached) return cached;
+  }
   const step = 1.05, pad = 3 * step;
   const b = vol.bounds;
-  const half = Math.max(0.5,...vol.parts.map(p => p.depth/2));
+  const half = coatHalfDepth(vol);
   const x0 = b.minX-pad, y0 = b.minY-pad, z0 = -half-pad;
   const nx = Math.ceil((b.maxX-b.minX+2*pad)/step)+1;
   const ny = Math.ceil((b.maxY-b.minY+2*pad)/step)+1;
   const nz = Math.ceil((2*half+2*pad)/step)+1;
   const plane = nx*ny;
   const field = new Float32Array(plane*nz).fill(-1000);
-  for (const part of vol.parts) {
-    for (let j=0;j<ny;j++) for (let i=0;i<nx;i++) {
-      const x=x0+i*step, y=y0+j*step;
-      const sd=edgeDistance(part.polys,x,y)*(isInside(part.polys,x,y)?1:-1);
-      const h=part.kind==='inflate'?0:part.height(x,y);
-      for(let k=0;k<nz;k++) {
-        const z=Math.abs(z0+k*step);
-        let d;
-        if(part.kind==='inflate' && part.rxy>0 && part.rz>0) {
-          const side=(part.rxy-sd)/part.rxy, top=(z-part.depth/2+part.rz)/part.rz;
-          d=(1-Math.hypot(Math.max(0,side),Math.max(0,top)))*Math.min(part.rxy,part.rz);
-        } else d=Math.min(sd,Math.max(.55,h)-z);
-        const at=i+j*nx+k*plane;
-        if(d>field[at]) field[at]=d;
+  if ('radius' in vol) {
+    const halfStem = b.maxY - vol.radius;
+    for (let j = 0; j < ny; j++) {
+      const dy = Math.max(0, Math.abs(y0 + j * step) - halfStem);
+      for (let i = 0; i < nx; i++) {
+        const radial = (x0 + i * step) ** 2 + dy ** 2;
+        for (let k = 0; k < nz; k++) {
+          field[i + j * nx + k * plane] = vol.radius - Math.sqrt(radial + (z0 + k * step) ** 2);
+        }
+      }
+    }
+  } else {
+    for (const part of vol.parts) {
+      for (let j=0;j<ny;j++) for (let i=0;i<nx;i++) {
+        const x=x0+i*step, y=y0+j*step;
+        const sd=edgeDistance(part.polys,x,y)*(isInside(part.polys,x,y)?1:-1);
+        const h=part.kind==='inflate'?0:part.height(x,y);
+        for(let k=0;k<nz;k++) {
+          const z=Math.abs(z0+k*step);
+          let d;
+          if(part.kind==='inflate' && part.rxy>0 && part.rz>0) {
+            const side=(part.rxy-sd)/part.rxy, top=(z-part.depth/2+part.rz)/part.rz;
+            d=(1-Math.hypot(Math.max(0,side),Math.max(0,top)))*Math.min(part.rxy,part.rz);
+          } else d=Math.min(sd,Math.max(.55,h)-z);
+          const at=i+j*nx+k*plane;
+          if(d>field[at]) field[at]=d;
+        }
       }
     }
   }
@@ -87,6 +119,12 @@ export function coatMesh(vol: Volume): CoatMesh {
       roots.push(random(),random());
     }
   }
+  if ('radius' in vol) {
+    const mesh = { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), roots: new Float32Array(roots) };
+    capsuleMeshes.set(vol, mesh);
+    return mesh;
+  }
+
   // The body grid is too coarse to describe a bead in profile. Refine only
   // the front triangles within reach of a socket, after sampling hair roots.
   const padEye = SOCKET_PAD + 2 * step;

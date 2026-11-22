@@ -13,9 +13,10 @@
  * overhangs it by the avatar's reach and ignores the pointer.
  */
 import { eye, eyeBox } from './eye.ts';
+import { paintCoatMark } from './coat-mark.ts';
 import { renderCoat, type Coat, type CoatLighting } from './fleece.ts';
 import { avatarExtent, preparedVolume } from '../render.ts';
-import type { AvatarFrame, Matrix } from '../render.ts';
+import type { AvatarFrame, FramePath, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 
 /** A square in viewBox units. */
@@ -67,6 +68,7 @@ export function fitSquare(prev: Square | null, b: Bounds, cap: Square): Square {
 }
 
 interface Section {
+  box: FramePath['box'];
   path: Path2D;
   rule: CanvasFillRule;
 }
@@ -150,8 +152,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const scale = (size / 100) * dpr;
   const layout = `${size}|${dpr}`;
   if (sections.size > MAX_SECTIONS) sections.clear();
-  for (const { id, d, evenOdd } of frame.paths) {
-    if (!sections.has(id)) sections.set(id, { path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
+  for (const { id, d, evenOdd, box } of frame.paths) {
+    if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
   if (material && material !== 'flat') {
@@ -175,9 +177,10 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   }
 
   const view = frame.surfaceView;
-  const coated = material && material !== 'flat' && view && view.scale > .001 && surface.depth !== 0
+  const coat = material && material !== 'flat' && surface.depth !== 0 && view ? material : undefined;
+  const coated = coat && view && view.scale > .001
     ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, material, scale, ink, view.eyes, lighting)
+        view.basis, fill, coat, scale, ink, view.eyes, lighting)
     : null;
   let bodyDrawn = false;
   const drawCoat = () => {
@@ -196,7 +199,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
-      if (!coated || shape.key.startsWith('mark-')) {
+      const mark = shape.key.startsWith('mark-');
+      if (mark && coat && paintCoatMark(ctx, section.box, scale, fill, coat, lighting)) continue;
+      if (!coated || mark) {
         ctx.fill(section.path, section.rule);
       } else if (!bodyDrawn) {
         drawCoat();
