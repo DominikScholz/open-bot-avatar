@@ -1,7 +1,6 @@
 import { EYE_TILE, exposedHeight, SOCKET_PAD, eyeBox, eyeDistanceTile } from './eye.ts';
 import type { FrameShape, ViewBasis } from '../render.ts';
 import type { Volume } from '../volume.ts';
-import { brushedPile } from './brushed-pile.ts';
 import { coatMesh } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
 
@@ -66,9 +65,21 @@ function makePainter(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.uniform1i(loc('eyeField'), 1);
-  const brushedSampler = loc('brushedPile');
-  const brushedTexture = gl.createTexture();
-  let brushedReady = false;
+  // Repeatable, isotropic root density. A volume has no UV seams or poles.
+  const side = 64;
+  const roots = new Uint8Array(side ** 3);
+  let seed = 73021;
+  for (let i = 0; i < roots.length; i++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    roots[i] = seed >>> 24;
+  }
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_3D, gl.createTexture());
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, side, side, side, 0, gl.RED, gl.UNSIGNED_BYTE, roots);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.generateMipmap(gl.TEXTURE_3D);
+  gl.uniform1i(loc('brushedPile'), 2);
+  gl.activeTexture(gl.TEXTURE1); // Eye distance tiles are updated on this unit.
   const regionUniform = loc('eyeRegion[0]'), inkUniform = loc('ink');
   const previousLightingUniform = loc('previousLighting');
   const sizeUniform = loc('eyeSize[0]'), eyeSizes = new Float32Array(4);
@@ -164,18 +175,6 @@ function makePainter(){
       lastLighting = lighting;
     }
     const brushed = coat === 'brushed';
-    if (brushed && !brushedReady) {
-      const size = 640;
-      gl.uniform1i(brushedSampler, 2);
-      gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, brushedTexture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, size, size, 0, gl.RED, gl.UNSIGNED_BYTE, brushedPile(size));
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      gl.generateMipmap(gl.TEXTURE_2D);
-      gl.activeTexture(gl.TEXTURE1); // Eye distance tiles are updated on this unit.
-      brushedReady = true;
-    }
     gl.uniform1i(u.brushed, brushed ? 1 : 0);
     gl.uniform1i(u.pass,0); gl.bindVertexArray(surface);
     gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);

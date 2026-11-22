@@ -24,14 +24,6 @@ float socketDistance(vec3 p, vec3 normal, out vec2 uv, out vec3 local) {
   return 3.8;
 }`;
 
-// Keep the crown and the shell lean in the same coordinates as the baked groom.
-const groom = `
-uniform bool brushed;
-uniform vec3 pivot, extent;
-vec3 fromCrown(vec3 p) {
-  return p - (pivot + vec3(-.08*extent.x, -.28*extent.y, 0.));
-}`;
-
 export const coatVertex = `#version 300 es
 precision highp float;
 precision highp int;
@@ -39,10 +31,11 @@ layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
 layout(location=2) in vec2 seed;
 uniform mat3 view;
-${groom}
+uniform bool brushed;
+uniform vec3 pivot, extent;
 uniform float radius, shell;
 uniform int pass;
-out vec3 P, N, V;
+out vec3 P, N, V, pilePosition, lean;
 ${socketField}
 out float tip, variation, across;
 
@@ -51,6 +44,17 @@ void main(){
   vec3 rounded=(position-pivot)/extent;
   // Broadly bend the lighting normals across flat front faces of inflated paths.
   vec3 shadingNormal=normalize(n + .78*rounded);
+  pilePosition=position;
+  lean=vec3(0.);
+  if (brushed) {
+    // Sweep across the visible surface. A downwards bias keeps the front
+    // from parting at a point. Project without normalizing so foreshortened
+    // locks get shorter continuously at a grazing angle.
+    float wave=.21*sin(dot(position,vec3(.11,.045,.08)))+.14*sin(.13*position.y-.07*position.z);
+    float angle=.22+.94*(view*shadingNormal).x+wave;
+    vec3 sweep=transpose(view)*vec3(sin(angle),cos(angle),.18);
+    lean=sweep-n*dot(n,sweep);
+  }
   vec2 uv; vec3 local;
   float d=socketDistance(position,n,uv,local);
   float wall=1.-smoothstep(-.35,2.30,d);
@@ -63,9 +67,7 @@ void main(){
   if(pass==1){
     p+=n*shell*(brushed ? 1.10 : 1.55)*loft;
     if (brushed) {
-      vec3 radial=fromCrown(position);
-      vec3 along=radial-n*dot(radial,n);
-      p+=along*inversesqrt(dot(along,along)+3.)*(1.05*shell*loft);
+      p+=lean*(1.05*shell*loft);
     } else {
       p.y+=shell*shell*.42;
     }
@@ -79,17 +81,7 @@ void main(){
     float flow=2.3*sin(.24*p.x+.13*p.z+sin(.22*p.y))+1.3*sin(.32*p.y-.15*p.x);
     float angle=flow+(seed.x-.5)*2.6;
     vec3 comb=tangent*cos(angle)+bitangent*sin(angle);
-    float crownSpread=1.;
-    if (brushed) {
-      vec3 radial=fromCrown(position);
-      vec3 along=radial-n*dot(radial,n);
-      // Lift the nap near the crown; farther out neighboring tips sweep
-      // together, with a little local curl and seed-dependent splay.
-      vec3 groomDir=along*inversesqrt(dot(along,along)+30.);
-      crownSpread=smoothstep(0.,8.,length(along));
-      vec3 splay=tangent*cos(6.283*seed.x)+bitangent*sin(6.283*seed.x);
-      comb=normalize(groomDir+mix(.92*splay,.28*comb,crownSpread)+vec3(.0001));
-    }
+    if (brushed) comb=lean+.24*comb;
     if (d < 3.5) {
       vec2 radial = normalize(local.xy*vec2(1.7,1.)+vec2(.001));
       vec2 alongEdge = vec2(-radial.y,radial.x);
@@ -100,8 +92,9 @@ void main(){
     vec3 direction=n*(.30+.42*tip)+comb*(.85-.26*tip)+bend*(seed.x-.5)*1.8*tip;
     float width=.115+.18*seed.y;
     if (brushed) {
-      len=mix(1.6,3.8,seed.y)*loft*mix(.62,1.,crownSpread);
+      len=mix(1.6,3.8,seed.y)*loft;
       direction=n*(.30+.18*tip)+comb*(.93-.12*tip)+bend*(seed.x-.5)*.45*tip;
+      pilePosition+=comb*(.7*len*tip);
       p+=n*.52*loft;
       width=.073+.11*seed.y;
     }
@@ -132,15 +125,16 @@ void main(){
 export const coatFragment = `#version 300 es
 precision highp float;
 precision highp int;
-uniform sampler2D pile, brushedPile;
-${groom}
+uniform sampler2D pile;
+uniform highp sampler3D brushedPile;
+uniform bool brushed;
 uniform vec3 color, ink;
 uniform mat3 view;
 ${socketField}
 uniform int pass;
 uniform bool previousLighting;
 uniform float shell;
-in vec3 P,N,V;
+in vec3 P,N,V,pilePosition,lean;
 in float tip, variation, across;
 out vec4 result;
 
@@ -149,12 +143,18 @@ float fiberMap(vec3 p, vec3 n){
   w/=max(.001,w.x+w.y+w.z);
   return dot(w,vec3(texture(pile,p.zy/16.).r,texture(pile,p.xz/16.).r,texture(pile,p.xy/16.).r));
 }
-float brushedHeight(vec3 p, vec3 n){
-  vec3 uvw=fromCrown(p)/(2.8*max(extent.x,max(extent.y,extent.z)))+.5;
-  vec3 w=pow(abs(n),vec3(6.));
-  w/=max(.001,w.x+w.y+w.z);
-  return dot(w,vec3(texture(brushedPile,uvw.zy).r,texture(brushedPile,uvw.xz).r,
-                    texture(brushedPile,uvw.xy).r));
+// Sample the same model-space roots at every view. Only the direction of the
+// short filter changes. The solid coat, shells and ribbons use this same field.
+float brushedHeight(){
+  vec3 uvw=pilePosition/15.;
+  vec3 stepUV=lean*.019;
+  float locks=4.*texture(brushedPile,uvw).r;
+  for(int i=1;i<=3;i++){
+    vec3 delta=float(i)*stepUV;
+    locks+=(4.-float(i))*(texture(brushedPile,uvw+delta).r+texture(brushedPile,uvw-delta).r);
+  }
+  float tuft=texture(brushedPile,uvw*.42).r;
+  return clamp(.5+1.65*(locks/16.-.5)+.16*(tuft-.5),0.,1.);
 }
 // Scale the dye's value for recesses and fiber texture. At the bright end
 // sRGB runs out of headroom in the strongest channel. Lift the other dyed
@@ -185,7 +185,7 @@ void main(){
   float pileFill=1.;
   float height=0.;
   if(brushed){
-    height=brushedHeight(P,normalize(V));
+    height=brushedHeight();
     // A little variation in the density of the whole lock survives bright
     // rim lighting, even when the strongest dye channel reaches full value.
     pileFill=.925+.075*smoothstep(.22,.81,height);
