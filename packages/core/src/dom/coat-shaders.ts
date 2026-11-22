@@ -33,7 +33,6 @@ layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
 layout(location=2) in vec2 seed;
 uniform mat3 view;
-uniform bool brushed;
 uniform vec3 pivot, extent;
 uniform float radius, shell;
 uniform int pass;
@@ -47,16 +46,13 @@ void main(){
   // Broadly bend the lighting normals across flat front faces of inflated paths.
   vec3 shadingNormal=normalize(n + .78*rounded);
   pilePosition=position;
-  lean=vec3(0.);
-  if (brushed) {
-    // Sweep across the visible surface. A downwards bias keeps the front
-    // from parting at a point. Project without normalizing so foreshortened
-    // locks get shorter continuously at a grazing angle.
-    float wave=.21*sin(dot(position,vec3(.11,.045,.08)))+.14*sin(.13*position.y-.07*position.z);
-    float angle=.22+.94*(view*shadingNormal).x+wave;
-    vec3 sweep=transpose(view)*vec3(sin(angle),cos(angle),.18);
-    lean=sweep-n*dot(n,sweep);
-  }
+  // Sweep across the visible surface. A downwards bias keeps the front
+  // from parting at a point. Project without normalizing so foreshortened
+  // locks get shorter continuously at a grazing angle.
+  float wave=.21*sin(dot(position,vec3(.11,.045,.08)))+.14*sin(.13*position.y-.07*position.z);
+  float angle=.22+.94*(view*shadingNormal).x+wave;
+  vec3 sweep=transpose(view)*vec3(sin(angle),cos(angle),.18);
+  lean=sweep-n*dot(n,sweep);
   vec2 uv; vec3 local;
   float d=socketDistance(position,n,uv,local);
   float seat=min(1.55,max(0.,position.z)*.40);
@@ -74,12 +70,8 @@ void main(){
   pilePosition.z=p.z;
   tip=0.; variation=.5; across=0.;
   if(pass==1){
-    p+=n*shell*(brushed ? 1.10 : 1.55)*loft;
-    if (brushed) {
-      p+=lean*(1.05*shell*loft);
-    } else {
-      p.y+=shell*shell*.42;
-    }
+    p+=n*shell*1.10*loft;
+    p+=lean*(1.05*shell*loft);
   }
   if(pass==2){
     // Four cross-sections make a bent, tapered strand. Roots are fixed in model space.
@@ -89,24 +81,18 @@ void main(){
     vec3 bitangent=cross(n,tangent);
     float flow=2.3*sin(.24*p.x+.13*p.z+sin(.22*p.y))+1.3*sin(.32*p.y-.15*p.x);
     float angle=flow+(seed.x-.5)*2.6;
-    vec3 comb=tangent*cos(angle)+bitangent*sin(angle);
-    if (brushed) comb=lean+.24*comb;
+    vec3 comb=lean+.24*(tangent*cos(angle)+bitangent*sin(angle));
     if (d < 3.5) {
       vec2 radial = normalize(local.xy*vec2(1.7,1.)+vec2(.001));
       vec2 alongEdge = vec2(-radial.y,radial.x);
       comb.xy = mix(comb.xy, alongEdge * (dot(comb.xy,alongEdge)<0.?-1.:1.), .88*(1.-smoothstep(.4,3.5,d)));
     }
     vec3 bend=cross(n,comb);
-    float len=mix(1.05,3.25,seed.y)*loft;
-    vec3 direction=n*(.30+.42*tip)+comb*(.85-.26*tip)+bend*(seed.x-.5)*1.8*tip;
-    float width=.115+.18*seed.y;
-    if (brushed) {
-      len=mix(1.6,3.8,seed.y)*loft;
-      direction=n*(.30+.18*tip)+comb*(.93-.12*tip)+bend*(seed.x-.5)*.45*tip;
-      pilePosition+=comb*(.7*len*tip);
-      p+=n*.52*loft;
-      width=.073+.11*seed.y;
-    }
+    float len=mix(1.6,3.8,seed.y)*loft;
+    vec3 direction=n*(.30+.18*tip)+comb*(.93-.12*tip)+bend*(seed.x-.5)*.45*tip;
+    pilePosition+=comb*(.7*len*tip);
+    p+=n*.52*loft;
+    float width=.073+.11*seed.y;
     p+=.065*n+len*tip*direction;
     vec3 screenDir=view*(direction+.06*comb);
     vec2 widthDir=normalize(vec2(-screenDir.y,screenDir.x)+vec2(.0001,0));
@@ -130,7 +116,6 @@ precision highp int;
 uniform sampler2D pile;
 uniform sampler2D dyeRamp;
 uniform highp sampler3D brushedPile;
-uniform bool brushed;
 uniform vec3 color, ink;
 uniform mat3 view;
 ${socketField}
@@ -172,21 +157,16 @@ void main(){
   float d=socketDistance(P,normalize(V),uv,local);
   if(pass==1 && d<.1) discard;
   if(pass==2 && d<.10-.08*variation) discard;
-  float pileFill=1.;
-  float height=0.;
-  if(brushed){
-    height=brushedHeight();
-    // A little variation in the density of the whole lock survives bright
-    // rim lighting, even when the strongest dye channel reaches full value.
-    pileFill=.925+.075*smoothstep(.22,.81,height);
-  }
-  if(brushed && pass==2){
+  float height=brushedHeight();
+  // Density variation survives rim lighting even when the strongest dye channel is saturated.
+  float pileFill=.925+.075*smoothstep(.22,.81,height);
+  if(pass==2){
     // MSAA can evaluate a subpixel ribbon outside its edges at the pixel center.
     float edge=min(1.,abs(across));
     float glint=smoothstep(.08,.82,tip)*(1.-.32*edge*edge);
     diffuseLevel*=.935+.11*variation+.035*clamp(tip,0.,1.);
     sheen+=(.012+.20*glint)*(.44+.56*variation)*facingLight;
-  }else if(brushed){
+  }else{
     float layer=pass==1 ? shell : 0.;
     if(pass==1 && height<.21+.59*layer) discard;
     // The solid backing is dyed as brightly as the roots. Relief is mostly
@@ -194,19 +174,6 @@ void main(){
     diffuseLevel*=.895+.16*height+.035*layer;
     sheen+=(.012+.13*smoothstep(.41,.86,height)+.022*layer)*facingLight;
     rimExposure=.80+.34*layer;
-  }else if(pass==1){
-    // A single density field across all shells gives each lock roots and thinning tips.
-    float density=fiberMap(P-vec3(shell*.43,shell*.56,0),normalize(V));
-    if(density<.20+.68*shell)discard;
-    diffuseLevel*=.92+.12*shell;
-    sheen+=.041*shell*facingLight;
-    rimExposure=.72+.50*shell;
-  }else if(pass==2){
-    diffuseLevel*=previousLighting ? .86+.12*variation+.095*tip : .80+.14*variation+.20*tip;
-    sheen+=(.013+.069*tip)*facingLight*(1.-.48*abs(across));
-    rimExposure=.67+.38*variation+.50*tip;
-  }else{
-    diffuseLevel*=.95+.075*fiberMap(P,normalize(V));
   }
   // A soft light behind the right shoulder grazes the pile. Weighting by
   // view angle confines it to the silhouette as the avatar turns.

@@ -1,20 +1,14 @@
 import { resolveLook, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import { readAvatarMaterial } from "open-bot-avatar/dom";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
 
 export const COATS = [
-  { value: "fleece", label: "Curled fibers" },
-  { value: "brushed", label: "Brushed plush" },
-  { value: "shell", label: "Shell fur" },
+  { value: "plush", label: "Plush" },
   { value: "flat", label: "Flat" },
 ] as const;
 export type Coat = typeof COATS[number]["value"];
-
-export function readCoat(value: unknown): Coat | undefined {
-  if (value === "velvet") return "brushed"; // Migrate saved looks and shared links.
-  return COATS.find(option => option.value === value)?.value;
-}
 
 export interface LookState {
   coat: Coat;
@@ -46,7 +40,7 @@ export const PALETTE = [
 
 export const DEFAULT_LOOK: LookState = {
   colors: {},
-  coat: "fleece",
+  coat: "plush",
   state: "idle",
   mood: "neutral",
   followCursor: true,
@@ -91,7 +85,7 @@ export function reviveLook(raw: unknown): LookState | undefined {
       r.colors && typeof r.colors === "object"
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
-    coat: readCoat(r.coat) ?? DEFAULT_LOOK.coat,
+    coat: readAvatarMaterial(r.coat) ?? DEFAULT_LOOK.coat,
     ...resolveLook({ state: r.state, mood: r.mood, motion: r.motion }),
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",

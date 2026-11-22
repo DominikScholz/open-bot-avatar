@@ -1,5 +1,6 @@
 import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import { DEFAULT_LOOK, PALETTE, defaultColor, readCoat, type Coat, type LookState } from "./look";
+import { readAvatarMaterial } from "open-bot-avatar/dom";
+import { DEFAULT_LOOK, PALETTE, defaultColor, type Coat, type LookState } from "./look";
 
 /**
  * Links that open the studio on an avatar, all read and written in the browser:
@@ -64,7 +65,7 @@ function readColor(value: string | null): string | undefined {
 export function readShare(search: string): SharedLook {
   const params = new URLSearchParams(search);
   const shared: SharedLook = {};
-  const coat = readCoat(params.get("coat"));
+  const coat = readAvatarMaterial(params.get("coat"));
   if (coat) shared.coat = coat;
   const def = params.get("def");
   if (def) {

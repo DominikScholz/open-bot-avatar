@@ -2,4 +2,4 @@
 "open-bot-avatar": minor
 ---
 
-Add curled fiber, brushed plush, and shell fur materials to the live canvas renderer. Set `material` on a mounted avatar to use a plush coat.
+Set `material` to `"plush"` on a mounted avatar to give its body, thinking dots, and blocked exclamation mark a brushed fur coat. Use `"flat"` for a solid fill.

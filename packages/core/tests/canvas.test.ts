@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
 import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
-import * as fleece from '../src/dom/fleece.ts';
+import * as plush from '../src/dom/plush.ts';
 import { avatarExtent, liveFrame } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
@@ -110,17 +110,17 @@ describe('mountAvatar on a canvas', () => {
 
   it('reuses coated dots through a hop and falls back to filled marks without WebGL', () => {
     const tile = document.createElement('canvas');
-    const render = vi.spyOn(fleece, 'renderCoat').mockReturnValue({ canvas: tile, radius: 24, cx: 0, cy: 0 });
+    const render = vi.spyOn(plush, 'renderCoat').mockReturnValue({ canvas: tile, radius: 24, cx: 0, cy: 0 });
     try {
       const def = examples[0], el = host();
       const surface = mountCanvas(el, 'marks', def, 6);
       const markFrame = (state: 'thinking' | 'blocked', time: number) => liveFrame(def, { state, time, size: 96 });
-      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'brushed');
+      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'plush');
       expect(render).toHaveBeenCalledTimes(1);
       expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(6);
 
       render.mockReturnValue(null);
-      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'shell');
+      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'plush');
       expect(painted(el).filter(call => call.op === 'fill')).toHaveLength(2);
     } finally {
       render.mockRestore();

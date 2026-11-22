@@ -98,11 +98,21 @@ describe("share links", () => {
     expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", state: "working", mood: "happy" });
   });
 
-  it("opens old velvet links and saved looks as brushed plush", () => {
-    expect(readShare("?coat=velvet").coat).toBe("brushed");
-    expect(reviveLook({ coat: "velvet" })?.coat).toBe("brushed");
-    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, coat: "brushed", color: defaultColor("mug") });
-    expect(readShare(new URL(link).search).coat).toBe("brushed");
+  it("opens earlier fur finishes as plush in links and saved looks", () => {
+    for (const coat of ["brushed", "fleece", "shell", "velvet"]) {
+      expect(readShare(`?coat=${coat}&eyes=round`)).toEqual({ coat: "plush" });
+      expect(reviveLook({ coat, eyeStyle: "round" })).toEqual({ ...DEFAULT_LOOK, coat: "plush" });
+    }
+    expect(readShare("?coat=unknown")).toEqual({});
+  });
+
+  it("defaults to plush and shares both available finishes", () => {
+    expect(DEFAULT_LOOK.coat).toBe("plush");
+    for (const coat of ["plush", "flat"] as const) {
+      const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, coat, color: defaultColor("mug") });
+      expect(readShare(new URL(link).search).coat).toBe(coat);
+      expect(reviveLook({ coat })?.coat).toBe(coat);
+    }
   });
 
   it("still open links from before state and mood were separate", () => {

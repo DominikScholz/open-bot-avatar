@@ -4,10 +4,9 @@ import { coatHalfDepth, coatMesh, type CoatVolume } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
 import { coatRamp, COAT_RAMP_SIZE } from './coat-ramp.ts';
 
-export type Coat = 'brushed' | 'shell' | 'fleece';
 export type CoatLighting = 'current' | 'previous';
 
-// Tileable strand-density texture. Shells sample different thresholds of the same locks.
+// Tileable fiber texture for the compressed pile around the eye sockets.
 function densityTile(): HTMLCanvasElement {
   const tile=document.createElement('canvas');
   tile.width=tile.height=128;
@@ -53,7 +52,7 @@ function makePainter(){
   const program = linkProgram(gl, coatVertex, coatFragment);
   gl.useProgram(program);
   const loc=(name:string)=>gl.getUniformLocation(program,name);
-  const u={view:loc('view'),pivot:loc('pivot'),extent:loc('extent'),radius:loc('radius'),shell:loc('shell'),pass:loc('pass'),brushed:loc('brushed'),color:loc('color')};
+  const u={view:loc('view'),pivot:loc('pivot'),extent:loc('extent'),radius:loc('radius'),shell:loc('shell'),pass:loc('pass'),color:loc('color')};
   gl.bindTexture(gl.TEXTURE_2D,gl.createTexture());
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,densityTile());
   gl.generateMipmap(gl.TEXTURE_2D);
@@ -109,11 +108,11 @@ function makePainter(){
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
   let previous:CoatVolume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
   let lastColor='', lastInk='';
-  let lastPixels=0, lastView:ViewBasis|undefined, lastCoat:Coat|undefined;
+  let lastPixels=0, lastView:ViewBasis|undefined;
   let lastLighting: CoatLighting | undefined;
   const swatch=document.createElement('canvas').getContext('2d',{willReadFrequently:true})!;
   return (
-    vol: CoatVolume, v: ViewBasis, color: string, coat: Coat, scale: number, ink: string, eyes: EyeMark[],
+    vol: CoatVolume, v: ViewBasis, color: string, scale: number, ink: string, eyes: EyeMark[],
     lighting: CoatLighting = 'current', eyeZ: readonly number[] = 'eyeZ' in vol ? vol.eyeZ : [],
   ) => {
     if(gl.isContextLost())return null;
@@ -158,9 +157,9 @@ function makePainter(){
     // Root motion is composited separately. Reuse the GPU image
     // until the change in surface projection reaches about a tenth of a pixel.
     const tolerance=.1/(radius*scale);
-    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && coat===lastCoat && lighting===lastLighting && pixels===lastPixels && lastView &&
+    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && lighting===lastLighting && pixels===lastPixels && lastView &&
        Math.abs(v.cY-lastView.cY)+Math.abs(v.sY-lastView.sY)+Math.abs(v.sP-lastView.sP)+Math.abs(v.cP-lastView.cP)<tolerance) return result;
-    lastPixels=pixels; lastView=v; lastCoat=coat;
+    lastPixels=pixels; lastView=v;
     if(canvas.width!==pixels || canvas.height!==pixels)canvas.width=canvas.height=pixels;
     const viewMatrix = [v.cY,v.sY*v.sP,-v.sY*v.cP, 0,v.cP,v.sP, v.sY,-v.cY*v.sP,v.facing];
     gl.viewport(0,0,pixels,pixels);
@@ -186,23 +185,18 @@ function makePainter(){
       gl.uniform1i(previousLightingUniform, lighting === 'previous' ? 1 : 0);
       lastLighting = lighting;
     }
-    const brushed = coat === 'brushed';
-    gl.uniform1i(u.brushed, brushed ? 1 : 0);
     gl.bindVertexArray(surface);
     gl.uniform1i(u.pass,0);
     gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
-    if(coat==='shell' || brushed){
-      gl.uniform1i(u.pass,1);
-      const layers=brushed ? 5 : 9;
-      for(let layer=1;layer<=layers;layer++){
-        gl.uniform1f(u.shell,layer/layers);
-        gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
-      }
+    gl.uniform1i(u.pass,1);
+    const layers = 5;
+    for (let layer = 1; layer <= layers; layer++) {
+      gl.uniform1f(u.shell, layer / layers);
+      gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
     }
-    if(coat==='fleece' || brushed){
-      gl.uniform1i(u.pass,2);gl.bindVertexArray(hairs);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,8,count);
-    }
+    gl.uniform1i(u.pass,2);
+    gl.bindVertexArray(hairs);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,8,count);
     return result;
   };
 }

@@ -14,7 +14,8 @@
  */
 import { eye, eyeBox } from './eye.ts';
 import { paintCoatMark } from './coat-mark.ts';
-import { renderCoat, type Coat, type CoatLighting } from './fleece.ts';
+import type { AvatarMaterial } from './material.ts';
+import { renderCoat, type CoatLighting } from './plush.ts';
 import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, FramePath, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
@@ -145,7 +146,7 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
 }
 
 /** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: Coat | 'flat', lighting?: CoatLighting) {
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: AvatarMaterial, lighting?: CoatLighting) {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -156,7 +157,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
-  if (material && material !== 'flat') {
+  const view = frame.surfaceView;
+  const plush = material === 'plush' && surface.depth !== 0 && view !== undefined;
+  if (plush) {
     bounds.x0 -= 3; bounds.y0 -= 3; bounds.x1 += 3; bounds.y1 += 3;
   }
   const fit = fitSquare(surface.layout === layout ? surface.fit : null, bounds, surface.cap);
@@ -176,11 +179,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
   }
 
-  const view = frame.surfaceView;
-  const coat = material && material !== 'flat' && surface.depth !== 0 && view ? material : undefined;
-  const coated = coat && view && view.scale > .001
+  const coated = plush && view.scale > .001
     ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, coat, scale, ink, view.eyes, lighting)
+        view.basis, fill, scale, ink, view.eyes, lighting)
     : null;
   let bodyDrawn = false;
   const drawCoat = () => {
@@ -200,7 +201,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       const mark = shape.key.startsWith('mark-');
-      if (mark && coat && paintCoatMark(ctx, section.box, scale, fill, coat, lighting)) continue;
+      if (mark && plush && paintCoatMark(ctx, section.box, scale, fill, lighting)) continue;
       if (!coated || mark) {
         ctx.fill(section.path, section.rule);
       } else if (!bodyDrawn) {
