@@ -1,7 +1,7 @@
-import { mix, oklch, toOklch, type Rgb } from '../color.ts';
+import { oklch, toOklch, type Rgb } from '../color.ts';
 
 export const COAT_RAMP_SIZE = 96;
-export const COAT_RAMP_RANGE = 1.2;
+export const COAT_RAMP_RANGE = 2.4;
 
 const ramps = new Map<number, Uint8Array<ArrayBuffer>>();
 
@@ -37,16 +37,15 @@ export function coatRamp(rgb: Rgb): Uint8Array<ArrayBuffer> {
   // Even black, white and fully saturated primaries need some headroom.
   const mid = Math.max(.16, Math.min(lightness, peakLightness - .025));
   const midChroma = chroma * Math.min(1, mid / Math.max(.001, lightness));
-  const midColor = oklch(mid, midChroma, hue);
   const headroom = peakLightness - mid;
   const row = new Uint8Array(COAT_RAMP_SIZE * 4);
   for (let i = 0; i < COAT_RAMP_SIZE; i++) {
-    const lighting = (i + .5) * COAT_RAMP_RANGE / COAT_RAMP_SIZE;
-    const delta = .66 * (lighting - 1);
-    const L = mid - shoulder(Math.max(0, -delta), mid);
-    const [r, g, b] = delta <= 0
-      ? oklch(L, midChroma * L / mid, hue)
-      : mix(midColor, peak, shoulder(delta, headroom) / headroom);
+    const exposure = (i + .5) * COAT_RAMP_RANGE / COAT_RAMP_SIZE;
+    // At fixed chromaticity, Oklab lightness scales with the cube root of
+    // linear light. Transfer the excursion of a reference dye to each swatch.
+    const delta = .82 * (Math.cbrt(exposure) - 1);
+    const L = delta < 0 ? mid - shoulder(-delta, mid) : mid + shoulder(delta, headroom);
+    const [r, g, b] = oklch(L, midChroma * Math.min(1, L / mid), hue);
     row.set([Math.round(r), Math.round(g), Math.round(b), yellowWeight], i * 4);
   }
   if (ramps.size >= 64) ramps.delete(ramps.keys().next().value!);

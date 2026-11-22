@@ -248,8 +248,11 @@ void main(){
   } else {
     float fiberLight=(sheen+.46*grazing*backlit*rimExposure)*(1.-crease)+lipLight;
     diffuseLevel=(diffuseLevel*(1.-.48*occlusion)+pileRelief)*(1.-(.36+.04*upper)*contact);
-    float lighting=(min(diffuseLevel+fiberLight,1.)+.18*fiberLight)*pileFill;
-    vec4 ramp=texture(dyeRamp,vec2(lighting/${COAT_RAMP_RANGE},.5));
+    // Light falling on the body reveals its curvature. Light caught by
+    // raised fibers can carry on above the nominal exposure of the dye.
+    float backing=diffuseLevel*pileFill;
+    float exposure=backing*backing*(.72+.39*wrap)+1.45*fiberLight*pileFill;
+    vec4 ramp=texture(dyeRamp,vec2(exposure/${COAT_RAMP_RANGE},.5));
     base=ramp.rgb;
     if(ramp.a>0.){
       // On yellow, the dyed roots and the light scattered by the tips can
