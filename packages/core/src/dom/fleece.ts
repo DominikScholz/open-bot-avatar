@@ -1,7 +1,8 @@
-import type { ViewBasis } from '../render.ts';
+import { EYE_TILE, EXPOSED_EYE_HEIGHT, SOCKET_PAD, eyeBox, eyeDistanceTile } from './eye.ts';
+import type { FrameShape, ViewBasis } from '../render.ts';
 import type { Volume } from '../volume.ts';
 import { coatMesh } from './coat-mesh.ts';
-import { coatVertex, coatFragment, depthVertex, depthFragment } from './coat-shaders.ts';
+import { coatVertex, coatFragment } from './coat-shaders.ts';
 
 export type Coat = 'velvet' | 'shell' | 'fleece';
 
@@ -48,10 +49,6 @@ function makePainter(){
   if(!gl)return null;
   canvas.addEventListener('webglcontextlost', e => e.preventDefault());
   canvas.addEventListener('webglcontextrestored', () => { painter = undefined; });
-  const depthProgram = linkProgram(gl, depthVertex, depthFragment);
-  const depthView = gl.getUniformLocation(depthProgram, 'view');
-  const depthPivot = gl.getUniformLocation(depthProgram, 'pivot');
-  const depthRadius = gl.getUniformLocation(depthProgram, 'radius');
   const program = linkProgram(gl, coatVertex, coatFragment);
   gl.useProgram(program);
   const loc=(name:string)=>gl.getUniformLocation(program,name);
@@ -59,26 +56,21 @@ function makePainter(){
   gl.bindTexture(gl.TEXTURE_2D,gl.createTexture());
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,densityTile());
   gl.generateMipmap(gl.TEXTURE_2D);
-  const depthResolution = 384;
-  const lightBuffer = gl.createFramebuffer();
-  const depthTexture = gl.createTexture();
   gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, depthTexture);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, depthResolution, depthResolution);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, 2*EYE_TILE, EYE_TILE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.uniform1i(loc('lightDepth'), 1);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, lightBuffer);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0);
-  gl.drawBuffers([gl.NONE]);
-  gl.readBuffer(gl.NONE);
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    throw new Error('Cannot allocate the coat light-depth buffer');
-  }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.uniform1i(loc('eyeField'), 1);
+  const regionUniform = loc('eyeRegion[0]'), inkUniform = loc('ink');
+  const sizeUniform = loc('eyeSize[0]'), eyeSizes = new Float32Array(4);
+  const regions = new Float32Array(8), previousRegions = new Float32Array(8);
+  const contours = ['', ''];
+  const mask = document.createElement('canvas');
+  mask.width = mask.height = EYE_TILE;
+  const maskCtx = mask.getContext('2d', { willReadFrequently: true })!;
   const surface=gl.createVertexArray(),hairs=gl.createVertexArray();
   const surfaceBuffer=gl.createBuffer(),hairBuffer=gl.createBuffer(),elements=gl.createBuffer();
   for(const [vao,buffer,stride,divisor] of [[surface,surfaceBuffer,24,0],[hairs,hairBuffer,32,1]] as const){
@@ -92,10 +84,10 @@ function makePainter(){
   }
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
   let previous:Volume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
-  let lastColor='';
+  let lastColor='', lastInk='';
   let lastPixels=0, lastView:ViewBasis|undefined, lastCoat:Coat|undefined;
   const swatch=document.createElement('canvas').getContext('2d',{willReadFrequently:true})!;
-  return (vol:Volume,v:ViewBasis,color:string,coat:Coat,scale:number)=>{
+  return (vol:Volume,v:ViewBasis,color:string,coat:Coat,scale:number,ink:string,shapes:FrameShape[])=>{
     if(gl.isContextLost())return null;
     const geometryChanged = previous !== vol;
     if(geometryChanged){
@@ -111,33 +103,53 @@ function makePainter(){
       gl.uniform1f(u.radius,radius);
       triangles=mesh.indices.length;count=mesh.roots.length/8;previous=vol;
     }
+    regions.fill(0);
+    let contourChanged = false;
+    for (const shape of shapes) {
+      if (shape.kind !== 'eye') continue;
+      const slot = shape.key === 'eye-0' ? 0 : 1;
+      const mark = shape.mark;
+      const { x, y, w, h } = eyeBox(mark);
+      const cx = x+w/2, cy = y+h/2, span = Math.max(w,h)+2*SOCKET_PAD;
+      eyeSizes.set([w, h*EXPOSED_EYE_HEIGHT], 2*slot);
+      regions.set([cx, cy, span, vol.eyeZ[slot]+.8], 4*slot);
+      // Gaze translates the tile. Only a change of contour needs a new distance field.
+      const key = mark.shape === 'pill' ? [w,h,mark.radius].join('|') : JSON.stringify(mark);
+      if (key !== contours[slot]) {
+        const tile = eyeDistanceTile(maskCtx, mark, cx, cy, span);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, slot*EYE_TILE, 0, EYE_TILE, EYE_TILE, gl.RED, gl.UNSIGNED_BYTE, tile);
+        contours[slot] = key;
+        contourChanged = true;
+      }
+    }
+    const eyesChanged = contourChanged || regions.some((v,i) => v !== previousRegions[i]);
+    if (eyesChanged) {
+      gl.uniform4fv(regionUniform, regions);
+      gl.uniform2fv(sizeUniform, eyeSizes);
+      previousRegions.set(regions);
+    }
     const pixels=Math.min(1024,Math.max(32,Math.ceil(2*radius*scale)));
     const result={canvas,radius,cx,cy};
-    // Root motion and eye animation are composited separately. Reuse the GPU image
+    // Root motion is composited separately. Reuse the GPU image
     // until the change in surface projection reaches about a tenth of a pixel.
     const tolerance=.1/(radius*scale);
-    if(!geometryChanged && color===lastColor && coat===lastCoat && pixels===lastPixels && lastView &&
+    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && coat===lastCoat && pixels===lastPixels && lastView &&
        Math.abs(v.cY-lastView.cY)+Math.abs(v.sY-lastView.sY)+Math.abs(v.sP-lastView.sP)+Math.abs(v.cP-lastView.cP)<tolerance) return result;
     lastPixels=pixels; lastView=v; lastCoat=coat;
     if(canvas.width!==pixels || canvas.height!==pixels)canvas.width=canvas.height=pixels;
     const viewMatrix = [v.cY,v.sY*v.sP,-v.sY*v.cP, 0,v.cP,v.sP, v.sY,-v.cY*v.sP,v.facing];
-    gl.useProgram(depthProgram);
-    gl.uniformMatrix3fv(depthView, false, viewMatrix);
-    gl.uniform3f(depthPivot, cx, cy, 0);
-    gl.uniform1f(depthRadius, radius);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, lightBuffer);
-    gl.viewport(0, 0, depthResolution, depthResolution);
-    gl.clear(gl.DEPTH_BUFFER_BIT);
-    gl.bindVertexArray(surface);
-    gl.drawElements(gl.TRIANGLES, triangles, gl.UNSIGNED_INT, 0);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.useProgram(program);
     gl.viewport(0,0,pixels,pixels);
     gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     if(color!==lastColor){
       swatch.fillStyle=color;swatch.fillRect(0,0,1,1);
       const rgba=swatch.getImageData(0,0,1,1).data;
       gl.uniform3f(u.color,rgba[0]/255,rgba[1]/255,rgba[2]/255);lastColor=color;
+    }
+    if (ink !== lastInk) {
+      swatch.fillStyle=ink; swatch.fillRect(0,0,1,1);
+      const rgba=swatch.getImageData(0,0,1,1).data;
+      gl.uniform3f(inkUniform,rgba[0]/255,rgba[1]/255,rgba[2]/255);
+      lastInk=ink;
     }
     gl.uniformMatrix3fv(u.view,false,viewMatrix);
     gl.uniform1i(u.technique,coat==='velvet'?0:1);

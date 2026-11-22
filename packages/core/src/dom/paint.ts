@@ -12,9 +12,10 @@
  * The canvas sits in a wrapper at the host's content box, as the scene does,
  * overhangs it by the avatar's reach and ignores the pointer.
  */
+import { eye, eyeBox } from './eye.ts';
 import { renderCoat, type Coat } from './fleece.ts';
 import { avatarExtent, preparedVolume } from '../render.ts';
-import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
+import type { AvatarFrame, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 
 /** A square in viewBox units. */
@@ -113,57 +114,6 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
   return { matrices, bounds };
 }
 
-function eyeBox(mark: EyeMark): FramePath['box'] {
-  if (mark.shape === 'pill') return { x: mark.x, y: mark.y, w: mark.width, h: mark.height };
-  // Quadratics lie within their points' hull; an arc's stroke reaches half its width past it.
-  const reach = mark.shape === 'arc' ? mark.strokeWidth : 0;
-  const n = (mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-  const x = Math.min(...xs) - reach, y = Math.min(...ys) - reach;
-  return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
-}
-
-function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
-  if (mark.shape === 'path') {
-    ctx.fill(new Path2D(mark.d));
-    return;
-  }
-  if (mark.shape === 'arc') {
-    ctx.lineWidth = mark.strokeWidth;
-    ctx.stroke(new Path2D(mark.d));
-    return;
-  }
-  const { x, y, width: w, height: h, radius: r } = mark;
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-  else {
-    // Safari before 16 and Firefox before 112.
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-  ctx.fill();
-}
-
-/** A broad reflected light over the original pill, arc or animated eye path. */
-function shadeEye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
-  const { x, y, w, h } = eyeBox(mark);
-  if (!(w > 0 && h > 0)) return;
-  const gloss = ctx.createRadialGradient(
-    x + .31*w, y + .22*h, 0,
-    x + .47*w, y + .31*h, Math.max(.85*w, .62*h),
-  );
-  gloss.addColorStop(0, 'rgba(225,234,248,.19)');
-  gloss.addColorStop(.40, 'rgba(225,234,248,.045)');
-  gloss.addColorStop(.72, 'rgba(7,5,11,.12)');
-  gloss.addColorStop(1, 'rgba(7,5,11,.28)');
-  ctx.fillStyle = ctx.strokeStyle = gloss;
-  eye(ctx, mark);
-}
-
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
 export interface CanvasSurface {
   key: string;
@@ -227,9 +177,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const view = frame.surfaceView;
   const coated = material && material !== 'flat' && view && view.scale > .001 && surface.depth !== 0
     ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, material, scale)
+        view.basis, fill, material, scale, ink, frame.shapes)
     : null;
-  let bodyDrawn = false, eyesDrawn = false;
+  let bodyDrawn = false;
   const drawCoat = () => {
     if (!coated || !view) return;
     const [a,b,c,d,e,f] = frame.root;
@@ -251,29 +201,11 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       } else if (!bodyDrawn) {
         drawCoat();
         bodyDrawn = true;
-      } else if (eyesDrawn) {
-        // Preserve the original painter's eye occlusion when another part passes in front.
-        ctx.save();
-        ctx.clip(section.path, section.rule);
-        drawCoat();
-        ctx.restore();
       }
     } else if (shape.kind === 'eye') {
-      eyesDrawn = true;
+      if (coated) continue;
       ctx.fillStyle = ink;
-      if (coated) {
-        // Canvas shadows use device pixels even when the face plane is transformed.
-        const pixel = scale * Math.hypot(m[2], m[3]);
-        ctx.save();
-        ctx.shadowColor = 'rgba(26,15,21,.40)';
-        ctx.shadowBlur = pixel * .62;
-        ctx.shadowOffsetX = pixel * .12;
-        ctx.shadowOffsetY = pixel * .32;
-        eye(ctx, shape.mark);
-        ctx.restore();
-        shadeEye(ctx, shape.mark);
-        ctx.strokeStyle = ink;
-      } else eye(ctx, shape.mark);
+      eye(ctx, shape.mark);
       ctx.fillStyle = fill;
     } else {
       const g = shape.gradient;

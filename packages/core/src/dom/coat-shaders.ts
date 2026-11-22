@@ -1,27 +1,26 @@
-// Orthographic coordinates from a soft lamp above and behind the camera-right edge.
-// Both passes must use the same projection so their depths measure a distance in model units.
-const backlightProjection = `
-const vec3 backlight = normalize(vec3(.58, -.71, -.53));
-vec3 lightProjection(vec3 p, float radius) {
-  vec3 right = normalize(cross(vec3(0., 1., 0.), backlight));
-  vec3 up = cross(backlight, right);
-  return vec3(dot(p,right), dot(p,up), -dot(p,backlight)) / radius;
+// Coordinates stay on the avatar's front surface, so the recess turns with the head.
+const socketField = `
+uniform highp sampler2D eyeField;
+uniform vec4 eyeRegion[2]; // face-plane center, square span, maximum host depth
+uniform vec2 eyeSize[2];
+float socketDistance(vec3 p, vec3 normal, out vec2 uv, out vec2 local) {
+  uv = local = vec2(0.);
+  if (normal.z < .03 || p.z < -.05) return 3.8;
+  for (int i=0; i<2; i++) {
+    vec4 e = eyeRegion[i];
+    vec2 delta = p.xy - e.xy;
+    if (e.z > 0. && p.z <= e.w && max(abs(delta.x),abs(delta.y)) < e.z*.49) {
+      vec2 coords = delta/e.z;
+      vec2 sampleUV = (coords + .5 + vec2(float(i),0.)) * vec2(.5,1.);
+      float d = (textureLod(eyeField,sampleUV,0.).r - .5)*7.6;
+      if (d >= 3.77) continue;
+      uv = sampleUV;
+      local = 2.*delta/max(eyeSize[i],vec2(.01));
+      return d;
+    }
+  }
+  return 3.8;
 }`;
-
-export const depthVertex = `#version 300 es
-precision highp float;
-layout(location=0) in vec3 position;
-uniform mat3 view;
-uniform vec3 pivot;
-uniform float radius;
-${backlightProjection}
-void main() {
-  gl_Position = vec4(lightProjection(view * (position-pivot), radius), 1.);
-}`;
-
-export const depthFragment = `#version 300 es
-precision highp float;
-void main() {}`;
 
 export const coatVertex = `#version 300 es
 precision highp float;
@@ -34,8 +33,8 @@ uniform vec3 pivot;
 uniform vec3 extent;
 uniform float radius, shell;
 uniform int pass;
-out vec3 P, N, V, lightCoord;
-${backlightProjection}
+out vec3 P, N, V;
+${socketField}
 out float tip, variation, across;
 
 void main(){
@@ -43,9 +42,16 @@ void main(){
   vec3 rounded=(position-pivot)/extent;
   // Broadly bend the lighting normals across flat front faces of inflated paths.
   vec3 shadingNormal=normalize(n + .78*rounded);
+  vec2 uv, local;
+  float d=socketDistance(position,n,uv,local);
+  float wall=1.-smoothstep(-.35,2.30,d);
+  // Compress the pile and lower the host surface. The rounded bead rises
+  // slightly from the socket floor while its edge remains buried.
+  p.z -= min(1.55,max(0.,position.z)*.40) * (wall - .40*smoothstep(0.,2.4,-d));
+  float loft=mix(.14,1.,smoothstep(.0,3.1,d));
   tip=0.; variation=.5; across=0.;
   if(pass==1){
-    p+=n*shell*1.55;
+    p+=n*shell*1.55*loft;
     p.y+=shell*shell*.42;
   }
   if(pass==2){
@@ -57,8 +63,13 @@ void main(){
     float flow=2.3*sin(.24*p.x+.13*p.z+sin(.22*p.y))+1.3*sin(.32*p.y-.15*p.x);
     float angle=flow+(seed.x-.5)*2.6;
     vec3 comb=tangent*cos(angle)+bitangent*sin(angle);
+    if (d < 3.5) {
+      vec2 radial = normalize(local*vec2(1.7,1.)+vec2(.001));
+      vec2 alongEdge = vec2(-radial.y,radial.x);
+      comb.xy = mix(comb.xy, alongEdge * (dot(comb.xy,alongEdge)<0.?-1.:1.), .65*wall);
+    }
     vec3 bend=cross(n,comb);
-    float len=mix(1.05,3.25,seed.y);
+    float len=mix(1.05,3.25,seed.y)*loft;
     vec3 direction=n*(.30+.42*tip)+comb*(.85-.26*tip)+bend*(seed.x-.5)*1.8*tip;
     p+=.065*n+len*tip*direction;
     vec3 screenDir=view*(direction+.06*comb);
@@ -68,8 +79,8 @@ void main(){
     variation=seed.x;
   }
   vec3 projected=view*(p-pivot);
-  lightCoord = .5 + .5 * lightProjection(projected, radius);
-  P=position;
+  // Evaluate strand coverage at the tapered tip as well as at its root.
+  P=pass==2 ? vec3(p.xy,position.z) : position;
   N=view*shadingNormal;
   V=normal;
   gl_Position=vec4(projected.x,-projected.y,-projected.z, radius)/radius;
@@ -79,13 +90,12 @@ export const coatFragment = `#version 300 es
 precision highp float;
 precision highp int;
 uniform sampler2D pile;
-uniform highp sampler2D lightDepth;
-uniform float radius;
-${backlightProjection}
-uniform vec3 color;
+uniform vec3 color, ink;
+uniform mat3 view;
+${socketField}
 uniform int pass, technique;
 uniform float shell;
-in vec3 P,N,V,lightCoord;
+in vec3 P,N,V;
 in float tip, variation, across;
 out vec4 result;
 
@@ -94,57 +104,61 @@ float fiberMap(vec3 p, vec3 n){
   w/=max(.001,w.x+w.y+w.z);
   return dot(w,vec3(texture(pile,p.zy/16.).r,texture(pile,p.xz/16.).r,texture(pile,p.xy/16.).r));
 }
-// Estimate transmission from the distance to the first surface seen by the lamp.
-// Nearby depth taps soften the transition around folds and thin protrusions.
-vec3 transmittedLight(vec3 n) {
-  float edge = 1. - smoothstep(.08, .95, abs(n.z));
-  float incidence = smoothstep(-.22, .68, dot(n.xy, backlight.xy));
-  vec2 texel = 1. / vec2(textureSize(lightDepth, 0));
-  vec3 distanceScale = mix(vec3(2.2), vec3(6.8), sqrt(color));
-  vec3 transmission = vec3(0.);
-  for (int i=0; i<4; i++) {
-    vec2 corner = vec2(i%2, i/2) - .5;
-    float entry = texture(lightDepth, lightCoord.xy + corner * texel).r;
-    float thickness = max(0., (lightCoord.z-entry) * 2. * radius);
-    transmission += exp2(-thickness/distanceScale);
-  }
-  // The dyed pile supplies the hue, and light scattered between fibers
-  // carries a little of the lamp color through even a strongly saturated coat.
-  vec3 tint = mix(sqrt(color), vec3(1.,.93,.80), .42);
-  return .25 * transmission * tint * edge * incidence;
-}
-
 void main(){
   vec3 n=normalize(N);
   vec3 light=normalize(vec3(-.52,-.83,.62));
   float diffuse=dot(n,light);
   float wrap=clamp((diffuse+.65)/1.65,0.,1.);
-  float rim=pow(1.-clamp(n.z,0.,1.),2.5);
-  float facingLight=clamp(.58+.56*diffuse,0.,1.);
-  // Soft frontal fill keeps the shaded pile chromatic, with a cooler underside.
-  vec3 base = color * mix(vec3(.52,.55,.61), vec3(1.08,1.07,1.04), wrap);
-  base=mix(base,vec3(1.,.97,.88),.16*pow(wrap,2.8));
-  // A broad overhead bounce picks out the crown and separates the pile at the rim.
-  base=mix(base,vec3(.99,.96,.88),.20*pow(max(0.,-n.y),3.));
-  float fiber=fiberMap(P,normalize(V));
+  float facingLight=clamp(.66+.34*diffuse,0.,1.);
+  // Broad fill lets the dyed fiber color do most of the work.
+  vec3 base=mix(color*(.88+.13*wrap),vec3(.98,.97,.94),.025*wrap*wrap);
+  vec2 uv, local;
+  float d=socketDistance(P,normalize(V),uv,local);
+  if(pass==1 && d<.1) discard;
+  if(pass==2 && d<-.1-.22*variation) discard;
   if(pass==1){
     // A single density field across all shells gives each lock roots and thinning tips.
     float density=fiberMap(P-vec3(shell*.43,shell*.56,0),normalize(V));
     if(density<.20+.68*shell)discard;
     base*=.92+.12*shell;
-    base+=vec3(.075,.071,.055)*shell*facingLight;
+    base+=vec3(.041,.039,.034)*shell*facingLight;
   }else if(pass==2){
-    base*=.81+.15*variation+.16*tip;
-    base+=vec3(1.,.96,.84)*(.035+.093*tip)*facingLight*(1.-.48*abs(across));
+    base*=.86+.12*variation+.095*tip;
+    base+=vec3(1.,.96,.84)*(.013+.069*tip)*facingLight*(1.-.48*abs(across));
   }else if(technique==0){
     // Velvet: broad grazing sheen and a quiet nap on the diffuse base.
-    base+=(fiber-.49)*.016;
-    base+=vec3(1.,.94,.85)*rim*(.075+.18*facingLight);
+    base+=(fiberMap(P,normalize(V))-.49)*.016;
   }else{
-    base*=.95+.075*fiber;
+    base*=.95+.075*fiberMap(P,normalize(V));
   }
-  float pileLift = pass==2 ? .18*tip : (pass==1 ? .12*shell : 0.);
-  vec3 scatter = transmittedLight(n) * (.94 + pileLift);
-  // Screen blend preserves highlight headroom on bright and pale coats.
-  result=vec4(base + (1. - clamp(base,0.,1.)) * (1. - exp(-1.8*scatter)),1.);
+  // A soft light behind the right shoulder grazes the pile. Weighting by
+  // view angle confines it to the silhouette as the avatar turns.
+  float grazing = 1. - smoothstep(.09,.83,abs(n.z));
+  float backlit = smoothstep(-.20,.79,dot(n.xy,vec2(.66,-.75)));
+  vec3 rimTint = mix(sqrt(color),vec3(1.,.96,.89),.48);
+  base += (1.-clamp(base,0.,1.))*rimTint*(.58*grazing*backlit);
+  if(d < 3.7) {
+    vec2 texel=1./vec2(textureSize(eyeField,0));
+    vec2 g=vec2(texture(eyeField,uv+vec2(texel.x,0)).r-texture(eyeField,uv-vec2(texel.x,0)).r,
+                texture(eyeField,uv+vec2(0,texel.y)).r-texture(eyeField,uv-vec2(0,texel.y)).r);
+    vec2 outward=g/max(length(g),.001);
+    float upper=dot(outward,normalize(vec2(-.38,-.92)));
+    float crease=1.-smoothstep(-.1,1.85,d);
+    // Recessed fibers receive diffuse bounce from the surrounding dyed pile.
+    vec3 recessed = base*.53 + color*.18;
+    base=mix(base,recessed,crease*(.69+.28*upper));
+    base += color*.035*max(-upper,0.)*exp(-1.5*abs(d-1.5));
+    if(pass==0) {
+      vec2 curve=local*vec2(.86,.87);
+      vec3 dome=normalize(vec3(curve,sqrt(max(.035,1.-dot(curve,curve)))));
+      vec3 beadNormal=normalize(view*(dome+vec3(.22*outward,0.)*exp(-abs(d)/.75)));
+      vec2 softbox=(beadNormal.xy-vec2(.23,-.53))/vec2(.39,.34);
+      float reflection=exp(-dot(softbox,softbox));
+      float coatBounce=.022+.075*pow(1.-clamp(beadNormal.z,0.,1.),1.4)+.018*max(beadNormal.y,0.);
+      vec3 bead=ink*(.50+.32*beadNormal.z)+color*coatBounce+vec3(.21,.215,.22)*reflection;
+      float aa=max(.05,fwidth(d));
+      base=mix(bead,base,smoothstep(-aa*.5,aa*.5,d));
+    }
+  }
+  result = vec4(base,1.);
 }`;
