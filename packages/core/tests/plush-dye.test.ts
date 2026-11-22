@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { mix, parseHex, toOklch, type Rgb } from '../src/color.ts';
-import { coatRamp, COAT_RAMP_RANGE, COAT_RAMP_SIZE } from '../src/dom/coat-ramp.ts';
+import { DYE_RAMP_RANGE, DYE_RAMP_SIZE, dyeRamp } from '../src/dom/plush/dye.ts';
 
 // Sample between texel centers, as the GPU's linear sampler does.
 function sample(rgb: Rgb, exposure: number): Rgb {
-  const row = coatRamp(rgb);
-  const x = Math.max(0, Math.min(COAT_RAMP_SIZE - 1, exposure * COAT_RAMP_SIZE / COAT_RAMP_RANGE - .5));
+  const row = dyeRamp(rgb);
+  const x = Math.max(0, Math.min(DYE_RAMP_SIZE - 1, exposure * DYE_RAMP_SIZE / DYE_RAMP_RANGE - .5));
   const texel = (i: number): Rgb => [row[4 * i], row[4 * i + 1], row[4 * i + 2]];
   return mix(texel(Math.floor(x)), texel(Math.ceil(x)), x - Math.floor(x));
 }
 
 describe('plush dye ramp', () => {
   it('restores the yellow response across the whole lighting range and blends neighboring dyes', () => {
-    const weights = (hex: string) => coatRamp(parseHex(hex)!).filter((_, index) => index % 4 === 3);
+    const weights = (hex: string) => dyeRamp(parseHex(hex)!).filter((_, index) => index % 4 === 3);
     for (const hex of ['#ffcf36', '#f8a01c', '#ffff00']) {
       expect(weights(hex).every(weight => weight === 255)).toBe(true);
     }
@@ -54,7 +54,7 @@ describe('plush dye ramp', () => {
       expect(shadedC / shadedL).toBeCloseTo(C / L, 2);
       expect(Math.abs(shadedHue - h)).toBeLessThan(2);
     }
-    const [r, g, b] = sample([255, 255, 0], COAT_RAMP_RANGE);
+    const [r, g, b] = sample([255, 255, 0], DYE_RAMP_RANGE);
     expect(Math.min(r, g) - b).toBeGreaterThan(180);
   });
 

@@ -1,13 +1,13 @@
-import { resolveLook, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import { readAvatarMaterial, type AvatarMaterial } from "open-bot-avatar/dom";
+import { resolveLook, type AvatarMaterial, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
 
 export interface LookState {
-  coat: AvatarMaterial;
   /** Colors picked for avatars, by library key; an avatar not in here shows its default color. */
   colors: Record<string, string>;
+  /** The finish of every avatar on the site. */
+  material: AvatarMaterial;
   /** What the bot is doing, and how it feels. */
   state: AvatarState;
   mood: AvatarMood;
@@ -34,7 +34,7 @@ export const PALETTE = [
 
 export const DEFAULT_LOOK: LookState = {
   colors: {},
-  coat: "plush",
+  material: "plush",
   state: "idle",
   mood: "neutral",
   followCursor: true,
@@ -69,6 +69,11 @@ export function withColor(look: LookState, key: string, id: string, color: strin
   return { ...look, colors: color.toLowerCase() === defaultColor(id) ? colors : { ...colors, [key]: color.toLowerCase() } };
 }
 
+/** A material by name, from a stored look or a link. */
+export function readMaterial(value: unknown): AvatarMaterial | undefined {
+  return value === "flat" || value === "plush" ? value : undefined;
+}
+
 /** Revive a stored look; anything missing or invalid falls back to the default. */
 export function reviveLook(raw: unknown): LookState | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -79,7 +84,7 @@ export function reviveLook(raw: unknown): LookState | undefined {
       r.colors && typeof r.colors === "object"
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
-    coat: readAvatarMaterial(r.coat) ?? DEFAULT_LOOK.coat,
+    material: readMaterial(r.material) ?? DEFAULT_LOOK.material,
     ...resolveLook({ state: r.state, mood: r.mood, motion: r.motion }),
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",

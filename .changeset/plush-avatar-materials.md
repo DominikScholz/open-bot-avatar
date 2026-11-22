@@ -2,4 +2,4 @@
 "open-bot-avatar": minor
 ---
 
-Set `material` to `"plush"` on a mounted avatar to give its body, thinking dots, and blocked exclamation mark a brushed fur coat. Use `"flat"` for a solid fill.
+`mountAvatar` takes a `material`: `"plush"` gives the body a coat of fur with the eyes set into it, and makes the thinking dots and the blocked exclamation mark plush too. `"flat"`, the default, is the solid fill. Plush draws with WebGL2 on the canvas renderer and falls back to flat without it.

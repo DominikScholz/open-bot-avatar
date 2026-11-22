@@ -134,7 +134,7 @@ export function Studio({ look, setLook }: { look: LookState; setLook: Dispatch<S
     // A link's color is for its avatar; without one it has nothing to apply to.
     setLook((prev) => {
       let next = link.state || link.mood ? { ...prev, state: link.state ?? prev.state, mood: link.mood ?? prev.mood } : prev;
-      if (link.coat) next = { ...next, coat: link.coat };
+      if (link.material) next = { ...next, material: link.material };
       if (link.color && target) next = withColor(next, target.key, target.id, link.color);
       return next;
     });
@@ -176,10 +176,9 @@ export function Studio({ look, setLook }: { look: LookState; setLook: Dispatch<S
     <div className="app">
       <main className="editor">
         <Stage
-          coat={look.coat}
-          onCoat={(coat) => patchLook({ coat })}
           definition={selected.definition}
           color={color}
+          material={look.material}
           state={look.state}
           mood={look.mood}
           followCursor={look.followCursor}
@@ -189,8 +188,9 @@ export function Studio({ look, setLook }: { look: LookState; setLook: Dispatch<S
           onView={setView}
           onState={(state) => patchLook({ state })}
           onMood={(mood) => patchLook({ mood })}
+          onMaterial={(material) => patchLook({ material })}
         >
-          <Actions coat={look.coat} entry={selected} color={color} state={look.state} mood={look.mood} onRemove={removeEntry} />
+          <Actions entry={selected} color={color} material={look.material} state={look.state} mood={look.mood} onRemove={removeEntry} />
         </Stage>
 
         <section className="picker" aria-label="Avatar editor">

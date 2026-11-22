@@ -35,7 +35,7 @@ export function App() {
           </a>
         </nav>
       </header>
-      {route === "studio" ? <Studio look={look} setLook={setLook} /> : <Docs material={look.coat} />}
+      {route === "studio" ? <Studio look={look} setLook={setLook} /> : <Docs material={look.material} />}
       <a className="credit" href="https://x.com/dom_scholz" target="_blank" rel="noopener">
         by @dom_scholz
       </a>

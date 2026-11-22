@@ -2,10 +2,9 @@ import { parse, render } from "sugar-high/core";
 import * as typescript from "sugar-high/lang/typescript";
 import * as shell from "sugar-high/lang/shell";
 import * as json from "sugar-high/lang/json";
-import { examples } from "open-bot-avatar";
+import { examples, type AvatarMaterial } from "open-bot-avatar";
 import { GALLERY } from "./gallery";
 import { defaultColor } from "./studio/look";
-import type { AvatarMaterial } from "open-bot-avatar/dom";
 import { BotAvatar } from "./BotAvatar";
 import { REPO } from "./route";
 
@@ -82,8 +81,8 @@ const PROPS: [string, string][] = [
   ["view", "Extra rotation, { yaw, pitch } in radians."],
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
   ["reducedMotion", 'true, false or "system" (default).'],
-  ["material", '"flat" (default) or "plush" for a brushed coat on canvas.'],
-  ["still", "Freeze the pose. Flat stills use SVG and plush stills use canvas. Default: false."],
+  ["material", '"flat" (default) or "plush", a coat of fur. Plush needs the canvas renderer and WebGL2.'],
+  ["still", "One fixed pose, no animation: an SVG, or one painted canvas for plush. Default: false."],
   ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],
   ["label", 'Accessible name. Default: the definition\'s name; "" for decorative.'],
 ];

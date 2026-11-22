@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
 import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
-import * as plush from '../src/dom/plush.ts';
+import * as plush from '../src/dom/plush/renderer.ts';
 import { avatarExtent, liveFrame } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
@@ -97,9 +97,9 @@ describe('mountAvatar on a canvas', () => {
     expect(el.innerHTML).toBe('');
   });
 
-  it('paints a plush still once and updates when its dye or material changes', async () => {
+  it('paints a plush still once, and again when its color or material changes', async () => {
     const tile = document.createElement('canvas');
-    const render = vi.spyOn(plush, 'renderCoat').mockReturnValue({ canvas: tile, radius: 24, cx: 50, cy: 50 });
+    const render = vi.spyOn(plush, 'renderPlush').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
     const el = host();
     const avatar = mountAvatar(el, { definition: examples[0], material: 'plush', still: true, color: '#1f7cf2', eyeColor: '#151515' });
     try {
@@ -109,7 +109,7 @@ describe('mountAvatar on a canvas', () => {
       expect(render).toHaveBeenCalledTimes(1);
       avatar.update({ color: '#ec4899' });
       await frame();
-      expect(render.mock.lastCall?.[2]).toBe('#ec4899');
+      expect(render.mock.lastCall?.[2].color).toBe('#ec4899');
       avatar.update({ material: 'flat' });
       await frame();
       expect(el.querySelector('svg')).not.toBeNull();
@@ -133,9 +133,9 @@ describe('mountAvatar on a canvas', () => {
     avatar.destroy();
   });
 
-  it('reuses coated dots through a hop and falls back to filled marks without WebGL', () => {
+  it('paints plush marks from one sprite through a hop, and fills them where plush is unavailable', () => {
     const tile = document.createElement('canvas');
-    const render = vi.spyOn(plush, 'renderCoat').mockReturnValue({ canvas: tile, radius: 24, cx: 0, cy: 0 });
+    const render = vi.spyOn(plush, 'renderPlush').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 0, cy: 0, radius: 24 });
     try {
       const def = examples[0], el = host();
       const surface = mountCanvas(el, 'marks', def, 6);

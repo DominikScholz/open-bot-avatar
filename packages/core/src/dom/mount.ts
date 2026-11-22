@@ -17,21 +17,23 @@ import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
-import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
+import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
-import { readAvatarMaterial, type AvatarMaterial } from './material.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
 export interface AvatarOptions {
-  /** Surface finish for the live canvas renderer. Defaults to flat. */
-  material?: AvatarMaterial;
   definition: AvatarDefinition;
   /** Body color: #rgb or #rrggbb, or any CSS color (e.g. var(--brand)). */
   color?: string;
   /** Eye color: #rgb or #rrggbb, or any CSS color. Defaults to a near-black ink. */
   eyeColor?: string;
+  /**
+   * The body's finish: 'flat' (default), or 'plush' for a coat of fur with the eyes set into it.
+   * Plush needs the canvas renderer and WebGL2; without them the avatar draws flat.
+   */
+  material?: AvatarMaterial;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
   /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
@@ -51,7 +53,7 @@ export interface AvatarOptions {
   view?: { yaw: number; pitch: number };
   /** true or false to force; 'system' (default) follows prefers-reduced-motion. */
   reducedMotion?: boolean | 'system';
-  /** Render a fixed pose. Flat stills use SVG and plush stills use the canvas material. */
+  /** Render one fixed pose and never animate (thumbnails, lists): a static SVG, or for plush one painted canvas. */
   still?: boolean;
   /**
    * How a live avatar draws. 'canvas' (default) paints each frame to one canvas: one compositor layer
@@ -169,8 +171,11 @@ const VIEW_MARGIN = 100;
 /** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
 const FRAME_SLACK = 0.004;
 
-// Spread costly plush stills across frames when a whole gallery changes finish.
-let lastPlushStillFrame = -1;
+/**
+ * The frame that last painted a plush still. They take turns, one a frame: the first paint of a
+ * shape builds its mesh, and a gallery that changes finish asks for all of its stills at once.
+ */
+let plushStillAt = -1;
 
 export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedAvatar {
   let opts: AvatarOptions = { ...initial };
@@ -239,7 +244,10 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     lastStill = '';
   };
 
-  const paint = (p: AvatarOptions, options: RenderOptions, material: AvatarMaterial | undefined) => {
+  /** Whether the avatar is painted in plush: on a canvas, live or still. */
+  const plush = () => opts.material === 'plush' && opts.renderer !== 'scene' && canvasSupported();
+
+  const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();
     const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
     const key = `${geometryKey(p.definition)}|${p.depth}`;
@@ -249,10 +257,10 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
     const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
     const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
-    paintCanvas(surface, flat, size, fill, ink, material);
+    paintCanvas(surface, flat, size, fill, ink, p.material);
   };
 
-  const draw = (time: number, pointer: { x: number; y: number } | null, material: AvatarMaterial | undefined): boolean => {
+  const draw = (time: number, pointer: { x: number; y: number } | null): boolean => {
     const p = opts;
     const reducedMotion = p.reducedMotion === 'system' || p.reducedMotion === undefined ? prefersReducedMotion() : p.reducedMotion;
     const now = performance.now();
@@ -270,8 +278,9 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
         };
-        if (material === 'plush' && p.renderer !== 'scene' && canvasSupported()) {
-          if (size > 0) paint(p, { ...options, size }, material);
+        if (plush()) {
+          // Nothing to paint until the host has a size; the resize that gives it one redraws.
+          if (size > 0) paint(p, { ...options, size });
           failed = false;
           return false;
         }
@@ -306,7 +315,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         reducedMotion,
       };
       if (p.renderer !== 'scene' && canvasSupported()) {
-        paint(p, options, material);
+        paint(p, options);
         failed = false;
         return !reducedMotion || step.moving;
       }
@@ -337,13 +346,12 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
       // frame they ask for. A change still draws offscreen, so the content is current when printed.
       if ((opts.still || !visible) && !dirty) return false;
-      const material = readAvatarMaterial(opts.material);
-      if (opts.still && material === 'plush' && size > 0 && opts.renderer !== 'scene' && canvasSupported()) {
-        if (lastPlushStillFrame === time) return true;
-        lastPlushStillFrame = time;
+      if (opts.still && size > 0 && plush()) {
+        if (plushStillAt === time) return true;
+        plushStillAt = time;
       }
       dirty = false;
-      const more = draw(time, pointer, material);
+      const more = draw(time, pointer);
       if (!visible) return false;
       return more && size > 0 && size < SMALL_SIZE ? 1 / SMALL_FPS - FRAME_SLACK : more;
     },

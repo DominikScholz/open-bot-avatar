@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
-import type { AvatarMaterial } from "open-bot-avatar/dom";
+import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
 import { FaceToggle, MaterialToggle, MOODS, STATES, StatePills } from "./pickers";
@@ -8,10 +7,9 @@ import { FaceToggle, MaterialToggle, MOODS, STATES, StatePills } from "./pickers
 export type ViewAngle = { yaw: number; pitch: number };
 
 interface StageProps {
-  coat: AvatarMaterial;
-  onCoat: (coat: AvatarMaterial) => void;
   definition: AvatarDefinition;
   color: string;
+  material: AvatarMaterial;
   state: AvatarState;
   mood: AvatarMood;
   followCursor: boolean;
@@ -23,6 +21,7 @@ interface StageProps {
   onView: (view: ViewAngle) => void;
   onState: (state: AvatarState) => void;
   onMood: (mood: AvatarMood) => void;
+  onMaterial: (material: AvatarMaterial) => void;
   /** Shown under the state and mood (the avatar's actions). */
   children?: ReactNode;
 }
@@ -32,7 +31,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ coat, onCoat, definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
+export function Stage({ definition, color, material, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, onMaterial, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -136,7 +135,7 @@ export function Stage({ coat, onCoat, definition, color, state, mood, followCurs
         className="avatar-view stage-avatar"
         definition={definition}
         color={color}
-        material={coat}
+        material={material}
         state={state}
         mood={mood}
         view={view}
@@ -145,9 +144,10 @@ export function Stage({ coat, onCoat, definition, color, state, mood, followCurs
         reducedMotion={reducedMotion}
         label=""
       />
-      <div className="preview-toggles" onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+      {/* Inside the preview: keep its drag, double-click reset and arrow-key turning out of these. */}
+      <div className="preview-toggles" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <FaceToggle mood={mood} onMood={onMood} />
-        <MaterialToggle coat={coat} onCoat={onCoat} definition={definition} color={color} />
+        <MaterialToggle material={material} onMaterial={onMaterial} definition={definition} color={color} />
       </div>
       <button
         type="button"

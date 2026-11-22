@@ -72,7 +72,7 @@ export function BotPanel({ entries, selected, look, color, onSelect, onColor, on
                   onPointerLeave={() => setHovered(null)}
                 >
                   <span className="bot-thumb">
-                    <AvatarThumbnail definition={entry.definition} color={colorOf(look, entry.key, entry.definition.id)} material={look.coat} />
+                    <AvatarThumbnail definition={entry.definition} color={colorOf(look, entry.key, entry.definition.id)} material={look.material} />
                     {ring ? <span className="bot-ring" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ring }} /> : null}
                   </span>
                 </button>

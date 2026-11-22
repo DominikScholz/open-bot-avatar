@@ -1,0 +1,240 @@
+/**
+ * The plush body as a triangle mesh: surface nets over the union of the avatar's parts. One vertex
+ * per boundary cell gives a closed surface, including the backs of ears and the walls of holes.
+ * Hair roots are scattered over it by area, and the front around the eyes is refined so a socket
+ * and its bead keep their shape in profile.
+ *
+ * Building a mesh takes tens of milliseconds, so the renderer keeps what it builds (see renderer.ts).
+ */
+import type { Bounds, Point } from '../../path.ts';
+import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC } from '../../validate.ts';
+import { edgeDistance, type Volume, type VolumePart } from '../../volume.ts';
+import { SOCKET_PAD } from './socket.ts';
+
+export interface PlushMesh {
+  /** Position and outward normal per vertex (6 floats). */
+  vertices: Float32Array;
+  indices: Uint32Array;
+  /** Hair roots, independent of the triangles: position, normal and two random numbers (8 floats). */
+  roots: Float32Array;
+}
+
+/** A state mark: a vertical capsule centered at the origin. Equal width and height give a ball. */
+export interface Capsule {
+  bounds: Bounds;
+  radius: number;
+}
+
+export type PlushShape = Volume | Capsule;
+
+const isCapsule = (shape: PlushShape): shape is Capsule => 'radius' in shape;
+
+/** Front-to-back half extent of a shape, viewBox units. */
+export function halfDepth(shape: PlushShape): number {
+  return isCapsule(shape) ? shape.radius : Math.max(0.5, ...shape.parts.map((part) => part.depth / 2));
+}
+
+/** Grid spacing, viewBox units. */
+const STEP = 1.05;
+/** Empty margin around the shape, viewBox units. */
+const PAD = 3 * STEP;
+/** Hair roots per square unit of surface. */
+const ROOT_DENSITY = 3.3;
+/** Each level splits the triangles around the eyes in four. */
+const SOCKET_LEVELS = 2;
+
+/** Samples of a field that is positive inside the shape, on a regular grid. */
+interface Grid {
+  x0: number;
+  y0: number;
+  z0: number;
+  nx: number;
+  ny: number;
+  nz: number;
+  field: Float32Array;
+}
+
+function emptyGrid(shape: PlushShape): Grid {
+  const b = shape.bounds, half = halfDepth(shape);
+  const nx = Math.ceil((b.maxX - b.minX + 2 * PAD) / STEP) + 1;
+  const ny = Math.ceil((b.maxY - b.minY + 2 * PAD) / STEP) + 1;
+  const nz = Math.ceil((2 * half + 2 * PAD) / STEP) + 1;
+  return { x0: b.minX - PAD, y0: b.minY - PAD, z0: -half - PAD, nx, ny, nz, field: new Float32Array(nx * ny * nz).fill(-1000) };
+}
+
+function addCapsule(g: Grid, { bounds, radius }: Capsule) {
+  const halfStem = bounds.maxY - radius;
+  for (let j = 0; j < g.ny; j++) {
+    const dy = Math.max(0, Math.abs(g.y0 + j * STEP) - halfStem);
+    for (let i = 0; i < g.nx; i++) {
+      const radial = (g.x0 + i * STEP) ** 2 + dy ** 2;
+      for (let k = 0; k < g.nz; k++) g.field[i + j * g.nx + k * g.nx * g.ny] = radius - Math.sqrt(radial + (g.z0 + k * STEP) ** 2);
+    }
+  }
+}
+
+/**
+ * Whether each x of a row is inside the outline: `isInside` for a whole row, testing only the edges
+ * that cross it. The same arithmetic, so points exactly on an edge fall on the same side (grid
+ * columns start at the body's bounds, where many outlines have a straight edge).
+ */
+function insideAlongRow(polys: Point[][], y: number, xs: number[], out: Uint8Array) {
+  const up: number[] = [], down: number[] = [];
+  for (const poly of polys) {
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if (yj <= y) {
+        if (yi > y) up.push(xi - xj, y - yj, xj, yi - yj);
+      } else if (yi <= y) down.push(xi - xj, y - yj, xj, yi - yj);
+    }
+  }
+  for (let n = 0; n < xs.length; n++) {
+    const x = xs[n];
+    let w = 0;
+    for (let e = 0; e < up.length; e += 4) if (up[e] * up[e + 1] - (x - up[e + 2]) * up[e + 3] > 0) w++;
+    for (let e = 0; e < down.length; e += 4) if (down[e] * down[e + 1] - (x - down[e + 2]) * down[e + 3] < 0) w--;
+    out[n] = w !== 0 ? 1 : 0;
+  }
+}
+
+/** Union one part into the grid: its outline's distance, capped by its height or rounded by its fillet. */
+function addPart(g: Grid, part: VolumePart) {
+  const { field, nx } = g, plane = nx * g.ny;
+  const rounded = part.kind === 'inflate' && part.rxy > 0 && part.rz > 0;
+  const xs = Array.from({ length: nx }, (_, i) => g.x0 + i * STEP);
+  const inside = new Uint8Array(nx);
+  for (let j = 0; j < g.ny; j++) {
+    const y = g.y0 + j * STEP;
+    insideAlongRow(part.polys, y, xs, inside);
+    for (let i = 0; i < nx; i++) {
+      const x = xs[i];
+      const sd = edgeDistance(part.polys, x, y) * (inside[i] ? 1 : -1);
+      // An inflated part is shaped by its fillet instead; outside the outline there is no height.
+      const h = part.kind === 'inflate' || !inside[i] ? 0 : part.height(x, y);
+      for (let k = 0; k < g.nz; k++) {
+        const z = Math.abs(g.z0 + k * STEP);
+        let d;
+        if (rounded) {
+          const side = (part.rxy - sd) / part.rxy, top = (z - part.depth / 2 + part.rz) / part.rz;
+          d = (1 - Math.hypot(Math.max(0, side), Math.max(0, top))) * Math.min(part.rxy, part.rz);
+        } else d = Math.min(sd, Math.max(0.55, h) - z);
+        const at = i + j * nx + k * plane;
+        if (d > field[at]) field[at] = d;
+      }
+    }
+  }
+}
+
+/** One vertex in every cell the surface crosses, at the mean of its edge crossings, and a quad across every crossed edge. */
+function surfaceNets(g: Grid): { vertices: number[]; indices: number[] } {
+  const { field, nx, ny, nz } = g, plane = nx * ny;
+  const corners = [0, 1, nx, nx + 1, plane, plane + 1, plane + nx, plane + nx + 1];
+  const strides = [1, nx, plane];
+  const ids = new Int32Array(field.length).fill(-1);
+  const vertices: number[] = [], indices: number[] = [];
+  for (let k = 1; k < nz - 2; k++) for (let j = 1; j < ny - 2; j++) for (let i = 1; i < nx - 2; i++) {
+    const cell = i + j * nx + k * plane, inside = field[cell] > 0;
+    let crossed = false;
+    for (let c = 1; c < 8 && !crossed; c++) crossed = (field[cell + corners[c]] > 0) !== inside;
+    if (!crossed) continue;
+    let sx = 0, sy = 0, sz = 0, count = 0, gx = 0, gy = 0, gz = 0;
+    for (let c = 0; c < 8; c++) {
+      const a = cell + corners[c];
+      for (let axis = 0; axis < 3; axis++) {
+        if (c & (1 << axis)) continue;
+        const other = a + strides[axis];
+        if ((field[a] > 0) === (field[other] > 0)) continue;
+        const t = field[a] / (field[a] - field[other]);
+        sx += (c & 1) + (axis === 0 ? t : 0);
+        sy += ((c >> 1) & 1) + (axis === 1 ? t : 0);
+        sz += ((c >> 2) & 1) + (axis === 2 ? t : 0);
+        // The field's gradient at the crossing, from central differences at the edge's two ends.
+        gx += (field[a - 1] - field[a + 1]) * (1 - t) + (field[other - 1] - field[other + 1]) * t;
+        gy += (field[a - nx] - field[a + nx]) * (1 - t) + (field[other - nx] - field[other + nx]) * t;
+        gz += (field[a - plane] - field[a + plane]) * (1 - t) + (field[other - plane] - field[other + plane]) * t;
+        count++;
+      }
+    }
+    const norm = Math.hypot(gx, gy, gz) || 1;
+    const id = vertices.length / 6;
+    ids[cell] = id;
+    vertices.push(g.x0 + (i + sx / count) * STEP, g.y0 + (j + sy / count) * STEP, g.z0 + (k + sz / count) * STEP, gx / norm, gy / norm, gz / norm);
+    for (let axis = 0; axis < 3; axis++) {
+      if ((field[cell + strides[axis]] > 0) === inside) continue;
+      const u = strides[(axis + 1) % 3], v = strides[(axis + 2) % 3];
+      const p = ids[cell - u], q = ids[cell - u - v], r = ids[cell - v];
+      if (Math.min(p, q, r) >= 0) indices.push(id, p, q, id, q, r);
+    }
+  }
+  return { vertices, indices };
+}
+
+/** Hair roots spread evenly by area, each with two random numbers for its strand. Seeded, so a shape always grows the same coat. */
+function scatterRoots(vertices: number[], indices: number[]): number[] {
+  let seed = 51821;
+  const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const roots: number[] = [];
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i] * 6, b = indices[i + 1] * 6, c = indices[i + 2] * 6;
+    const abx = vertices[b] - vertices[a], aby = vertices[b + 1] - vertices[a + 1], abz = vertices[b + 2] - vertices[a + 2];
+    const acx = vertices[c] - vertices[a], acy = vertices[c + 1] - vertices[a + 1], acz = vertices[c + 2] - vertices[a + 2];
+    const area = 0.5 * Math.hypot(aby * acz - abz * acy, abz * acx - abx * acz, abx * acy - aby * acx);
+    const count = Math.floor(area * ROOT_DENSITY + random());
+    for (let n = 0; n < count; n++) {
+      const u = Math.sqrt(random()), v = u * random();
+      for (let k = 0; k < 6; k++) roots.push((1 - u) * vertices[a + k] + (u - v) * vertices[b + k] + v * vertices[c + k]);
+      roots.push(random(), random());
+    }
+  }
+  return roots;
+}
+
+/**
+ * The grid is too coarse to describe a bead in profile: split the front triangles within reach of
+ * an eye (its largest mark, anywhere its gaze takes it). Adds the new vertices to `vertices`.
+ */
+function refineSockets(vertices: number[], indices: number[], vol: Volume): number[] {
+  const pad = SOCKET_PAD + 2 * STEP;
+  const reachX = vol.eyeScale * (EYE_W * (HAPPY_ARC.halfWidth + HAPPY_ARC.stroke / 2) + GAZE_X) + pad;
+  const reachY = vol.eyeScale * (EYE_H / 2 + GAZE_Y) + pad;
+  const refined: number[] = [];
+  const midpoints = new Map<number, number>();
+  const midpoint = (a: number, b: number) => {
+    const key = Math.min(a, b) * 2 ** 26 + Math.max(a, b);
+    let id = midpoints.get(key);
+    if (id === undefined) {
+      id = vertices.length / 6;
+      for (let k = 0; k < 6; k++) vertices.push((vertices[6 * a + k] + vertices[6 * b + k]) / 2);
+      midpoints.set(key, id);
+    }
+    return id;
+  };
+  const split = (a: number, b: number, c: number, level: number) => {
+    if (level === 0) {
+      refined.push(a, b, c);
+      return;
+    }
+    const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
+    split(a, ab, ca, level - 1);
+    split(ab, b, bc, level - 1);
+    split(ca, bc, c, level - 1);
+    split(ab, bc, ca, level - 1);
+  };
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i], x = vertices[6 * a], y = vertices[6 * a + 1], z = vertices[6 * a + 2];
+    const near = z >= -2 * STEP && vol.eyePlanes.some((eye) => Math.abs(eye.x - x) <= reachX && Math.abs(eye.y - y) <= reachY);
+    split(a, indices[i + 1], indices[i + 2], near ? SOCKET_LEVELS : 0);
+  }
+  return refined;
+}
+
+export function buildMesh(shape: PlushShape): PlushMesh {
+  const grid = emptyGrid(shape);
+  if (isCapsule(shape)) addCapsule(grid, shape);
+  else for (const part of shape.parts) addPart(grid, part);
+  const { vertices, indices } = surfaceNets(grid);
+  // Roots first: refining would otherwise change which triangle each one falls on.
+  const roots = scatterRoots(vertices, indices);
+  const triangles = isCapsule(shape) ? indices : refineSockets(vertices, indices, shape);
+  return { vertices: new Float32Array(vertices), indices: new Uint32Array(triangles), roots: new Float32Array(roots) };
+}

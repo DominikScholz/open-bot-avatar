@@ -439,8 +439,6 @@ export interface FramePath {
  * renderer (SVG, canvas, Skia, react-native-svg) can draw it.
  */
 export interface AvatarFrame {
-  /** Surface projection and both eye contours in face coordinates, before occlusion. */
-  surfaceView?: { basis: ViewBasis; scale: number; eyes: EyeMark[] };
   name: string;
   color: string;
   ink: string;
@@ -453,6 +451,22 @@ export interface AvatarFrame {
   root: Matrix;
   /** Back to front. */
   shapes: FrameShape[];
+  /**
+   * The body as one surface, for a renderer that draws it in 3D instead of as slices (the plush
+   * material): the view's rotation, the body's scale as it gives way to a mark, and both eyes,
+   * including an eye `shapes` leaves out because its spot faces away.
+   */
+  surface: { view: ViewBasis; scale: number; eyes: SurfaceEye[] };
+}
+
+/**
+ * An eye on the body's surface, in face coordinates: its mark where it rests, and how far its
+ * gaze has moved it from there. Apart, so a renderer can tell a moving eye from a changing one.
+ */
+export interface SurfaceEye {
+  mark: EyeMark;
+  dx: number;
+  dy: number;
 }
 
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
@@ -605,7 +619,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
   const stack = activeStack(v);
-  const surfaceEyes: EyeMark[] = [];
+  const eyes: SurfaceEye[] = [];
   const fx = effectsOf(p, pose, options);
   const root = rootMatrix(pose, b);
   // The body shrinks toward its center as it gives way to a mark.
@@ -628,26 +642,20 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
       const plane = vol.eyePlanes[idx];
-      const visible = eyeVisible(v, plane);
-      if (!visible && size === undefined) return;
-      const mark = eyeMark(e);
-      // The coat's depth buffer resolves partial occlusion, including when
-      // the curved socket is still visible past the tangent plane's horizon.
-      if (size !== undefined) surfaceEyes.push(mark);
-      if (visible) {
-        // A slice through the middle of a mark must paint before the entire
-        // mark. Sort at the near edge of its footprint on the active stack.
-        const halfW = e.w * (e.plain === 'pill' ? .5 : HAPPY_ARC.halfWidth + .5 * HAPPY_ARC.stroke);
-        const xDepth = -v.sY * v.cP;
-        const z = plane.z + e.dx * plane.dzdx + e.dy * plane.dzdy;
-        const depth = stack === 'z'
-          ? v.facing * z + Math.abs(v.facing) * (Math.abs(plane.dzdx) * halfW + Math.abs(plane.dzdy) * e.h / 2)
-          : xDepth * (e.x + e.dx) + Math.abs(xDepth) * halfW;
-        items.push({
-          depth: depth + 1e-6,
-          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(eyeMatrix(v, plane, pivot)), mark },
-        });
-      }
+      eyes.push({ mark: eyeMark({ ...e, dx: 0, dy: 0 }), dx: e.dx, dy: e.dy });
+      if (!eyeVisible(v, plane)) return;
+      // A slice through the middle of a mark must paint before the entire mark: sort at the near
+      // edge of its footprint on the active stack.
+      const halfW = e.w * (e.plain === 'pill' ? 0.5 : HAPPY_ARC.halfWidth + 0.5 * HAPPY_ARC.stroke);
+      const xDepth = -v.sY * v.cP;
+      const z = plane.z + e.dx * plane.dzdx + e.dy * plane.dzdy;
+      const depth = stack === 'z'
+        ? v.facing * z + Math.abs(v.facing) * (Math.abs(plane.dzdx) * halfW + (Math.abs(plane.dzdy) * e.h) / 2)
+        : xDepth * (e.x + e.dx) + Math.abs(xDepth) * halfW;
+      items.push({
+        depth: depth + 1e-6,
+        shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(eyeMatrix(v, plane, pivot)), mark: eyeMark(e) },
+      });
     });
     items.sort((a, c) => a.depth - c.depth);
   }
@@ -663,9 +671,9 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {
-    surfaceView: size === undefined ? undefined : { basis: v, scale: fx.body, eyes: surfaceEyes },
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
+    surface: { view: v, scale: fx.body, eyes },
   };
 }
 

@@ -8,7 +8,7 @@ import { shareLink } from "./share";
 import { Icon, MenuButton } from "./ui";
 
 /** Export and Copy for the avatar on the stage, each offering its two versions, and Remove for one of yours. */
-export function Actions({ coat, entry, color, state, mood, onRemove }: { coat: LookState["coat"]; entry: LibraryEntry; color: string; state: LookState["state"]; mood: LookState["mood"]; onRemove: (key: string) => void }) {
+export function Actions({ entry, color, material, state, mood, onRemove }: { entry: LibraryEntry; color: string; material: LookState["material"]; state: LookState["state"]; mood: LookState["mood"]; onRemove: (key: string) => void }) {
   const [copied, flashCopied] = useFlash();
   const [problem, setProblem] = useState<string | null>(null);
   const { definition } = entry;
@@ -51,9 +51,9 @@ export function Actions({ coat, entry, color, state, mood, onRemove }: { coat: L
             { label: "JSON", hint: "The definition", onSelect: () => void copy(json, "Couldn’t reach the clipboard; use Export instead.") },
             {
               label: "Link",
-              hint: "Opens it in this color, state and mood",
+              hint: "Opens it in this color, material, state and mood",
               onSelect: () => {
-                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, state, mood, coat });
+                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, material, state, mood });
                 void copy(link, `Couldn’t reach the clipboard. The link: ${link}`);
               },
             },

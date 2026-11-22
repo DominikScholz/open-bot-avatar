@@ -1,6 +1,5 @@
-import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import { readAvatarMaterial, type AvatarMaterial } from "open-bot-avatar/dom";
-import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
+import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMaterial, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import { DEFAULT_LOOK, PALETTE, defaultColor, readMaterial, type LookState } from "./look";
 
 /**
  * Links that open the studio on an avatar, all read and written in the browser:
@@ -10,14 +9,15 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *   &state=working           idle, thinking, working, waiting, blocked or done
  *   &mood=happy              neutral or happy; an older link's mood=thinking
  *                            still opens the thinking state
+ *   &material=flat           flat or plush
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
 export interface SharedLook {
-  coat?: AvatarMaterial;
   avatar?: string;
   definition?: AvatarDefinition;
   color?: string;
+  material?: AvatarMaterial;
   state?: AvatarState;
   mood?: AvatarMood;
   /** Why `def` was left out, if it didn't decode or validate. */
@@ -65,8 +65,6 @@ function readColor(value: string | null): string | undefined {
 export function readShare(search: string): SharedLook {
   const params = new URLSearchParams(search);
   const shared: SharedLook = {};
-  const coat = readAvatarMaterial(params.get("coat"));
-  if (coat) shared.coat = coat;
   const def = params.get("def");
   if (def) {
     const decoded = decodeDefinition(def);
@@ -77,6 +75,8 @@ export function readShare(search: string): SharedLook {
   if (avatar) shared.avatar = avatar;
   const color = readColor(params.get("color"));
   if (color) shared.color = color;
+  const material = readMaterial(params.get("material")?.trim().toLowerCase());
+  if (material) shared.material = material;
   const state = params.get("state")?.trim().toLowerCase();
   const mood = params.get("mood")?.trim().toLowerCase();
   // A link that names a state or a mood sets both: the one it leaves out is at its default. Before
@@ -87,13 +87,13 @@ export function readShare(search: string): SharedLook {
 
 /**
  * A link to this avatar in this look: a starter or gallery avatar by id, one of yours with its
- * definition. The color, state and mood are left out at their defaults (the avatar's own color,
- * idle, neutral).
+ * definition. The color, material, state and mood are left out at their defaults (the avatar's
+ * own color, plush, idle, neutral).
  */
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { coat?: AvatarMaterial; color: string; state: LookState["state"]; mood: LookState["mood"] },
+  look: { color: string; material?: AvatarMaterial; state: LookState["state"]; mood: LookState["mood"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);
@@ -103,7 +103,7 @@ export function shareLink(
     const swatch = PALETTE.find((c) => c.value === color);
     params.set("color", swatch ? swatch.name.toLowerCase() : color.replace(/^#/, ""));
   }
-  if (look.coat) params.set("coat", look.coat);
+  if (look.material && look.material !== DEFAULT_LOOK.material) params.set("material", look.material);
   if (look.state !== DEFAULT_LOOK.state) params.set("state", look.state);
   if (look.mood !== DEFAULT_LOOK.mood) params.set("mood", look.mood);
   return `${base}?${params}`;

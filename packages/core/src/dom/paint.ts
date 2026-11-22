@@ -11,14 +11,17 @@
  *
  * The canvas sits in a wrapper at the host's content box, as the scene does,
  * overhangs it by the avatar's reach and ignores the pointer.
+ *
+ * A plush avatar is painted the same way, except that its body and eyes come as one image from
+ * the plush renderer (see plush/renderer.ts) in place of the slices and eye marks.
  */
-import { eye, eyeBox } from './eye.ts';
-import { paintCoatMark } from './coat-mark.ts';
-import type { AvatarMaterial } from './material.ts';
-import { renderCoat } from './plush.ts';
 import { avatarExtent, preparedVolume } from '../render.ts';
-import type { AvatarFrame, FramePath, Matrix } from '../render.ts';
-import type { AvatarDefinition } from '../types.ts';
+import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
+import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
+import type { Volume } from '../volume.ts';
+import { eyeBox, paintEye } from './eye.ts';
+import { paintPlushMark } from './plush/marks.ts';
+import { renderPlush } from './plush/renderer.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -39,6 +42,8 @@ export interface Bounds {
 export const FIT_SLACK = 8;
 /** Margin a frame keeps from the bitmap's edge for antialiasing, viewBox units. */
 export const FIT_PAD = 1;
+/** How far a plush coat's pile reaches past the frame's flat bounds, viewBox units. */
+const PILE_MARGIN = 3;
 
 /**
  * The square to lay the bitmap out over: `prev` while it still holds `b`, else `prev` grown to
@@ -122,9 +127,8 @@ export interface CanvasSurface {
   key: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
-  volume?: ReturnType<typeof preparedVolume>['vol'];
-  definition: AvatarDefinition;
-  depth?: number;
+  /** The avatar's volume, for a plush coat: built when first asked for. Null at depth 0, which has no surface to coat. */
+  volume: (() => Volume) | null;
   cap: Square;
   fit: Square | null;
   layout: string;
@@ -142,11 +146,21 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   canvas.style.cssText = 'position:absolute';
   wrap.append(canvas);
   el.replaceChildren(wrap);
-  return { key, definition, depth, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0 };
+  let volume: Volume | undefined;
+  return {
+    key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0,
+    volume: depth === 0 ? null : () => (volume ??= preparedVolume(definition, depth).vol),
+  };
 }
 
-/** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: AvatarMaterial) {
+/** The marks of `thinking` and `blocked`, which a frame lists as slices in place of the body. */
+const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
+
+/**
+ * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
+ * canvas color. A `plush` body falls back to flat where plush can't be drawn.
+ */
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -157,10 +171,13 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
-  const view = frame.surfaceView;
-  const plush = material === 'plush' && surface.depth !== 0 && view !== undefined;
+  const volume = material === 'plush' ? surface.volume : null;
+  const plush = volume !== null;
   if (plush) {
-    bounds.x0 -= 3; bounds.y0 -= 3; bounds.x1 += 3; bounds.y1 += 3;
+    bounds.x0 -= PILE_MARGIN;
+    bounds.y0 -= PILE_MARGIN;
+    bounds.x1 += PILE_MARGIN;
+    bounds.y1 += PILE_MARGIN;
   }
   const fit = fitSquare(surface.layout === layout ? surface.fit : null, bounds, surface.cap);
   if (surface.layout === layout && fit === surface.fit) {
@@ -179,18 +196,10 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
   }
 
-  const coated = plush && view.scale > .001
-    ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, scale, ink, view.eyes)
-    : null;
-  let bodyDrawn = false;
-  const drawCoat = () => {
-    if (!coated || !view) return;
-    const [a,b,c,d,e,f] = frame.root;
-    ctx.setTransform(scale*a,scale*b,scale*c,scale*d,scale*e-surface.left,scale*f-surface.top);
-    const radius = coated.radius * view.scale;
-    ctx.drawImage(coated.canvas,coated.cx-radius,coated.cy-radius,2*radius,2*radius);
-  };
+  // The whole body and its eyes as one image, unless it has shrunk away into a mark.
+  const { view, scale: bodyScale, eyes } = frame.surface;
+  const coat = volume && bodyScale > 0.001 ? renderPlush(volume(), view, { color: fill, ink, eyes }, scale) : null;
+  let coatPainted = false;
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
@@ -200,18 +209,22 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
-      const mark = shape.key.startsWith('mark-');
-      if (mark && plush && paintCoatMark(ctx, section.box, scale, fill)) continue;
-      if (!coated || mark) {
+      if (isMark(shape)) {
+        if (!plush || !paintPlushMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+      } else if (!coat) {
         ctx.fill(section.path, section.rule);
-      } else if (!bodyDrawn) {
-        drawCoat();
-        bodyDrawn = true;
+      } else if (!coatPainted) {
+        // The body's slices follow one another: the coat takes the place of the first, under the root's motion.
+        coatPainted = true;
+        const [a, b, c, d, e, f] = frame.root;
+        ctx.setTransform(scale * a, scale * b, scale * c, scale * d, scale * e - surface.left, scale * f - surface.top);
+        const radius = coat.radius * bodyScale;
+        ctx.drawImage(coat.canvas, coat.x, coat.y, coat.size, coat.size, coat.cx - radius, coat.cy - radius, 2 * radius, 2 * radius);
       }
     } else if (shape.kind === 'eye') {
-      if (coated) continue;
+      if (coat) continue;
       ctx.fillStyle = ink;
-      eye(ctx, shape.mark);
+      paintEye(ctx, shape.mark);
       ctx.fillStyle = fill;
     } else {
       const g = shape.gradient;

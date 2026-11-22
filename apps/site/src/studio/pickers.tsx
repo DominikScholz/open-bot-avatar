@@ -1,10 +1,9 @@
 /*
- * How the editor picks the avatar's state and mood: the state as a row of pills under the
- * preview, the mood as a toggle of eyes in the preview's corner.
+ * How the editor picks the avatar's state, mood and material: the state as a row of pills under
+ * the preview, the mood and the material as toggles in the preview's corner.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { BASE_PITCH, BASE_YAW, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import type { AvatarMaterial } from "open-bot-avatar/dom";
+import { BASE_PITCH, BASE_YAW, type AvatarDefinition, type AvatarMaterial, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import type { Choice } from "./ui";
 
@@ -116,39 +115,48 @@ function Eyes({ mood }: { mood: AvatarMood }) {
   );
 }
 
+export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: AvatarMood) => void }) {
+  return <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />;
+}
+
+/* The material as a toggle next to the mood's: each option shows the avatar's own cheek in that finish. */
+
 const MATERIALS: Choice<AvatarMaterial>[] = [
   { value: "flat", label: "Flat", hint: "Solid color" },
   { value: "plush", label: "Plush", hint: "Brushed fur" },
 ];
 
+/** Face-on: undoes the resting turn, so the eye sits square in its swatch. */
 const FRONT = { yaw: -BASE_YAW, pitch: -BASE_PITCH };
 
-export function MaterialToggle({ coat, onCoat, definition, color }: {
-  coat: AvatarMaterial;
-  onCoat: (coat: AvatarMaterial) => void;
+export function MaterialToggle({ material, onMaterial, definition, color }: {
+  material: AvatarMaterial;
+  onMaterial: (material: AvatarMaterial) => void;
   definition: AvatarDefinition;
   color: string;
 }) {
-  // Both swatches frame the same eye and cheek, even on off-center faces.
+  // A still of the whole avatar, enlarged and placed so the swatch frames its right eye and cheek,
+  // wherever the face sits on the body.
   const { x, y, spacing, scale } = definition.eyes;
   const zoom = 1.1 / scale;
   const left = 4 - (x + spacing / 2) * zoom;
   const top = 7 - y * zoom;
   return (
-    <RadioGroup label="Material" value={coat} options={MATERIALS} onChange={onCoat} className="face-segmented" itemClassName="face-option material-option"
+    <RadioGroup
+      label="Material"
+      value={material}
+      options={MATERIALS}
+      onChange={onMaterial}
+      className="face-segmented"
+      itemClassName="face-option material-option"
       render={({ value, label }) => (
         <>
           <span className="material-sample" aria-hidden="true">
-            <BotAvatar definition={definition} color={color} material={value} view={FRONT} still label=""
-              size={100 * zoom} className="avatar-view" style={{ position: "absolute", left, top }} />
+            <BotAvatar className="avatar-view" definition={definition} color={color} material={value} view={FRONT} still label="" size={100 * zoom} style={{ position: "absolute", left, top }} />
           </span>
           {label}
         </>
       )}
     />
   );
-}
-
-export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: AvatarMood) => void }) {
-  return <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />;
 }

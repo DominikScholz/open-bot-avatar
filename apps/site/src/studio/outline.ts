@@ -11,7 +11,7 @@ const LINE = 2.2;
 export const THUMB_VIEW = { yaw: 0.5, pitch: 0.12 };
 export const THUMB_LOOK = { x: 0.7, y: -1 };
 
-/** Changing the geometry, dye or pose invalidates that cell in the built-in plush atlas. */
+/** Names a plush thumbnail in the baked atlas (see AvatarThumbnail): any change of geometry, color or pose is another key. */
 export function thumbnailKey(definition: AvatarDefinition, color: string): string {
   const { x, y, spacing, scale } = definition.eyes;
   const signature = JSON.stringify([definition.body.path, x, y, spacing, scale, color.toLowerCase(), THUMB_VIEW, THUMB_LOOK]);
@@ -20,7 +20,7 @@ export function thumbnailKey(definition: AvatarDefinition, color: string): strin
   return definition.id + "-" + hash.toString(36);
 }
 
-const cache =  new Map<string, string>();
+const cache = new Map<string, string>();
 
 /**
  * Selection ring for a thumbnail: an SVG with the same viewBox and resting pose

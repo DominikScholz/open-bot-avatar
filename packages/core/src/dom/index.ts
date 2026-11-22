@@ -1,4 +1,3 @@
-export { readAvatarMaterial, type AvatarMaterial } from './material.ts';
 export { mountAvatar } from './mount.ts';
 export type { AvatarOptions, MountedAvatar } from './mount.ts';
 export { requestFrame, setPointer, subscribeFrames } from './clock.ts';

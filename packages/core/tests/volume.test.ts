@@ -393,7 +393,7 @@ describe('eye visibility on curved hosts', () => {
       for (const { matrix: [a,b,c,d] } of eyes) expect(a*d-b*c).toBeCloseTo(area, 5);
       expect(sceneFrame(c, options).eyes.filter(e => e.visible)).toHaveLength(eyes.length);
       // The surface maps stay in left/right order even after both flat marks have turned away.
-      expect(frame.surfaceView?.eyes).toHaveLength(2);
+      expect(frame.surface.eyes).toHaveLength(2);
     }
   });
 
@@ -406,7 +406,7 @@ describe('eye visibility on curved hosts', () => {
       expect(eyes[0].key).toBe(yaw > 0 ? 'eye-0' : 'eye-1');
       const [a,b,c,d] = eyes[0].matrix;
       expect(a*d-b*c).toBeGreaterThan(.1);
-      expect(frame.surfaceView?.eyes).toHaveLength(2);
+      expect(frame.surface.eyes).toHaveLength(2);
     }
   });
 });
@@ -446,6 +446,20 @@ describe('silhouette seams', () => {
     // The flush neck and base turn as one continuous round surface at their join.
     const [glass, base] = bulb.parts;
     expect(glass.height(50, 70)).toBeCloseTo(base.height(50, 70), 0);
+  });
+});
+
+describe('the body as one surface', () => {
+  it('keeps an eye mark where it rests and reports its gaze apart, whatever the eye looks like', () => {
+    const mug = getExample('mug')!;
+    for (const state of ['idle', 'waiting'] as const) {
+      const at = (x: number) => liveFrame(mug, { reducedMotion: true, size: 128, state, gaze: { x, y: 0.4 } }).surface;
+      const left = at(-1), right = at(1);
+      expect(left.eyes).toHaveLength(2);
+      expect(left.eyes.map((eye) => eye.mark)).toEqual(right.eyes.map((eye) => eye.mark));
+      expect(right.eyes[0].dx - left.eyes[0].dx).toBeGreaterThan(1);
+      expect(right.eyes[0].dy).toBeCloseTo(left.eyes[0].dy, 6);
+    }
   });
 });
 

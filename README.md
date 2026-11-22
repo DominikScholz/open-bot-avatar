@@ -70,7 +70,8 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `still` | One static SVG, no animation. Default: `false`. |
+| `material` | `"flat"` (default) or `"plush"`, a coat of fur. |
+| `still` | One static image, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 
 ## SVG
