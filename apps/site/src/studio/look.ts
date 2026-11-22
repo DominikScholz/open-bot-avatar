@@ -1,17 +1,11 @@
 import { resolveLook, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import { readAvatarMaterial } from "open-bot-avatar/dom";
+import { readAvatarMaterial, type AvatarMaterial } from "open-bot-avatar/dom";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
 
-export const COATS = [
-  { value: "plush", label: "Plush" },
-  { value: "flat", label: "Flat" },
-] as const;
-export type Coat = typeof COATS[number]["value"];
-
 export interface LookState {
-  coat: Coat;
+  coat: AvatarMaterial;
   /** Colors picked for avatars, by library key; an avatar not in here shows its default color. */
   colors: Record<string, string>;
   /** What the bot is doing, and how it feels. */

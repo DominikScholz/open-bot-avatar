@@ -1,6 +1,6 @@
 import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import { readAvatarMaterial } from "open-bot-avatar/dom";
-import { DEFAULT_LOOK, PALETTE, defaultColor, type Coat, type LookState } from "./look";
+import { readAvatarMaterial, type AvatarMaterial } from "open-bot-avatar/dom";
+import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
 
 /**
  * Links that open the studio on an avatar, all read and written in the browser:
@@ -14,7 +14,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type Coat, type LookState } from "
  *                            validated like an import, then added to yours and selected
  */
 export interface SharedLook {
-  coat?: Coat;
+  coat?: AvatarMaterial;
   avatar?: string;
   definition?: AvatarDefinition;
   color?: string;
@@ -93,7 +93,7 @@ export function readShare(search: string): SharedLook {
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { coat?: Coat; color: string; state: LookState["state"]; mood: LookState["mood"] },
+  look: { coat?: AvatarMaterial; color: string; state: LookState["state"]; mood: LookState["mood"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);

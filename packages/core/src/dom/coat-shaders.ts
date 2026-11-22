@@ -120,7 +120,6 @@ uniform vec3 color, ink;
 uniform mat3 view;
 ${socketField}
 uniform int pass;
-uniform bool previousLighting;
 uniform float shell;
 in vec3 P,N,V,pilePosition,lean;
 in float tip, variation, across, pocketDepth;
@@ -150,7 +149,7 @@ void main(){
   float diffuse=dot(n,light);
   float wrap=clamp((diffuse+.65)/1.65,0.,1.);
   float facingLight=clamp(.66+.34*diffuse,0.,1.);
-  float diffuseLevel=(previousLighting ? .88 : .87)+.13*wrap;
+  float diffuseLevel=.87+.13*wrap;
   float sheen=.014*wrap*wrap;
   float rimExposure=1.;
   vec2 uv; vec3 local;
@@ -198,39 +197,27 @@ void main(){
     contact=(1.-smoothstep(-.04,.38,d))*mix(.35,1.,buried);
     float lip = smoothstep(.03,.49,d)*(1.-smoothstep(1.10,3.65,d));
     float gathered=clamp(.22-.52*outward.x+1.14*outward.y,0.,1.22);
-    float tipLight=previousLighting ? .16+.25*fibers : .14+.22*fibers;
+    float tipLight=.14+.22*fibers;
     lipLight=tipLight*gathered*lip*mix(.40,1.,local.z);
   }
   float occlusion=crease*(.76+.18*upper);
-  vec3 base;
-  if (previousLighting) {
-    vec3 dye=color*diffuseLevel;
-    vec3 rimTint=mix(sqrt(color),vec3(1.,.96,.89),.48);
-    vec3 reflected=mix(color,vec3(1.,.97,.91),.48)*sheen;
-    reflected+=(1.-clamp(dye,0.,1.))*rimTint*(.58*grazing*backlit);
-    base=dye*(1.-.54*occlusion)+reflected*(1.-crease)+color*pileRelief;
-    base*=1.-(.51+.04*upper)*contact;
-    base+=mix(color,vec3(1.),.10)*lipLight;
-    base*=pileFill;
-  } else {
-    float fiberLight=(sheen+.46*grazing*backlit*rimExposure)*(1.-crease)+lipLight;
-    diffuseLevel=(diffuseLevel*(1.-.48*occlusion)+pileRelief)*(1.-(.36+.04*upper)*contact);
-    // Light falling on the body reveals its curvature. Light caught by
-    // raised fibers can carry on above the nominal exposure of the dye.
-    float backing=diffuseLevel*pileFill;
-    float exposure=backing*backing*(.72+.39*wrap)+1.45*fiberLight*pileFill;
-    vec4 ramp=texture(dyeRamp,vec2(exposure/${COAT_RAMP_RANGE},.5));
-    base=ramp.rgb;
-    if(ramp.a>0.){
-      // On yellow, the dyed roots and the light scattered by the tips can
-      // have the same lightness and still differ in color.
-      float value=max(color.r,max(color.g,color.b));
-      vec3 dye=color/max(value,.001);
-      float weakest=min(dye.r,min(dye.g,dye.b));
-      vec3 scatter=(1.-dye)*(.09+.91*(dye-weakest))*clamp(1.85*fiberLight,0.,1.);
-      float brightness=clamp(value*diffuseLevel+(.35+.65*value)*fiberLight,0.,1.);
-      base=mix(base,(dye+scatter)*brightness*pileFill,ramp.a);
-    }
+  float fiberLight=(sheen+.46*grazing*backlit*rimExposure)*(1.-crease)+lipLight;
+  diffuseLevel=(diffuseLevel*(1.-.48*occlusion)+pileRelief)*(1.-(.36+.04*upper)*contact);
+  // Light falling on the body reveals its curvature. Light caught by
+  // raised fibers can carry on above the nominal exposure of the dye.
+  float backing=diffuseLevel*pileFill;
+  float exposure=backing*backing*(.72+.39*wrap)+1.45*fiberLight*pileFill;
+  vec4 ramp=texture(dyeRamp,vec2(exposure/${COAT_RAMP_RANGE},.5));
+  vec3 base=ramp.rgb;
+  if(ramp.a>0.){
+    // On yellow, the dyed roots and the light scattered by the tips can
+    // have the same lightness and still differ in color.
+    float value=max(color.r,max(color.g,color.b));
+    vec3 dye=color/max(value,.001);
+    float weakest=min(dye.r,min(dye.g,dye.b));
+    vec3 scatter=(1.-dye)*(.09+.91*(dye-weakest))*clamp(1.85*fiberLight,0.,1.);
+    float brightness=clamp(value*diffuseLevel+(.35+.65*value)*fiberLight,0.,1.);
+    base=mix(base,(dye+scatter)*brightness*pileFill,ramp.a);
   }
   if(pass==0 && d<3.7) {
     vec2 curve=local.xy*.94;
@@ -242,13 +229,12 @@ void main(){
     key=vec2(key.x-.76*key.y,key.y)/vec2(.55,.70);
     vec2 fill=beadNormal.xy-vec2(.61,-.195);
     fill=vec2(fill.x-.37*fill.y,fill.y)/vec2(.47,1.01);
-    float stripLight=(previousLighting ? .40 : .38)*exp(-dot(key,key));
+    float stripLight=.38*exp(-dot(key,key));
     float sideLight=.13*exp(-dot(fill,fill));
     float coatBounce=.003+.018*pow(1.-clamp(beadNormal.z,0.,1.),1.6);
     float inkValue=max(ink.r,max(ink.g,ink.b));
     vec3 bead=ink*sqrt(inkValue)*(.40+.24*beadNormal.z+.24*inkValue)+color*coatBounce;
-    vec3 reflection=previousLighting ? vec3(1.,.99,.98)*(stripLight+sideLight)
-      : mix(vec3(1.),color,.28)*stripLight+mix(vec3(1.),color,.72)*sideLight;
+    vec3 reflection=mix(vec3(1.),color,.28)*stripLight+mix(vec3(1.),color,.72)*sideLight;
     bead+=reflection*smoothstep(-.12,.55,-d);
     float aa=max(.15,fwidth(d));
     base=mix(bead,base,smoothstep(-aa*.5,aa*.5,d));

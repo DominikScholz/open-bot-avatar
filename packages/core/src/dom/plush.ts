@@ -4,8 +4,6 @@ import { coatHalfDepth, coatMesh, type CoatVolume } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
 import { coatRamp, COAT_RAMP_SIZE } from './coat-ramp.ts';
 
-export type CoatLighting = 'current' | 'previous';
-
 // Tileable fiber texture for the compressed pile around the eye sockets.
 function densityTile(): HTMLCanvasElement {
   const tile=document.createElement('canvas');
@@ -87,7 +85,6 @@ function makePainter(){
   gl.uniform1i(loc('dyeRamp'), 3);
   gl.activeTexture(gl.TEXTURE1); // Eye distance tiles are updated on this unit.
   const regionUniform = loc('eyeRegion[0]'), inkUniform = loc('ink');
-  const previousLightingUniform = loc('previousLighting');
   const sizeUniform = loc('eyeSize[0]'), eyeSizes = new Float32Array(4);
   const regions = new Float32Array(8), previousRegions = new Float32Array(8);
   const contours = ['', ''];
@@ -109,11 +106,9 @@ function makePainter(){
   let previous:CoatVolume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
   let lastColor='', lastInk='';
   let lastPixels=0, lastView:ViewBasis|undefined;
-  let lastLighting: CoatLighting | undefined;
   const swatch=document.createElement('canvas').getContext('2d',{willReadFrequently:true})!;
   return (
     vol: CoatVolume, v: ViewBasis, color: string, scale: number, ink: string, eyes: EyeMark[],
-    lighting: CoatLighting = 'current', eyeZ: readonly number[] = 'eyeZ' in vol ? vol.eyeZ : [],
   ) => {
     if(gl.isContextLost())return null;
     const geometryChanged = previous !== vol;
@@ -130,6 +125,7 @@ function makePainter(){
       gl.uniform1f(u.radius,radius);
       triangles=mesh.indices.length;count=mesh.roots.length/8;previous=vol;
     }
+    const eyeZ = 'eyeZ' in vol ? vol.eyeZ : [];
     regions.fill(0);
     let contourChanged = false;
     for (const [slot, mark] of eyes.entries()) {
@@ -157,7 +153,7 @@ function makePainter(){
     // Root motion is composited separately. Reuse the GPU image
     // until the change in surface projection reaches about a tenth of a pixel.
     const tolerance=.1/(radius*scale);
-    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && lighting===lastLighting && pixels===lastPixels && lastView &&
+    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && pixels===lastPixels && lastView &&
        Math.abs(v.cY-lastView.cY)+Math.abs(v.sY-lastView.sY)+Math.abs(v.sP-lastView.sP)+Math.abs(v.cP-lastView.cP)<tolerance) return result;
     lastPixels=pixels; lastView=v;
     if(canvas.width!==pixels || canvas.height!==pixels)canvas.width=canvas.height=pixels;
@@ -181,10 +177,6 @@ function makePainter(){
       lastInk=ink;
     }
     gl.uniformMatrix3fv(u.view,false,viewMatrix);
-    if (lighting !== lastLighting) {
-      gl.uniform1i(previousLightingUniform, lighting === 'previous' ? 1 : 0);
-      lastLighting = lighting;
-    }
     gl.bindVertexArray(surface);
     gl.uniform1i(u.pass,0);
     gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);

@@ -1,6 +1,6 @@
 import { viewBasis, type FramePath } from '../render.ts';
 import type { CoatCapsule } from './coat-mesh.ts';
-import { renderCoat, type CoatLighting } from './plush.ts';
+import { renderCoat } from './plush.ts';
 
 // Give the short pile enough room to read on a small dot. The frame supplies
 // the displayed width and height, including the avatar's own mark sizing.
@@ -12,7 +12,7 @@ const sprites = new Map<string, { canvas: HTMLCanvasElement; radius: number }>()
 /** Paint a face-on pompom or capsule with the body shader. The frame's transform animates it. */
 export function paintCoatMark(
   ctx: CanvasRenderingContext2D, box: FramePath['box'], scale: number,
-  color: string, lighting: CoatLighting = 'current',
+  color: string,
 ): boolean {
   const aspect = Math.round(1000 * box.h / box.w) / 1000;
   let model = models.get(aspect);
@@ -25,10 +25,10 @@ export function paintCoatMark(
   const unit = box.w / (2 * RADIUS);
   // Size for the full hop. A bouncing or shrinking dot reuses the same fibers.
   const density = Math.min(8, Math.max(.5, 2 ** Math.ceil(Math.log2(1.12 * scale * unit))));
-  const key = [aspect, lighting, color, density].join('|');
+  const key = [aspect, color, density].join('|');
   let sprite = sprites.get(key);
   if (!sprite) {
-    const render = renderCoat(model, front, color, density, color, [], lighting);
+    const render = renderCoat(model, front, color, density, color, []);
     if (!render) return false;
     // The WebGL buffer is shared with the body. Keep a detached copy for the
     // three dots and for frames that show the body and a mark together.

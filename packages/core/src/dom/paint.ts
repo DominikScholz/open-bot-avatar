@@ -15,7 +15,7 @@
 import { eye, eyeBox } from './eye.ts';
 import { paintCoatMark } from './coat-mark.ts';
 import type { AvatarMaterial } from './material.ts';
-import { renderCoat, type CoatLighting } from './plush.ts';
+import { renderCoat } from './plush.ts';
 import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, FramePath, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
@@ -146,7 +146,7 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
 }
 
 /** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: AvatarMaterial, lighting?: CoatLighting) {
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: AvatarMaterial) {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -181,7 +181,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
 
   const coated = plush && view.scale > .001
     ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, scale, ink, view.eyes, lighting)
+        view.basis, fill, scale, ink, view.eyes)
     : null;
   let bodyDrawn = false;
   const drawCoat = () => {
@@ -201,7 +201,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       const mark = shape.key.startsWith('mark-');
-      if (mark && plush && paintCoatMark(ctx, section.box, scale, fill, lighting)) continue;
+      if (mark && plush && paintCoatMark(ctx, section.box, scale, fill)) continue;
       if (!coated || mark) {
         ctx.fill(section.path, section.rule);
       } else if (!bodyDrawn) {
