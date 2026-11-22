@@ -6,9 +6,10 @@
  *
  * Building a mesh takes tens of milliseconds, so the renderer keeps what it builds (see renderer.ts).
  */
-import type { Bounds, Point } from '../../path.ts';
+import { EdgeIndex } from '../../distance.ts';
+import { edgeBands, type Bounds } from '../../path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC } from '../../validate.ts';
-import { edgeDistance, type Volume, type VolumePart } from '../../volume.ts';
+import type { Volume, VolumePart } from '../../volume.ts';
 import { SOCKET_PAD } from './socket.ts';
 
 export interface PlushMesh {
@@ -99,44 +100,22 @@ function addCapsule(g: Grid, { bounds, radius }: Capsule) {
   }
 }
 
-/**
- * Whether each x of a row is inside the outline: `isInside` for a whole row, testing only the edges
- * that cross it. The same arithmetic, so points exactly on an edge fall on the same side (grid
- * columns start at the body's bounds, where many outlines have a straight edge).
- */
-function insideAlongRow(polys: Point[][], y: number, xs: number[], out: Uint8Array) {
-  const up: number[] = [], down: number[] = [];
-  for (const poly of polys) {
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const [xi, yi] = poly[i], [xj, yj] = poly[j];
-      if (yj <= y) {
-        if (yi > y) up.push(xi - xj, y - yj, xj, yi - yj);
-      } else if (yi <= y) down.push(xi - xj, y - yj, xj, yi - yj);
-    }
-  }
-  for (let n = 0; n < xs.length; n++) {
-    const x = xs[n];
-    let w = 0;
-    for (let e = 0; e < up.length; e += 4) if (up[e] * up[e + 1] - (x - up[e + 2]) * up[e + 3] > 0) w++;
-    for (let e = 0; e < down.length; e += 4) if (down[e] * down[e + 1] - (x - down[e + 2]) * down[e + 3] < 0) w--;
-    out[n] = w !== 0 ? 1 : 0;
-  }
-}
-
 /** Union one part into the grid: its outline's distance, capped by its height or rounded by its fillet. */
 function addPart(g: Grid, part: VolumePart) {
   const { field, nx } = g, plane = nx * g.ny;
   const rounded = part.kind === 'inflate' && part.rxy > 0 && part.rz > 0;
-  const xs = Array.from({ length: nx }, (_, i) => g.x0 + i * STEP);
-  const inside = new Uint8Array(nx);
+  const distances = new EdgeIndex(part.polys, part.bounds).distances({ x0: g.x0, y0: g.y0, step: STEP, nx, ny: g.ny });
+  // By winding, as the volume's own height does: grid columns start at the body's bounds, where
+  // many outlines have a straight edge, and a point on an edge must fall on the same side.
+  const outline = edgeBands(part.polys);
   for (let j = 0; j < g.ny; j++) {
     const y = g.y0 + j * STEP;
-    insideAlongRow(part.polys, y, xs, inside);
     for (let i = 0; i < nx; i++) {
-      const x = xs[i];
-      const sd = edgeDistance(part.polys, x, y) * (inside[i] ? 1 : -1);
+      const x = g.x0 + i * STEP;
+      const inside = outline.winding(x, y) !== 0;
+      const sd = inside ? distances[i + j * nx] : -distances[i + j * nx];
       // An inflated part is shaped by its fillet instead; outside the outline there is no height.
-      const h = part.kind === 'inflate' || !inside[i] ? 0 : part.height(x, y);
+      const h = part.kind === 'inflate' || !inside ? 0 : part.height(x, y);
       for (let k = 0; k < g.nz; k++) {
         const z = Math.abs(g.z0 + k * STEP);
         let d;
