@@ -46,7 +46,7 @@ function linkProgram(gl: WebGL2RenderingContext, vertex: string, fragment: strin
 
 function makePainter(){
   const canvas=document.createElement('canvas');
-  const gl=canvas.getContext('webgl2',{alpha:true,stencil:true,antialias:true,premultipliedAlpha:true,preserveDrawingBuffer:true});
+  const gl=canvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:true,preserveDrawingBuffer:true});
   if(!gl)return null;
   canvas.addEventListener('webglcontextlost', e => e.preventDefault());
   canvas.addEventListener('webglcontextrestored', () => { painter = undefined; });
@@ -100,7 +100,7 @@ function makePainter(){
     if(!divisor)gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,elements);
   }
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-  let previous:Volume|undefined,triangles=0,socketIndices=0,count=0,radius=0,cx=0,cy=0;
+  let previous:Volume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
   let lastColor='', lastInk='';
   let lastPixels=0, lastView:ViewBasis|undefined, lastCoat:Coat|undefined;
   let lastLighting: CoatLighting | undefined;
@@ -119,7 +119,7 @@ function makePainter(){
       cx=b.minX+rx; cy=b.minY+ry; radius=Math.ceil(Math.hypot(rx,ry,rz)+4);
       gl.uniform3f(u.pivot,cx,cy,0); gl.uniform3f(u.extent,rx,ry,rz);
       gl.uniform1f(u.radius,radius);
-      triangles=mesh.indices.length;socketIndices=mesh.socketIndices;count=mesh.roots.length/8;previous=vol;
+      triangles=mesh.indices.length;count=mesh.roots.length/8;previous=vol;
     }
     regions.fill(0);
     let contourChanged = false;
@@ -154,7 +154,7 @@ function makePainter(){
     if(canvas.width!==pixels || canvas.height!==pixels)canvas.width=canvas.height=pixels;
     const viewMatrix = [v.cY,v.sY*v.sP,-v.sY*v.cP, 0,v.cP,v.sP, v.sY,-v.cY*v.sP,v.facing];
     gl.viewport(0,0,pixels,pixels);
-    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT|gl.STENCIL_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
     if(color!==lastColor){
       swatch.fillStyle=color;swatch.fillRect(0,0,1,1);
       const rgba=swatch.getImageData(0,0,1,1).data;
@@ -174,21 +174,8 @@ function makePainter(){
     const brushed = coat === 'brushed';
     gl.uniform1i(u.brushed, brushed ? 1 : 0);
     gl.bindVertexArray(surface);
-    gl.disable(gl.STENCIL_TEST);
     gl.uniform1i(u.pass,0);
     gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
-    // Mark only the visible part of each bead against the completed body
-    // depth. A foreground part can hide an eye without cutting off its socket.
-    gl.enable(gl.STENCIL_TEST);
-    gl.stencilOp(gl.KEEP,gl.KEEP,gl.REPLACE);
-    gl.stencilFunc(gl.ALWAYS,1,0xff);
-    gl.colorMask(false,false,false,false);
-    gl.uniform1i(u.pass,3);
-    gl.drawElements(gl.TRIANGLES,socketIndices,gl.UNSIGNED_INT,0);
-    gl.colorMask(true,true,true,true);
-    // Keep fibers at the lip without fragmenting the exposed bead.
-    gl.stencilOp(gl.KEEP,gl.KEEP,gl.KEEP);
-    gl.stencilFunc(gl.EQUAL,0,0xff);
     if(coat==='shell' || brushed){
       gl.uniform1i(u.pass,1);
       const layers=brushed ? 5 : 9;

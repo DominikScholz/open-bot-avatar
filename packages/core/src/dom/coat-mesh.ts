@@ -8,7 +8,6 @@ import { SOCKET_PAD } from './eye.ts';
 export interface CoatMesh {
   vertices: Float32Array; // position and outward normal
   indices: Uint32Array;
-  socketIndices: number; // prefix covering the eye regions, including gaze travel
   roots: Float32Array; // independent, area-weighted samples for instancing
 }
 
@@ -93,7 +92,7 @@ export function coatMesh(vol: Volume): CoatMesh {
   const padEye = SOCKET_PAD + 2 * step;
   const reachX = vol.eyeScale * (EYE_W * (HAPPY_ARC.halfWidth + HAPPY_ARC.stroke / 2) + GAZE_X) + padEye;
   const reachY = vol.eyeScale * (EYE_H / 2 + GAZE_Y) + padEye;
-  const socket: number[] = [], body: number[] = [];
+  const refined: number[] = [];
   const midpoints = new Map<string, number>();
   function midpoint(a: number, b: number) {
     const key = `${Math.min(a, b)},${Math.max(a, b)}`;
@@ -106,7 +105,7 @@ export function coatMesh(vol: Volume): CoatMesh {
   }
   function refine(a: number, b: number, c: number, level: number) {
     if (level === 0) {
-      socket.push(a, b, c);
+      refined.push(a, b, c);
       return;
     }
     const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
@@ -120,10 +119,9 @@ export function coatMesh(vol: Volume): CoatMesh {
     const x = vertices[6 * a], y = vertices[6 * a + 1], z = vertices[6 * a + 2];
     if (z >= -2 * step && vol.eyePlanes.some(eye => Math.abs(eye.x - x) <= reachX && Math.abs(eye.y - y) <= reachY)) {
       refine(a, b, c, 2);
-    } else body.push(a, b, c);
+    } else refined.push(a, b, c);
   }
   return {
-    vertices: new Float32Array(vertices), indices: new Uint32Array(socket.concat(body)),
-    socketIndices: socket.length, roots: new Float32Array(roots),
+    vertices: new Float32Array(vertices), indices: new Uint32Array(refined), roots: new Float32Array(roots),
   };
 }

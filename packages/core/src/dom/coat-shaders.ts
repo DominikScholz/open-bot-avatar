@@ -37,7 +37,7 @@ uniform float radius, shell;
 uniform int pass;
 out vec3 P, N, V, pilePosition, lean;
 ${socketField}
-out float tip, variation, across;
+out float tip, variation, across, pocketDepth;
 
 void main(){
   vec3 n=normalize(normal), p=position;
@@ -57,14 +57,19 @@ void main(){
   }
   vec2 uv; vec3 local;
   float d=socketDistance(position,n,uv,local);
-  float wall=1.-smoothstep(-.35,2.30,d);
   float seat=min(1.55,max(0.,position.z)*.40);
-  // A recessed rim surrounds a rounded cap. Its center sits just above
-  // the pile, so the depth buffer can resolve its profile as the head turns.
+  // The rounded cap sits below the packed pile at the mouth of the
+  // socket. At grazing angles the near lip progressively hides the bead.
   float dome=sqrt(max(0.,1.-dot(local.xy,local.xy)));
   float cap=mix(smoothstep(0.,1.3,-d),dome,local.z)*smoothstep(-.15,.38,-d);
-  p.z += seat * (1.30*cap - .35*wall);
-  float loft=mix(.14,1.,smoothstep(.0,3.1,d));
+  float floorDepth=1.-smoothstep(-.15,1.65,d);
+  p.z+=seat*(.56*cap-.98*floorDepth);
+  // Compressed fibers lie along the lip. The packed undercoat fills most
+  // of their height here so the opening has a continuous, softly fuzzy edge.
+  float loft=mix(.07,1.,smoothstep(.75,3.7,d));
+  float lip=smoothstep(-.10,1.,d)*(1.-smoothstep(1.,2.85,d));
+  if(pass==0) p.z+=seat*.15*lip;
+  pilePosition.z=p.z;
   tip=0.; variation=.5; across=0.;
   if(pass==1){
     p+=n*shell*(brushed ? 1.10 : 1.55)*loft;
@@ -87,7 +92,7 @@ void main(){
     if (d < 3.5) {
       vec2 radial = normalize(local.xy*vec2(1.7,1.)+vec2(.001));
       vec2 alongEdge = vec2(-radial.y,radial.x);
-      comb.xy = mix(comb.xy, alongEdge * (dot(comb.xy,alongEdge)<0.?-1.:1.), .65*wall);
+      comb.xy = mix(comb.xy, alongEdge * (dot(comb.xy,alongEdge)<0.?-1.:1.), .88*(1.-smoothstep(.4,3.5,d)));
     }
     vec3 bend=cross(n,comb);
     float len=mix(1.05,3.25,seed.y)*loft;
@@ -108,6 +113,7 @@ void main(){
     variation=seed.x;
   }
   vec3 projected=view*(p-pivot);
+  pocketDepth=dot(position-p,n)/max(.01,seat);
   // Test displaced shell and strand tips in the socket's model-space
   // footprint. Their visibility against the bead follows actual depth.
   P=vec3(p.xy,position.z);
@@ -129,7 +135,7 @@ uniform int pass;
 uniform bool previousLighting;
 uniform float shell;
 in vec3 P,N,V,pilePosition,lean;
-in float tip, variation, across;
+in float tip, variation, across, pocketDepth;
 out vec4 result;
 
 float fiberMap(vec3 p, vec3 n){
@@ -174,11 +180,6 @@ void main(){
   float rimExposure=1.;
   vec2 uv; vec3 local;
   float d=socketDistance(P,normalize(V),uv,local);
-  if (pass==3) {
-    if (d>=0.) discard;
-    result=vec4(0.);
-    return;
-  }
   if(pass==1 && d<.1) discard;
   if(pass==2 && d<.10-.08*variation) discard;
   float pileFill=1.;
@@ -229,12 +230,15 @@ void main(){
     vec2 outward=g/max(length(g),.001);
     upper=dot(outward,normalize(vec2(.96,-.28)));
     float fibers=fiberMap(P,normalize(V));
-    crease=1.-smoothstep(-.12,1.65+1.30*upper+.6*(fibers-.5),d);
+    // Only material below the mouth picks up the deep socket color. Tips
+    // which cover the eye in profile keep the dye of the exposed coat.
+    float buried=smoothstep(-.12,.82,pocketDepth);
+    crease=(1.-smoothstep(-.12,1.65+1.30*upper+.6*(fibers-.5),d))*mix(.24,1.,buried);
     if (pass==2) {
       // The rolled lip reveals brighter tips above a darker, compressed undercoat.
       pileRelief=((tip-.46)*.16+(fibers-.48)*.11)*(1.-smoothstep(1.5,3.65,d));
     }
-    contact=1.-smoothstep(-.04,.38,d);
+    contact=(1.-smoothstep(-.04,.38,d))*mix(.35,1.,buried);
     float lip = smoothstep(.03,.49,d)*(1.-smoothstep(1.10,3.65,d));
     float gathered=clamp(.22-.52*outward.x+1.14*outward.y,0.,1.22);
     float tipLight=previousLighting ? .16+.25*fibers : .14+.22*fibers;
