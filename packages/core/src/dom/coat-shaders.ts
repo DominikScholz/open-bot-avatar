@@ -1,3 +1,5 @@
+import { COAT_RAMP_RANGE } from './coat-ramp.ts';
+
 // Coordinates stay on the avatar's front surface, so the recess turns with the head.
 const socketField = `
 uniform highp sampler2D eyeField;
@@ -126,6 +128,7 @@ export const coatFragment = `#version 300 es
 precision highp float;
 precision highp int;
 uniform sampler2D pile;
+uniform sampler2D dyeRamp;
 uniform highp sampler3D brushedPile;
 uniform bool brushed;
 uniform vec3 color, ink;
@@ -155,19 +158,6 @@ float brushedHeight(){
   }
   float tuft=texture(brushedPile,uvw*.42).r;
   return clamp(.5+1.65*(locks/16.-.5)+.16*(tuft-.5),0.,1.);
-}
-// Scale the dye's value for recesses and fiber texture. At the bright end
-// sRGB runs out of headroom in the strongest channel. Lift the other dyed
-// channels most where they already carry color, with a small surface glint.
-vec3 litPile(float diffuseLevel, float fiberLight){
-  float value=max(color.r,max(color.g,color.b));
-  vec3 dye=value>0. ? color/value : vec3(1.);
-  float weakest=min(dye.r,min(dye.g,dye.b));
-  // The weakest channel controls saturation. Its glint can lift at most
-  // nine percent of the distance to white, regardless of the chosen swatch.
-  vec3 scatter=(1.-dye)*(.09+.91*(dye-weakest))*clamp(1.85*fiberLight,0.,1.);
-  float brightness=clamp(value*diffuseLevel+(.35+.65*value)*fiberLight,0.,1.);
-  return (dye+scatter)*brightness;
 }
 void main(){
   vec3 n=normalize(N);
@@ -254,12 +244,15 @@ void main(){
     base=dye*(1.-.54*occlusion)+reflected*(1.-crease)+color*pileRelief;
     base*=1.-(.51+.04*upper)*contact;
     base+=mix(color,vec3(1.),.10)*lipLight;
+    base*=pileFill;
   } else {
-    float fiberLight=sheen+.46*grazing*backlit*rimExposure;
+    float fiberLight=(sheen+.46*grazing*backlit*rimExposure)*(1.-crease)+lipLight;
     diffuseLevel=(diffuseLevel*(1.-.48*occlusion)+pileRelief)*(1.-(.36+.04*upper)*contact);
-    base=litPile(diffuseLevel,fiberLight*(1.-crease)+lipLight);
+    // Match the yellow coat's relief. Past full diffuse exposure, fiber
+    // glints still lift the tips. The same signal drives every dye.
+    float lighting=(min(diffuseLevel+fiberLight,1.)+.18*fiberLight)*pileFill;
+    base=texture(dyeRamp,vec2(lighting/${COAT_RAMP_RANGE},.5)).rgb;
   }
-  base*=pileFill;
   if(pass==0 && d<3.7) {
     vec2 curve=local.xy*.94;
     vec3 dome=normalize(vec3(curve,sqrt(max(.02,1.-dot(curve,curve)))));

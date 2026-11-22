@@ -3,6 +3,7 @@ import type { EyeMark, ViewBasis } from '../render.ts';
 import type { Volume } from '../volume.ts';
 import { coatMesh } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
+import { coatRamp, COAT_RAMP_SIZE } from './coat-ramp.ts';
 
 export type Coat = 'brushed' | 'shell' | 'fleece';
 export type CoatLighting = 'current' | 'previous';
@@ -79,6 +80,13 @@ function makePainter(){
   gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.generateMipmap(gl.TEXTURE_3D);
   gl.uniform1i(loc('brushedPile'), 2);
+  gl.activeTexture(gl.TEXTURE3);
+  gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, COAT_RAMP_SIZE, 1);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(loc('dyeRamp'), 3);
   gl.activeTexture(gl.TEXTURE1); // Eye distance tiles are updated on this unit.
   const regionUniform = loc('eyeRegion[0]'), inkUniform = loc('ink');
   const previousLightingUniform = loc('previousLighting');
@@ -158,7 +166,12 @@ function makePainter(){
     if(color!==lastColor){
       swatch.fillStyle=color;swatch.fillRect(0,0,1,1);
       const rgba=swatch.getImageData(0,0,1,1).data;
-      gl.uniform3f(u.color,rgba[0]/255,rgba[1]/255,rgba[2]/255);lastColor=color;
+      gl.uniform3f(u.color,rgba[0]/255,rgba[1]/255,rgba[2]/255);
+      const ramp = coatRamp([rgba[0], rgba[1], rgba[2]]);
+      gl.activeTexture(gl.TEXTURE3);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, COAT_RAMP_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, ramp);
+      gl.activeTexture(gl.TEXTURE1);
+      lastColor=color;
     }
     if (ink !== lastInk) {
       swatch.fillStyle=ink; swatch.fillRect(0,0,1,1);
