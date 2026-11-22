@@ -11,6 +11,19 @@ function sample(rgb: Rgb, lighting: number): Rgb {
 }
 
 describe('plush dye ramp', () => {
+  it('restores the yellow response across the whole lighting range and blends neighboring dyes', () => {
+    const weights = (hex: string) => coatRamp(parseHex(hex)!).filter((_, index) => index % 4 === 3);
+    for (const hex of ['#ffcf36', '#f8a01c', '#ffff00']) {
+      expect(weights(hex).every(weight => weight === 255)).toBe(true);
+    }
+    for (const hex of ['#8b5cf6', '#1fbf68', '#b0df36', '#ffffff', '#303000']) {
+      expect(weights(hex).every(weight => weight === 0)).toBe(true);
+    }
+    for (const hex of ['#edfd4a', '#fff2b4', '#808000']) {
+      expect(weights(hex).every(weight => weight > 0 && weight < 255)).toBe(true);
+    }
+  });
+
   it('gives yellow, purple and green the same perceptual range from fiber roots to tips', () => {
     const ranges = ['#ffcf36', '#8b5cf6', '#1fbf68'].map(hex => {
       const dye = parseHex(hex)!;

@@ -248,10 +248,19 @@ void main(){
   } else {
     float fiberLight=(sheen+.46*grazing*backlit*rimExposure)*(1.-crease)+lipLight;
     diffuseLevel=(diffuseLevel*(1.-.48*occlusion)+pileRelief)*(1.-(.36+.04*upper)*contact);
-    // Match the yellow coat's relief. Past full diffuse exposure, fiber
-    // glints still lift the tips. The same signal drives every dye.
     float lighting=(min(diffuseLevel+fiberLight,1.)+.18*fiberLight)*pileFill;
-    base=texture(dyeRamp,vec2(lighting/${COAT_RAMP_RANGE},.5)).rgb;
+    vec4 ramp=texture(dyeRamp,vec2(lighting/${COAT_RAMP_RANGE},.5));
+    base=ramp.rgb;
+    if(ramp.a>0.){
+      // On yellow, the dyed roots and the light scattered by the tips can
+      // have the same lightness and still differ in color.
+      float value=max(color.r,max(color.g,color.b));
+      vec3 dye=color/max(value,.001);
+      float weakest=min(dye.r,min(dye.g,dye.b));
+      vec3 scatter=(1.-dye)*(.09+.91*(dye-weakest))*clamp(1.85*fiberLight,0.,1.);
+      float brightness=clamp(value*diffuseLevel+(.35+.65*value)*fiberLight,0.,1.);
+      base=mix(base,(dye+scatter)*brightness*pileFill,ramp.a);
+    }
   }
   if(pass==0 && d<3.7) {
     vec2 curve=local.xy*.94;

@@ -11,12 +11,22 @@ function shoulder(distance: number, room: number): number {
   return distance <= knee ? distance : room - knee * Math.exp((knee - distance) / knee);
 }
 
-/** One sRGB texture row per dye. The shader samples it directly for roots, tips and sockets. */
+function smoothstep(low: number, high: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - low) / (high - low)));
+  return t * t * (3 - 2 * t);
+}
+
+/** RGB holds the balanced dye ramp. Alpha selects the original yellow fiber response. */
 export function coatRamp(rgb: Rgb): Uint8Array<ArrayBuffer> {
   const key = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
   const cached = ramps.get(key);
   if (cached) return cached;
   const [lightness, chroma, hue] = toOklch(rgb);
+  // Amber through lemon retain their separate diffuse and glint colors.
+  // Fade into the shared ramp for neighboring hues, pale creams and dark olives.
+  const yellow = (1 - smoothstep(22, 32, Math.abs(hue - 90)))
+    * smoothstep(.025, .085, chroma) * smoothstep(.54, .75, lightness);
+  const yellowWeight = Math.round(255 * yellow);
   // Bound the brightest tip by the dye. Where a channel is already full,
   // lift the other dyed channels more than the weakest one.
   const value = Math.max(...rgb);
@@ -37,7 +47,7 @@ export function coatRamp(rgb: Rgb): Uint8Array<ArrayBuffer> {
     const [r, g, b] = delta <= 0
       ? oklch(L, midChroma * L / mid, hue)
       : mix(midColor, peak, shoulder(delta, headroom) / headroom);
-    row.set([Math.round(r), Math.round(g), Math.round(b), 255], i * 4);
+    row.set([Math.round(r), Math.round(g), Math.round(b), yellowWeight], i * 4);
   }
   if (ramps.size >= 64) ramps.delete(ramps.keys().next().value!);
   ramps.set(key, row);
