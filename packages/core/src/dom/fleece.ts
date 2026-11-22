@@ -1,10 +1,11 @@
-import { EYE_TILE, EXPOSED_EYE_HEIGHT, SOCKET_PAD, eyeBox, eyeDistanceTile } from './eye.ts';
+import { EYE_TILE, exposedHeight, SOCKET_PAD, eyeBox, eyeDistanceTile } from './eye.ts';
 import type { FrameShape, ViewBasis } from '../render.ts';
 import type { Volume } from '../volume.ts';
 import { coatMesh } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
 
 export type Coat = 'velvet' | 'shell' | 'fleece';
+export type CoatLighting = 'current' | 'previous';
 
 // Tileable strand-density texture. Shells sample different thresholds of the same locks.
 function densityTile(): HTMLCanvasElement {
@@ -65,6 +66,7 @@ function makePainter(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.uniform1i(loc('eyeField'), 1);
   const regionUniform = loc('eyeRegion[0]'), inkUniform = loc('ink');
+  const previousLightingUniform = loc('previousLighting');
   const sizeUniform = loc('eyeSize[0]'), eyeSizes = new Float32Array(4);
   const regions = new Float32Array(8), previousRegions = new Float32Array(8);
   const contours = ['', ''];
@@ -86,8 +88,9 @@ function makePainter(){
   let previous:Volume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
   let lastColor='', lastInk='';
   let lastPixels=0, lastView:ViewBasis|undefined, lastCoat:Coat|undefined;
+  let lastLighting: CoatLighting | undefined;
   const swatch=document.createElement('canvas').getContext('2d',{willReadFrequently:true})!;
-  return (vol:Volume,v:ViewBasis,color:string,coat:Coat,scale:number,ink:string,shapes:FrameShape[])=>{
+  return (vol:Volume,v:ViewBasis,color:string,coat:Coat,scale:number,ink:string,shapes:FrameShape[],lighting:CoatLighting='current')=>{
     if(gl.isContextLost())return null;
     const geometryChanged = previous !== vol;
     if(geometryChanged){
@@ -111,7 +114,7 @@ function makePainter(){
       const mark = shape.mark;
       const { x, y, w, h } = eyeBox(mark);
       const cx = x+w/2, cy = y+h/2, span = Math.max(w,h)+2*SOCKET_PAD;
-      eyeSizes.set([w, h*EXPOSED_EYE_HEIGHT], 2*slot);
+      eyeSizes.set([w, h*exposedHeight(w,h)], 2*slot);
       regions.set([cx, cy, span, vol.eyeZ[slot]+.8], 4*slot);
       // Gaze translates the tile. Only a change of contour needs a new distance field.
       const key = mark.shape === 'pill' ? [w,h,mark.radius].join('|') : JSON.stringify(mark);
@@ -133,7 +136,7 @@ function makePainter(){
     // Root motion is composited separately. Reuse the GPU image
     // until the change in surface projection reaches about a tenth of a pixel.
     const tolerance=.1/(radius*scale);
-    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && coat===lastCoat && pixels===lastPixels && lastView &&
+    if(!geometryChanged && !eyesChanged && ink===lastInk && color===lastColor && coat===lastCoat && lighting===lastLighting && pixels===lastPixels && lastView &&
        Math.abs(v.cY-lastView.cY)+Math.abs(v.sY-lastView.sY)+Math.abs(v.sP-lastView.sP)+Math.abs(v.cP-lastView.cP)<tolerance) return result;
     lastPixels=pixels; lastView=v; lastCoat=coat;
     if(canvas.width!==pixels || canvas.height!==pixels)canvas.width=canvas.height=pixels;
@@ -152,6 +155,10 @@ function makePainter(){
       lastInk=ink;
     }
     gl.uniformMatrix3fv(u.view,false,viewMatrix);
+    if (lighting !== lastLighting) {
+      gl.uniform1i(previousLightingUniform, lighting === 'previous' ? 1 : 0);
+      lastLighting = lighting;
+    }
     gl.uniform1i(u.technique,coat==='velvet'?0:1);
     gl.uniform1i(u.pass,0); gl.bindVertexArray(surface);
     gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);

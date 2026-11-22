@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
-import { Icon } from "./ui";
+import { Icon, Segmented } from "./ui";
 import { FaceToggle, MOODS, STATES, StatePills } from "./pickers";
 
 import { COATS, type Coat } from "./look";
@@ -36,6 +36,7 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 export function Stage({ coat, onCoat, definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [coatLighting, setCoatLighting] = useState<"current" | "previous">("current");
   const easing = useRef(0);
   const turned = Math.abs(view.yaw) > 0.01 || Math.abs(view.pitch) > 0.01;
 
@@ -138,6 +139,7 @@ export function Stage({ coat, onCoat, definition, color, state, mood, followCurs
         definition={definition}
         color={color}
         material={coat}
+        coatLighting={coatLighting}
         state={state}
         mood={mood}
         view={view}
@@ -168,11 +170,17 @@ export function Stage({ coat, onCoat, definition, color, state, mood, followCurs
       <h1 className="sr-only">{definition.name}</h1>
       {preview}
       <div className="stage-picks">
-        <label className="coat-picker">Material
-          <select value={coat} onChange={e => onCoat(e.target.value as Coat)}>
-            {COATS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
+        <div className="material-controls">
+          <label className="coat-picker">Material
+            <select value={coat} onChange={e => onCoat(e.target.value as Coat)}>
+              {COATS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+          {coat !== "flat" && (
+            <Segmented label="Compare plush lighting" value={coatLighting} onChange={setCoatLighting}
+              options={[{ value: "previous", label: "Previous" }, { value: "current", label: "Current" }]} />
+          )}
+        </div>
         <StatePills state={state} onState={onState} />
       </div>
       {children}

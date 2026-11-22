@@ -13,7 +13,7 @@
  * overhangs it by the avatar's reach and ignores the pointer.
  */
 import { eye, eyeBox } from './eye.ts';
-import { renderCoat, type Coat } from './fleece.ts';
+import { renderCoat, type Coat, type CoatLighting } from './fleece.ts';
 import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
@@ -143,7 +143,7 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
 }
 
 /** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: Coat | 'flat') {
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: Coat | 'flat', lighting?: CoatLighting) {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -177,7 +177,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const view = frame.surfaceView;
   const coated = material && material !== 'flat' && view && view.scale > .001 && surface.depth !== 0
     ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, material, scale, ink, frame.shapes)
+        view.basis, fill, material, scale, ink, frame.shapes, lighting)
     : null;
   let bodyDrawn = false;
   const drawCoat = () => {

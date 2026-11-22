@@ -19,6 +19,7 @@ import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
+import type { CoatLighting } from './fleece.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
@@ -26,6 +27,8 @@ import { prefersReducedMotion } from './reduced.ts';
 export interface AvatarOptions {
   /** Surface finish for the live canvas renderer. */
   material?: 'flat' | 'velvet' | 'shell' | 'fleece';
+  /** Compare the current dyed-fiber lighting with the previous sheen on plush materials. */
+  coatLighting?: CoatLighting;
   definition: AvatarDefinition;
   /** Body color: #rgb or #rrggbb, or any CSS color (e.g. var(--brand)). */
   color?: string;
@@ -291,7 +294,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
         const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
         const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
-        paintCanvas(surface, flat, size, fill, ink, p.material);
+        paintCanvas(surface, flat, size, fill, ink, p.material, p.coatLighting);
         failed = false;
         return !reducedMotion || step.moving;
       }

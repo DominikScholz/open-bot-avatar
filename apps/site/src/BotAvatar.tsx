@@ -29,10 +29,10 @@ export function BotAvatar({ size, className, style, ...options }: BotAvatarProps
     };
   }, []);
 
-  const { definition, material, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label } = options;
+  const { definition, material, coatLighting, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label } = options;
   useEffect(() => {
     avatar.current?.update(latest.current);
-  }, [definition, material, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label]);
+  }, [definition, material, coatLighting, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label]);
 
   return (
     <div
