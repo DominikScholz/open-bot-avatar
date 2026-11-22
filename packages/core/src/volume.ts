@@ -69,17 +69,15 @@ export interface Volume {
   bounds: Bounds;
   /** Index of the part carrying the eyes. */
   eyePart: number;
-  /** Depth of each eye's plane: the highest surface under the eye and its gaze travel. */
+  /** Highest host surface under each eye and its gaze travel, for socket mapping. */
   eyeZ: [number, number];
   /** Drawn eye scale: the definition's scale enlarged as far as the body allows (see EYE_BOOST). */
   eyeScale: number;
-  /**
-   * Host surface normals under each eye (left edge, center, right edge). On a
-   * curved host an eye is hidden once any of them turns away, so a flat eye
-   * never hangs past the curved silhouette.
-   */
-  eyeNormals: [Vec3[], Vec3[]];
+  /** Tangent plane at each eye center for the flat, projected marks. */
+  eyePlanes: [EyePlane, EyePlane];
 }
+
+export interface EyePlane { x: number; y: number; z: number; dzdx: number; dzdy: number }
 
 export type Vec3 = [number, number, number];
 
@@ -616,7 +614,7 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
     if (z > bestZ) { bestZ = z; eyePart = i; }
   });
   const host = parts[eyePart];
-  // Flat eye planes sit at the highest surface under the eye and its gaze travel, so the body never cuts them.
+  // Limit the socket to its host even when a taller part overlaps the face.
   const w = (EYE_W * eyeScale) / 2 + GAZE_X * eyeScale, hh = (EYE_H * eyeScale) / 2 + GAZE_Y * eyeScale;
   const eyeZ = centers.map(([x, y]) => {
     let top = 0;
@@ -624,18 +622,15 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
     return top;
   }) as [number, number];
 
-  const normal = (x: number, y: number): Vec3 => {
-    if (!host) return [0, 0, 1];
-    const e = 0.75;
-    const gx = (host.height(x + e, y) - host.height(x - e, y)) / (2 * e);
-    const gy = (host.height(x, y + e) - host.height(x, y - e)) / (2 * e);
-    const n = Math.hypot(gx, gy, 1);
-    return [-gx / n, -gy / n, 1 / n];
-  };
-  const half = (EYE_W * eyeScale) / 2;
-  const eyeNormals = centers.map(([x, y]) => [normal(x - half, y), normal(x, y), normal(x + half, y)]) as [Vec3[], Vec3[]];
+  const eyePlanes = centers.map(([x, y]) => {
+    if (!host) return { x, y, z: 0, dzdx: 0, dzdy: 0 };
+    const e = .75;
+    const dzdx = (host.height(x + e, y) - host.height(x - e, y)) / (2 * e);
+    const dzdy = (host.height(x, y + e) - host.height(x, y - e)) / (2 * e);
+    return { x, y, z: host.height(x, y), dzdx, dzdy };
+  }) as [EyePlane, EyePlane];
 
-  return { parts, bounds: body.bounds, eyePart, eyeZ, eyeScale, eyeNormals };
+  return { parts, bounds: body.bounds, eyePart, eyeZ, eyeScale, eyePlanes };
 }
 
 /** Largest eye scale up to EYE_BOOST × the definition's whose drawn eyes keep EYE_BOOST_PAD from the outline. */

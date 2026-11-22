@@ -177,7 +177,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const view = frame.surfaceView;
   const coated = material && material !== 'flat' && view && view.scale > .001 && surface.depth !== 0
     ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
-        view.basis, fill, material, scale, ink, frame.shapes, lighting)
+        view.basis, fill, material, scale, ink, view.eyes, lighting)
     : null;
   let bodyDrawn = false;
   const drawCoat = () => {

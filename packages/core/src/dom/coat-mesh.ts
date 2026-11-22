@@ -2,10 +2,13 @@
 // gives the coat a closed surface, including the backs of ears and the walls of holes.
 import { edgeDistance, type Volume } from '../volume.ts';
 import { isInside } from '../path.ts';
+import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC } from '../validate.ts';
+import { SOCKET_PAD } from './eye.ts';
 
 export interface CoatMesh {
   vertices: Float32Array; // position and outward normal
   indices: Uint32Array;
+  socketIndices: number; // prefix covering the eye regions, including gaze travel
   roots: Float32Array; // independent, area-weighted samples for instancing
 }
 
@@ -85,5 +88,42 @@ export function coatMesh(vol: Volume): CoatMesh {
       roots.push(random(),random());
     }
   }
-  return {vertices:new Float32Array(vertices),indices:new Uint32Array(indices),roots:new Float32Array(roots)};
+  // The body grid is too coarse to describe a bead in profile. Refine only
+  // the front triangles within reach of a socket, after sampling hair roots.
+  const padEye = SOCKET_PAD + 2 * step;
+  const reachX = vol.eyeScale * (EYE_W * (HAPPY_ARC.halfWidth + HAPPY_ARC.stroke / 2) + GAZE_X) + padEye;
+  const reachY = vol.eyeScale * (EYE_H / 2 + GAZE_Y) + padEye;
+  const socket: number[] = [], body: number[] = [];
+  const midpoints = new Map<string, number>();
+  function midpoint(a: number, b: number) {
+    const key = `${Math.min(a, b)},${Math.max(a, b)}`;
+    const cached = midpoints.get(key);
+    if (cached !== undefined) return cached;
+    const id = vertices.length / 6;
+    for (let k = 0; k < 6; k++) vertices.push((vertices[6 * a + k] + vertices[6 * b + k]) / 2);
+    midpoints.set(key, id);
+    return id;
+  }
+  function refine(a: number, b: number, c: number, level: number) {
+    if (level === 0) {
+      socket.push(a, b, c);
+      return;
+    }
+    const ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
+    refine(a, ab, ca, level - 1);
+    refine(ab, b, bc, level - 1);
+    refine(ca, bc, c, level - 1);
+    refine(ab, bc, ca, level - 1);
+  }
+  for (let i = 0; i < indices.length; i += 3) {
+    const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+    const x = vertices[6 * a], y = vertices[6 * a + 1], z = vertices[6 * a + 2];
+    if (z >= -2 * step && vol.eyePlanes.some(eye => Math.abs(eye.x - x) <= reachX && Math.abs(eye.y - y) <= reachY)) {
+      refine(a, b, c, 2);
+    } else body.push(a, b, c);
+  }
+  return {
+    vertices: new Float32Array(vertices), indices: new Uint32Array(socket.concat(body)),
+    socketIndices: socket.length, roots: new Float32Array(roots),
+  };
 }

@@ -58,10 +58,12 @@ void main(){
   vec2 uv; vec3 local;
   float d=socketDistance(position,n,uv,local);
   float wall=1.-smoothstep(-.35,2.30,d);
-  // Compress the pile and lower the host surface. The rounded bead rises
-  // slightly from the socket floor while its edge remains buried.
   float seat=min(1.55,max(0.,position.z)*.40);
-  p.z -= seat * (wall - .40*smoothstep(0.,2.4,-d));
+  // A recessed rim surrounds a rounded cap. Its center sits just above
+  // the pile, so the depth buffer can resolve its profile as the head turns.
+  float dome=sqrt(max(0.,1.-dot(local.xy,local.xy)));
+  float cap=mix(smoothstep(0.,1.3,-d),dome,local.z)*smoothstep(-.15,.38,-d);
+  p.z += seat * (1.30*cap - .35*wall);
   float loft=mix(.14,1.,smoothstep(.0,3.1,d));
   tip=0.; variation=.5; across=0.;
   if(pass==1){
@@ -106,17 +108,9 @@ void main(){
     variation=seed.x;
   }
   vec3 projected=view*(p-pivot);
-  // Evaluate strand coverage at the tapered tip as well as at its root.
-  P=position;
-  if(pass==2){
-    P.xy=p.xy;
-    // Clip the tips at the visible mouth of the socket. An elevated strand
-    // otherwise projects across the bead long before it reaches its rim.
-    if(view[2].z>.22){
-      vec2 slant=vec2(view[0].z,view[1].z)/view[2].z;
-      P.xy-=slant*max(0.,p.z-position.z+seat);
-    }
-  }
+  // Test displaced shell and strand tips in the socket's model-space
+  // footprint. Their visibility against the bead follows actual depth.
+  P=vec3(p.xy,position.z);
   N=view*shadingNormal;
   V=normal;
   gl_Position=vec4(projected.x,-projected.y,-projected.z, radius)/radius;
@@ -180,6 +174,11 @@ void main(){
   float rimExposure=1.;
   vec2 uv; vec3 local;
   float d=socketDistance(P,normalize(V),uv,local);
+  if (pass==3) {
+    if (d>=0.) discard;
+    result=vec4(0.);
+    return;
+  }
   if(pass==1 && d<.1) discard;
   if(pass==2 && d<.10-.08*variation) discard;
   float pileFill=1.;
