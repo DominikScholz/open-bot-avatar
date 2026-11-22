@@ -1,5 +1,5 @@
 import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
-import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
+import { DEFAULT_LOOK, PALETTE, defaultColor, readCoat, type Coat, type LookState } from "./look";
 
 /**
  * Links that open the studio on an avatar, all read and written in the browser:
@@ -13,6 +13,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, type LookState } from "./look";
  *                            validated like an import, then added to yours and selected
  */
 export interface SharedLook {
+  coat?: Coat;
   avatar?: string;
   definition?: AvatarDefinition;
   color?: string;
@@ -63,6 +64,8 @@ function readColor(value: string | null): string | undefined {
 export function readShare(search: string): SharedLook {
   const params = new URLSearchParams(search);
   const shared: SharedLook = {};
+  const coat = readCoat(params.get("coat"));
+  if (coat) shared.coat = coat;
   const def = params.get("def");
   if (def) {
     const decoded = decodeDefinition(def);
@@ -89,7 +92,7 @@ export function readShare(search: string): SharedLook {
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { color: string; state: LookState["state"]; mood: LookState["mood"] },
+  look: { coat?: Coat; color: string; state: LookState["state"]; mood: LookState["mood"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);
@@ -99,6 +102,7 @@ export function shareLink(
     const swatch = PALETTE.find((c) => c.value === color);
     params.set("color", swatch ? swatch.name.toLowerCase() : color.replace(/^#/, ""));
   }
+  if (look.coat) params.set("coat", look.coat);
   if (look.state !== DEFAULT_LOOK.state) params.set("state", look.state);
   if (look.mood !== DEFAULT_LOOK.mood) params.set("mood", look.mood);
   return `${base}?${params}`;

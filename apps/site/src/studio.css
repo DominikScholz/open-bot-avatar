@@ -1578,3 +1578,7 @@ body {
   margin: 0;
   background: #111111;
 }
+
+.stage-picks:has(.coat-picker) { flex-direction: column; align-items: center; gap: 10px; }
+.coat-picker { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.coat-picker select { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }

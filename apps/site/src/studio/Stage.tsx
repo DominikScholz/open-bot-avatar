@@ -4,9 +4,13 @@ import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
 import { FaceToggle, MOODS, STATES, StatePills } from "./pickers";
 
+import { COATS, type Coat } from "./look";
+
 export type ViewAngle = { yaw: number; pitch: number };
 
 interface StageProps {
+  coat: Coat;
+  onCoat: (coat: Coat) => void;
   definition: AvatarDefinition;
   color: string;
   state: AvatarState;
@@ -29,7 +33,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
+export function Stage({ coat, onCoat, definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -133,6 +137,7 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
         className="avatar-view stage-avatar"
         definition={definition}
         color={color}
+        material={coat}
         state={state}
         mood={mood}
         view={view}
@@ -163,6 +168,11 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
       <h1 className="sr-only">{definition.name}</h1>
       {preview}
       <div className="stage-picks">
+        <label className="coat-picker">Material
+          <select value={coat} onChange={e => onCoat(e.target.value as Coat)}>
+            {COATS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
         <StatePills state={state} onState={onState} />
       </div>
       {children}

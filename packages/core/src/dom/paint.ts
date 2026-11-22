@@ -12,7 +12,8 @@
  * The canvas sits in a wrapper at the host's content box, as the scene does,
  * overhangs it by the avatar's reach and ignores the pointer.
  */
-import { avatarExtent } from '../render.ts';
+import { renderCoat, type Coat } from './fleece.ts';
+import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 
@@ -147,11 +148,30 @@ function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
   ctx.fill();
 }
 
+/** A broad reflected light over the original pill, arc or animated eye path. */
+function shadeEye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
+  const { x, y, w, h } = eyeBox(mark);
+  if (!(w > 0 && h > 0)) return;
+  const gloss = ctx.createRadialGradient(
+    x + .31*w, y + .22*h, 0,
+    x + .47*w, y + .31*h, Math.max(.85*w, .62*h),
+  );
+  gloss.addColorStop(0, 'rgba(225,234,248,.19)');
+  gloss.addColorStop(.40, 'rgba(225,234,248,.045)');
+  gloss.addColorStop(.72, 'rgba(7,5,11,.12)');
+  gloss.addColorStop(1, 'rgba(7,5,11,.28)');
+  ctx.fillStyle = ctx.strokeStyle = gloss;
+  eye(ctx, mark);
+}
+
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
 export interface CanvasSurface {
   key: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
+  volume?: ReturnType<typeof preparedVolume>['vol'];
+  definition: AvatarDefinition;
+  depth?: number;
   cap: Square;
   fit: Square | null;
   layout: string;
@@ -169,11 +189,11 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   canvas.style.cssText = 'position:absolute';
   wrap.append(canvas);
   el.replaceChildren(wrap);
-  return { key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0 };
+  return { key, definition, depth, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0 };
 }
 
 /** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink) {
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material?: Coat | 'flat') {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -184,6 +204,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!sections.has(id)) sections.set(id, { path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
+  if (material && material !== 'flat') {
+    bounds.x0 -= 3; bounds.y0 -= 3; bounds.x1 += 3; bounds.y1 += 3;
+  }
   const fit = fitSquare(surface.layout === layout ? surface.fit : null, bounds, surface.cap);
   if (surface.layout === layout && fit === surface.fit) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -201,6 +224,19 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
   }
 
+  const view = frame.surfaceView;
+  const coated = material && material !== 'flat' && view && view.scale > .001 && surface.depth !== 0
+    ? renderCoat(surface.volume ??= preparedVolume(surface.definition, surface.depth).vol,
+        view.basis, fill, material, scale)
+    : null;
+  let bodyDrawn = false, eyesDrawn = false;
+  const drawCoat = () => {
+    if (!coated || !view) return;
+    const [a,b,c,d,e,f] = frame.root;
+    ctx.setTransform(scale*a,scale*b,scale*c,scale*d,scale*e-surface.left,scale*f-surface.top);
+    const radius = coated.radius * view.scale;
+    ctx.drawImage(coated.canvas,coated.cx-radius,coated.cy-radius,2*radius,2*radius);
+  };
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
@@ -210,10 +246,34 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
-      ctx.fill(section.path, section.rule);
+      if (!coated || shape.key.startsWith('mark-')) {
+        ctx.fill(section.path, section.rule);
+      } else if (!bodyDrawn) {
+        drawCoat();
+        bodyDrawn = true;
+      } else if (eyesDrawn) {
+        // Preserve the original painter's eye occlusion when another part passes in front.
+        ctx.save();
+        ctx.clip(section.path, section.rule);
+        drawCoat();
+        ctx.restore();
+      }
     } else if (shape.kind === 'eye') {
+      eyesDrawn = true;
       ctx.fillStyle = ink;
-      eye(ctx, shape.mark);
+      if (coated) {
+        // Canvas shadows use device pixels even when the face plane is transformed.
+        const pixel = scale * Math.hypot(m[2], m[3]);
+        ctx.save();
+        ctx.shadowColor = 'rgba(26,15,21,.40)';
+        ctx.shadowBlur = pixel * .62;
+        ctx.shadowOffsetX = pixel * .12;
+        ctx.shadowOffsetY = pixel * .32;
+        eye(ctx, shape.mark);
+        ctx.restore();
+        shadeEye(ctx, shape.mark);
+        ctx.strokeStyle = ink;
+      } else eye(ctx, shape.mark);
       ctx.fillStyle = fill;
     } else {
       const g = shape.gradient;

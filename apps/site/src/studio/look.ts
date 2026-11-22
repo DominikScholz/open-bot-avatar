@@ -3,7 +3,20 @@ import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
 
+export const COATS = [
+  { value: "fleece", label: "Curled fibers" },
+  { value: "shell", label: "Shell fur" },
+  { value: "velvet", label: "Velvet sheen" },
+  { value: "flat", label: "Flat" },
+] as const;
+export type Coat = typeof COATS[number]["value"];
+
+export function readCoat(value: unknown): Coat | undefined {
+  return COATS.find(option => option.value === value)?.value;
+}
+
 export interface LookState {
+  coat: Coat;
   /** Colors picked for avatars, by library key; an avatar not in here shows its default color. */
   colors: Record<string, string>;
   /** What the bot is doing, and how it feels. */
@@ -32,6 +45,7 @@ export const PALETTE = [
 
 export const DEFAULT_LOOK: LookState = {
   colors: {},
+  coat: "fleece",
   state: "idle",
   mood: "neutral",
   followCursor: true,
@@ -76,6 +90,7 @@ export function reviveLook(raw: unknown): LookState | undefined {
       r.colors && typeof r.colors === "object"
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
+    coat: readCoat(r.coat) ?? DEFAULT_LOOK.coat,
     ...resolveLook({ state: r.state, mood: r.mood, motion: r.motion }),
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",

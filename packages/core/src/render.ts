@@ -433,6 +433,8 @@ export interface FramePath {
  * renderer (SVG, canvas, Skia, react-native-svg) can draw it.
  */
 export interface AvatarFrame {
+  /** Projection shared by the optional surface material and the face. */
+  surfaceView?: { basis: ViewBasis; scale: number };
   name: string;
   color: string;
   ink: string;
@@ -642,6 +644,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {
+    surfaceView: size === undefined ? undefined : { basis: v, scale: fx.body },
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
   };

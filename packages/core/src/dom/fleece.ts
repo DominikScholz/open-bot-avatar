@@ -1,0 +1,168 @@
+import type { ViewBasis } from '../render.ts';
+import type { Volume } from '../volume.ts';
+import { coatMesh } from './coat-mesh.ts';
+import { coatVertex, coatFragment, depthVertex, depthFragment } from './coat-shaders.ts';
+
+export type Coat = 'velvet' | 'shell' | 'fleece';
+
+// Tileable strand-density texture. Shells sample different thresholds of the same locks.
+function densityTile(): HTMLCanvasElement {
+  const tile=document.createElement('canvas');
+  tile.width=tile.height=128;
+  const g=tile.getContext('2d')!;
+  g.fillStyle='#252525'; g.fillRect(0,0,128,128); g.lineCap='round';
+  let seed=9213;
+  const random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296);
+  for(let i=0;i<1400;i++){
+    const x=random()*128,y=random()*128;
+    const angle=2.4*Math.sin(y*Math.PI/32)+1.4*Math.cos(x*Math.PI/32)+(random()-.5)*3.3;
+    const dx=Math.cos(angle),dy=Math.sin(angle),length=3+random()*8,curl=(random()-.5)*length;
+    const grey=Math.round(55+200*random());
+    g.strokeStyle='rgb('+grey+' '+grey+' '+grey+')'; g.lineWidth=.8+random()*1.5;
+    for(const ox of [-128,0,128])for(const oy of [-128,0,128]){
+      if(x+ox < -12 || x+ox>140 || y+oy < -12 || y+oy>140)continue;
+      g.beginPath();g.moveTo(x+ox,y+oy);
+      g.quadraticCurveTo(x+ox+dx*length*.5-dy*curl,y+oy+dy*length*.5+dx*curl,x+ox+dx*length,y+oy+dy*length);
+      g.stroke();
+    }
+  }
+  return tile;
+}
+
+function linkProgram(gl: WebGL2RenderingContext, vertex: string, fragment: string) {
+  const program=gl.createProgram()!;
+  for(const [kind,source] of [[gl.VERTEX_SHADER,vertex],[gl.FRAGMENT_SHADER,fragment]] as const){
+    const shader=gl.createShader(kind)!;
+    gl.shaderSource(shader,source); gl.compileShader(shader);
+    if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader)??'Coat shader compilation failed');
+    gl.attachShader(program,shader); gl.deleteShader(shader);
+  }
+  gl.linkProgram(program);
+  if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program)??'Coat shader linking failed');
+  return program;
+}
+
+function makePainter(){
+  const canvas=document.createElement('canvas');
+  const gl=canvas.getContext('webgl2',{alpha:true,antialias:true,premultipliedAlpha:true,preserveDrawingBuffer:true});
+  if(!gl)return null;
+  canvas.addEventListener('webglcontextlost', e => e.preventDefault());
+  canvas.addEventListener('webglcontextrestored', () => { painter = undefined; });
+  const depthProgram = linkProgram(gl, depthVertex, depthFragment);
+  const depthView = gl.getUniformLocation(depthProgram, 'view');
+  const depthPivot = gl.getUniformLocation(depthProgram, 'pivot');
+  const depthRadius = gl.getUniformLocation(depthProgram, 'radius');
+  const program = linkProgram(gl, coatVertex, coatFragment);
+  gl.useProgram(program);
+  const loc=(name:string)=>gl.getUniformLocation(program,name);
+  const u={view:loc('view'),pivot:loc('pivot'),extent:loc('extent'),radius:loc('radius'),shell:loc('shell'),pass:loc('pass'),technique:loc('technique'),color:loc('color')};
+  gl.bindTexture(gl.TEXTURE_2D,gl.createTexture());
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,densityTile());
+  gl.generateMipmap(gl.TEXTURE_2D);
+  const depthResolution = 384;
+  const lightBuffer = gl.createFramebuffer();
+  const depthTexture = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, depthTexture);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, depthResolution, depthResolution);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(loc('lightDepth'), 1);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, lightBuffer);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, depthTexture, 0);
+  gl.drawBuffers([gl.NONE]);
+  gl.readBuffer(gl.NONE);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    throw new Error('Cannot allocate the coat light-depth buffer');
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  const surface=gl.createVertexArray(),hairs=gl.createVertexArray();
+  const surfaceBuffer=gl.createBuffer(),hairBuffer=gl.createBuffer(),elements=gl.createBuffer();
+  for(const [vao,buffer,stride,divisor] of [[surface,surfaceBuffer,24,0],[hairs,hairBuffer,32,1]] as const){
+    gl.bindVertexArray(vao);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+    for(let i=0;i<(divisor?3:2);i++){
+      gl.enableVertexAttribArray(i);
+      gl.vertexAttribPointer(i,i===2?2:3,gl.FLOAT,false,stride,i*12);
+      gl.vertexAttribDivisor(i,divisor);
+    }
+    if(!divisor)gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,elements);
+  }
+  gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+  let previous:Volume|undefined,triangles=0,count=0,radius=0,cx=0,cy=0;
+  let lastColor='';
+  let lastPixels=0, lastView:ViewBasis|undefined, lastCoat:Coat|undefined;
+  const swatch=document.createElement('canvas').getContext('2d',{willReadFrequently:true})!;
+  return (vol:Volume,v:ViewBasis,color:string,coat:Coat,scale:number)=>{
+    if(gl.isContextLost())return null;
+    const geometryChanged = previous !== vol;
+    if(geometryChanged){
+      const mesh=coatMesh(vol);
+      gl.bindVertexArray(surface);gl.bindBuffer(gl.ARRAY_BUFFER,surfaceBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER,mesh.vertices,gl.STATIC_DRAW);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,mesh.indices,gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER,hairBuffer);gl.bufferData(gl.ARRAY_BUFFER,mesh.roots,gl.STATIC_DRAW);
+      const b=vol.bounds,rx=(b.maxX-b.minX)/2,ry=(b.maxY-b.minY)/2;
+      const rz=Math.max(.5,...vol.parts.map(p=>p.depth/2));
+      cx=b.minX+rx; cy=b.minY+ry; radius=Math.ceil(Math.hypot(rx,ry,rz)+4);
+      gl.uniform3f(u.pivot,cx,cy,0); gl.uniform3f(u.extent,rx,ry,rz);
+      gl.uniform1f(u.radius,radius);
+      triangles=mesh.indices.length;count=mesh.roots.length/8;previous=vol;
+    }
+    const pixels=Math.min(1024,Math.max(32,Math.ceil(2*radius*scale)));
+    const result={canvas,radius,cx,cy};
+    // Root motion and eye animation are composited separately. Reuse the GPU image
+    // until the change in surface projection reaches about a tenth of a pixel.
+    const tolerance=.1/(radius*scale);
+    if(!geometryChanged && color===lastColor && coat===lastCoat && pixels===lastPixels && lastView &&
+       Math.abs(v.cY-lastView.cY)+Math.abs(v.sY-lastView.sY)+Math.abs(v.sP-lastView.sP)+Math.abs(v.cP-lastView.cP)<tolerance) return result;
+    lastPixels=pixels; lastView=v; lastCoat=coat;
+    if(canvas.width!==pixels || canvas.height!==pixels)canvas.width=canvas.height=pixels;
+    const viewMatrix = [v.cY,v.sY*v.sP,-v.sY*v.cP, 0,v.cP,v.sP, v.sY,-v.cY*v.sP,v.facing];
+    gl.useProgram(depthProgram);
+    gl.uniformMatrix3fv(depthView, false, viewMatrix);
+    gl.uniform3f(depthPivot, cx, cy, 0);
+    gl.uniform1f(depthRadius, radius);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, lightBuffer);
+    gl.viewport(0, 0, depthResolution, depthResolution);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.bindVertexArray(surface);
+    gl.drawElements(gl.TRIANGLES, triangles, gl.UNSIGNED_INT, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(program);
+    gl.viewport(0,0,pixels,pixels);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    if(color!==lastColor){
+      swatch.fillStyle=color;swatch.fillRect(0,0,1,1);
+      const rgba=swatch.getImageData(0,0,1,1).data;
+      gl.uniform3f(u.color,rgba[0]/255,rgba[1]/255,rgba[2]/255);lastColor=color;
+    }
+    gl.uniformMatrix3fv(u.view,false,viewMatrix);
+    gl.uniform1i(u.technique,coat==='velvet'?0:1);
+    gl.uniform1i(u.pass,0); gl.bindVertexArray(surface);
+    gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
+    if(coat==='shell'){
+      gl.uniform1i(u.pass,1);
+      for(let layer=1;layer<=9;layer++){
+        gl.uniform1f(u.shell,layer/9);
+        gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
+      }
+    } else if(coat==='fleece'){
+      gl.uniform1i(u.pass,2);gl.bindVertexArray(hairs);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,8,count);
+    }
+    return result;
+  };
+}
+
+let painter: ReturnType<typeof makePainter> | undefined;
+export function renderCoat(...args: Parameters<NonNullable<typeof painter>>){
+  if (painter === undefined) {
+    painter = null;
+    try { painter = makePainter(); }
+    catch (error) { console.warn('Surface materials are unavailable.', error); }
+  }
+  return painter?.(...args)??null;
+}

@@ -24,6 +24,8 @@ import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
 export interface AvatarOptions {
+  /** Surface finish for the live canvas renderer. */
+  material?: 'flat' | 'velvet' | 'shell' | 'fleece';
   definition: AvatarDefinition;
   /** Body color: #rgb or #rrggbb, or any CSS color (e.g. var(--brand)). */
   color?: string;
@@ -289,7 +291,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
         const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
         const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
-        paintCanvas(surface, flat, size, fill, ink);
+        paintCanvas(surface, flat, size, fill, ink, p.material);
         failed = false;
         return !reducedMotion || step.moving;
       }

@@ -8,7 +8,7 @@ import { shareLink } from "./share";
 import { Icon, MenuButton } from "./ui";
 
 /** Export and Copy for the avatar on the stage, each offering its two versions, and Remove for one of yours. */
-export function Actions({ entry, color, state, mood, onRemove }: { entry: LibraryEntry; color: string; state: LookState["state"]; mood: LookState["mood"]; onRemove: (key: string) => void }) {
+export function Actions({ coat, entry, color, state, mood, onRemove }: { coat: LookState["coat"]; entry: LibraryEntry; color: string; state: LookState["state"]; mood: LookState["mood"]; onRemove: (key: string) => void }) {
   const [copied, flashCopied] = useFlash();
   const [problem, setProblem] = useState<string | null>(null);
   const { definition } = entry;
@@ -30,7 +30,7 @@ export function Actions({ entry, color, state, mood, onRemove }: { entry: Librar
           items={[
             {
               label: "Image",
-              hint: "SVG still, this color",
+              hint: "Flat SVG still, this color",
               onSelect: () => {
                 try {
                   downloadText(`${definition.id}.svg`, "image/svg+xml", renderAvatarSvg(definition, { color, size: 512, time: 0, reducedMotion: true }));
@@ -53,7 +53,7 @@ export function Actions({ entry, color, state, mood, onRemove }: { entry: Librar
               label: "Link",
               hint: "Opens it in this color, state and mood",
               onSelect: () => {
-                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, state, mood });
+                const link = shareLink(`${window.location.origin}${window.location.pathname}`, entry, { color, state, mood, coat });
                 void copy(link, `Couldn’t reach the clipboard. The link: ${link}`);
               },
             },

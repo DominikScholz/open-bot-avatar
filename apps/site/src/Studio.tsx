@@ -135,6 +135,7 @@ export function Studio() {
     // A link's color is for its avatar; without one it has nothing to apply to.
     setLook((prev) => {
       let next = link.state || link.mood ? { ...prev, state: link.state ?? prev.state, mood: link.mood ?? prev.mood } : prev;
+      if (link.coat) next = { ...next, coat: link.coat };
       if (link.color && target) next = withColor(next, target.key, target.id, link.color);
       return next;
     });
@@ -176,6 +177,8 @@ export function Studio() {
     <div className="app">
       <main className="editor">
         <Stage
+          coat={look.coat}
+          onCoat={(coat) => patchLook({ coat })}
           definition={selected.definition}
           color={color}
           state={look.state}
@@ -188,7 +191,7 @@ export function Studio() {
           onState={(state) => patchLook({ state })}
           onMood={(mood) => patchLook({ mood })}
         >
-          <Actions entry={selected} color={color} state={look.state} mood={look.mood} onRemove={removeEntry} />
+          <Actions coat={look.coat} entry={selected} color={color} state={look.state} mood={look.mood} onRemove={removeEntry} />
         </Stage>
 
         <section className="picker" aria-label="Avatar editor">
