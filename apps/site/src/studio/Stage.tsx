@@ -144,10 +144,10 @@ export function Stage({ definition, color, material, state, mood, followCursor, 
         reducedMotion={reducedMotion}
         label=""
       />
-      {/* Inside the preview: keep its drag, double-click reset and arrow-key turning out of these. */}
-      <div className="preview-toggles" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      {/* Over the preview: keep its drag, double-click reset and arrow-key turning out of these. */}
+      <div className="stage-bar" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <FaceToggle mood={mood} onMood={onMood} />
-        <MaterialToggle material={material} onMaterial={onMaterial} definition={definition} color={color} />
+        <MaterialToggle material={material} onMaterial={onMaterial} />
       </div>
       <button
         type="button"
