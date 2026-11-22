@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildMesh, type Capsule } from '../src/dom/plush/mesh.ts';
+import { ROOT_PASSES, buildMesh, rootsIn, type Capsule } from '../src/dom/plush/mesh.ts';
+import { plushDetail } from '../src/dom/plush/renderer.ts';
 import { getExample } from '../src/examples.ts';
 import { preparedVolume } from '../src/render.ts';
 
@@ -11,7 +12,8 @@ describe('plush mesh', () => {
 
   it('wraps the whole body in triangles with unit normals', () => {
     const count = mesh.vertices.length / 6;
-    expect(mesh.indices.length % 3).toBe(0);
+    expect(mesh.indices.length).toBe(mesh.coarse.count + mesh.fine.count);
+    expect(mesh.fine.count % 3).toBe(0);
     expect(mesh.indices.every((i) => i < count)).toBe(true);
     for (let i = 0; i < count; i += 97) expect(Math.hypot(...vec(mesh.vertices, i, 6, 3))).toBeCloseTo(1, 3);
     // Front and back, out to the handle and as deep as the body.
@@ -27,21 +29,25 @@ describe('plush mesh', () => {
     expect(minZ).toBeCloseTo(-depth / 2, 0);
   });
 
-  it('refines the front around the eyes, and nowhere else', () => {
-    // Smallest triangle each vertex belongs to, by where the vertex is.
+  it('refines the front around the eyes, and nowhere else, next to the unrefined triangles', () => {
+    const fine = mesh.indices.subarray(mesh.fine.start, mesh.fine.start + mesh.fine.count);
     const area = (t: number) => {
-      const [a, b, c] = [0, 1, 2].map((k) => vec(mesh.vertices, mesh.indices[3 * t + k], 6));
+      const [a, b, c] = [0, 1, 2].map((k) => vec(mesh.vertices, fine[3 * t + k], 6));
       const u = b.map((v, k) => v - a[k]), w = c.map((v, k) => v - a[k]);
       return Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]) / 2;
     };
     const eye = vol.eyePlanes[0];
     let atEye = Infinity, onBack = Infinity;
-    for (let t = 0; t < mesh.indices.length / 3; t++) {
-      const [x, y, z] = vec(mesh.vertices, mesh.indices[3 * t], 6);
+    for (let t = 0; t < fine.length / 3; t++) {
+      const [x, y, z] = vec(mesh.vertices, fine[3 * t], 6);
       if (z > 0 && Math.hypot(x - eye.x, y - eye.y) < 2) atEye = Math.min(atEye, area(t));
       if (z < -2 && Math.hypot(x - eye.x, y - eye.y) < 2) onBack = Math.min(onBack, area(t));
     }
     expect(atEye).toBeLessThan(onBack / 4);
+    // The coarse set covers the same surface with fewer triangles and only the grid's vertices.
+    const coarse = mesh.indices.subarray(mesh.coarse.start, mesh.coarse.start + mesh.coarse.count);
+    expect(mesh.coarse.count).toBeLessThan(mesh.fine.count / 2);
+    expect(Math.max(...coarse)).toBeLessThan(Math.max(...fine));
   });
 
   it('roots hairs all over the surface, the same ones every time', () => {
@@ -55,13 +61,55 @@ describe('plush mesh', () => {
     expect(buildMesh(vol).roots).toEqual(mesh.roots);
   });
 
+  it('stores the roots in passes that each cover the whole surface', () => {
+    const total = mesh.roots.length / 8;
+    expect(rootsIn(total, ROOT_PASSES)).toBe(total);
+    expect(rootsIn(total, 0)).toBe(0);
+    const quarter = rootsIn(total, ROOT_PASSES / 4);
+    expect(quarter / total).toBeCloseTo(0.25, 3);
+    // A quarter of the roots reaches every side of the body, like all of them.
+    const reach = (count: number) => {
+      const b = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
+      for (let i = 0; i < count; i++) {
+        const [x, y, z] = vec(mesh.roots, i, 8);
+        b.minX = Math.min(b.minX, x), b.maxX = Math.max(b.maxX, x), b.minY = Math.min(b.minY, y);
+        b.maxY = Math.max(b.maxY, y), b.minZ = Math.min(b.minZ, z), b.maxZ = Math.max(b.maxZ, z);
+      }
+      return Object.values(b);
+    };
+    reach(quarter).forEach((edge, i) => expect(edge).toBeCloseTo(reach(total)[i], 0));
+  });
+
   it('shapes a state mark as a capsule', () => {
     const capsule: Capsule = { radius: 12, bounds: { minX: -12, maxX: 12, minY: -30, maxY: 30 } };
-    const { vertices } = buildMesh(capsule);
+    const { vertices, coarse, fine } = buildMesh(capsule);
+    expect(fine).toEqual(coarse);
     for (let i = 0; i < vertices.length / 6; i += 13) {
       const [x, y, z] = vec(vertices, i, 6);
       // Distance from the capsule's axis, a segment from y = -18 to 18.
       expect(Math.hypot(x, Math.max(0, Math.abs(y) - 18), z)).toBeCloseTo(12, 0);
+    }
+  });
+});
+
+describe('plush detail', () => {
+  it('draws everything from 128 CSS pixels on a 2× display, and less below', () => {
+    const full = { shells: 5, strandPasses: ROOT_PASSES, fineSockets: true };
+    expect(plushDetail(2.56)).toEqual(full);
+    expect(plushDetail(8)).toEqual(full);
+    // 64 CSS pixels at 2×, or 128 at 1×.
+    expect(plushDetail(1.28)).toEqual({ shells: 3, strandPasses: 6, fineSockets: false });
+    expect(plushDetail(0.1)).toEqual({ shells: 2, strandPasses: ROOT_PASSES / 4, fineSockets: false });
+  });
+
+  it('never draws more as an avatar gets smaller', () => {
+    let last = plushDetail(3);
+    for (let scale = 3; scale > 0.1; scale -= 0.05) {
+      const detail = plushDetail(scale);
+      expect(detail.shells).toBeLessThanOrEqual(last.shells);
+      expect(detail.strandPasses).toBeLessThanOrEqual(last.strandPasses);
+      expect(Number(detail.fineSockets)).toBeLessThanOrEqual(Number(last.fineSockets));
+      last = detail;
     }
   });
 });

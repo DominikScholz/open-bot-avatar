@@ -14,9 +14,22 @@ import { SOCKET_PAD } from './socket.ts';
 export interface PlushMesh {
   /** Position and outward normal per vertex (6 floats). */
   vertices: Float32Array;
+  /** The triangles twice: as the grid gives them, then with those around the eyes refined. */
   indices: Uint32Array;
-  /** Hair roots, independent of the triangles: position, normal and two random numbers (8 floats). */
+  /** Where each set sits in `indices`. A small avatar is drawn from the coarse one. */
+  coarse: IndexRange;
+  fine: IndexRange;
+  /**
+   * Hair roots, independent of the triangles: position, normal and two random numbers (8 floats).
+   * Stored in ROOT_PASSES passes over the surface, so the first few passes are an even share of
+   * the coat (see rootsIn).
+   */
   roots: Float32Array;
+}
+
+export interface IndexRange {
+  start: number;
+  count: number;
 }
 
 /** A state mark: a vertical capsule centered at the origin. Equal width and height give a ball. */
@@ -38,6 +51,19 @@ export function halfDepth(shape: PlushShape): number {
 const STEP = 1.05;
 /** Empty margin around the shape, viewBox units. */
 const PAD = 3 * STEP;
+/**
+ * The roots are stored in this many passes over the surface, each taking every ROOT_PASSES-th
+ * root. Each pass runs along the surface, which draws faster than roots in random order.
+ */
+export const ROOT_PASSES = 8;
+
+/** How many of `total` roots the first `passes` passes hold. */
+export function rootsIn(total: number, passes: number): number {
+  let count = 0;
+  for (let pass = 0; pass < passes; pass++) count += Math.ceil((total - pass) / ROOT_PASSES);
+  return count;
+}
+
 /** Hair roots per square unit of surface. */
 const ROOT_DENSITY = 3.3;
 /** Each level splits the triangles around the eyes in four. */
@@ -169,10 +195,14 @@ function surfaceNets(g: Grid): { vertices: number[]; indices: number[] } {
   return { vertices, indices };
 }
 
-/** Hair roots spread evenly by area, each with two random numbers for its strand. Seeded, so a shape always grows the same coat. */
-function scatterRoots(vertices: number[], indices: number[]): number[] {
-  let seed = 51821;
-  const random = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+/** Seeded, so a shape always grows the same coat. */
+function randomFrom(seed: number): () => number {
+  return () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+}
+
+/** Hair roots spread evenly by area, each with two random numbers for its strand. */
+function scatterRoots(vertices: number[], indices: number[]): Float32Array {
+  const random = randomFrom(51821);
   const roots: number[] = [];
   for (let i = 0; i < indices.length; i += 3) {
     const a = indices[i] * 6, b = indices[i + 1] * 6, c = indices[i + 2] * 6;
@@ -186,7 +216,13 @@ function scatterRoots(vertices: number[], indices: number[]): number[] {
       roots.push(random(), random());
     }
   }
-  return roots;
+  const total = roots.length / 8;
+  const passes = new Float32Array(roots.length);
+  let at = 0;
+  for (let pass = 0; pass < ROOT_PASSES; pass++) {
+    for (let i = pass; i < total; i += ROOT_PASSES) for (let k = 0; k < 8; k++) passes[at++] = roots[8 * i + k];
+  }
+  return passes;
 }
 
 /**
@@ -235,6 +271,11 @@ export function buildMesh(shape: PlushShape): PlushMesh {
   const { vertices, indices } = surfaceNets(grid);
   // Roots first: refining would otherwise change which triangle each one falls on.
   const roots = scatterRoots(vertices, indices);
-  const triangles = isCapsule(shape) ? indices : refineSockets(vertices, indices, shape);
-  return { vertices: new Float32Array(vertices), indices: new Uint32Array(triangles), roots: new Float32Array(roots) };
+  const coarse = { start: 0, count: indices.length };
+  if (isCapsule(shape)) return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), coarse, fine: coarse, roots };
+  const refined = refineSockets(vertices, indices, shape);
+  const all = new Uint32Array(indices.length + refined.length);
+  all.set(indices);
+  all.set(refined, indices.length);
+  return { vertices: new Float32Array(vertices), indices: all, coarse, fine: { start: indices.length, count: refined.length }, roots };
 }

@@ -6,11 +6,12 @@
  *
  * A frame is three kinds of draw over the same mesh: the solid body, a few shells of pile lifted
  * off it, and the single strands (see shaders.ts). Meshes are built once per shape and kept on
- * the GPU while their avatars keep painting, so a page of avatars only pays for drawing.
+ * the GPU while their avatars keep painting, so a page of avatars only pays for drawing, and a
+ * small avatar draws less of each (see plushDetail).
  */
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
-import { buildMesh, halfDepth, type PlushShape } from './mesh.ts';
+import { ROOT_PASSES, buildMesh, halfDepth, rootsIn, type IndexRange, type PlushShape } from './mesh.ts';
 import { PASS, fragmentShader, vertexShader } from './shaders.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from './socket.ts';
 
@@ -38,8 +39,13 @@ export interface PlushImage {
   radius: number;
 }
 
-/** Shells of pile between the body and the strands. */
+/** Shells of pile between the body and the strands, at full detail. */
 const SHELLS = 5;
+/**
+ * Pixels per viewBox unit from which a coat is drawn in full: an avatar 128 CSS pixels wide on a
+ * 2× display. Below it the pile is finer than the pixels that show it (see plushDetail).
+ */
+const FULL_DETAIL = 2.56;
 /** Largest image, pixels a side. */
 const MAX_PIXELS = 1024;
 const MIN_PIXELS = 32;
@@ -53,12 +59,29 @@ const SAME_VIEW = 0.1;
 const KEPT_MESHES = 8;
 const IDLE_MS = 2000;
 
+/**
+ * How much of a coat to draw at `scale` pixels per viewBox unit. A small avatar gets fewer shells,
+ * the unrefined triangles around its eyes, and a share of its strands (`strandPasses` of the
+ * mesh's ROOT_PASSES), each widened by as much as there are fewer, so they cover the same. The
+ * image averages out to the same coat at half to two thirds of the cost.
+ */
+export function plushDetail(scale: number): { shells: number; strandPasses: number; fineSockets: boolean } {
+  const detail = Math.min(1, scale / FULL_DETAIL);
+  return {
+    shells: Math.max(2, Math.ceil(SHELLS * detail)),
+    // By the root, not in proportion: strands that get much wider show as wisps along the outline.
+    strandPasses: Math.max(ROOT_PASSES / 4, Math.ceil(ROOT_PASSES * Math.sqrt(detail))),
+    fineSockets: detail > 0.75,
+  };
+}
+
 /** A mesh on the GPU, and where its shape sits. */
 interface Geometry {
   surface: WebGLVertexArrayObject;
   strands: WebGLVertexArrayObject;
   buffers: WebGLBuffer[];
-  indexCount: number;
+  coarse: IndexRange;
+  fine: IndexRange;
   strandCount: number;
   cx: number;
   cy: number;
@@ -170,7 +193,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const uniform = (name: string) => gl.getUniformLocation(program, name);
   const u = {
     view: uniform('view'), pivot: uniform('pivot'), extent: uniform('extent'), radius: uniform('radius'),
-    shell: uniform('shell'), pass: uniform('pass'), color: uniform('color'), ink: uniform('ink'),
+    shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), color: uniform('color'), ink: uniform('ink'),
     eyeRegion: uniform('eyeRegion[0]'), eyeSize: uniform('eyeSize[0]'),
   };
   gl.enable(gl.DEPTH_TEST);
@@ -243,7 +266,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     const b = shape.bounds, rx = (b.maxX - b.minX) / 2, ry = (b.maxY - b.minY) / 2, rz = halfDepth(shape);
     return {
       surface, strands, buffers: [vertices, indices, roots],
-      indexCount: mesh.indices.length, strandCount: mesh.roots.length / 8,
+      coarse: mesh.coarse, fine: mesh.fine, strandCount: mesh.roots.length / 8,
       cx: b.minX + rx, cy: b.minY + ry, extent: [rx, ry, rz], radius: Math.ceil(Math.hypot(rx, ry, rz) + PILE_REACH), usedAt: 0,
     };
   };
@@ -375,17 +398,20 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.viewport(0, 0, pixels, pixels);
     gl.scissor(0, 0, pixels, pixels);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const { shells, strandPasses, fineSockets } = plushDetail(scale);
+    const triangles = fineSockets ? geometry.fine : geometry.coarse;
     gl.bindVertexArray(geometry.surface);
     gl.uniform1i(u.pass, PASS.body);
-    gl.drawElements(gl.TRIANGLES, geometry.indexCount, gl.UNSIGNED_INT, 0);
+    gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
     gl.uniform1i(u.pass, PASS.shell);
-    for (let layer = 1; layer <= SHELLS; layer++) {
-      gl.uniform1f(u.shell, layer / SHELLS);
-      gl.drawElements(gl.TRIANGLES, geometry.indexCount, gl.UNSIGNED_INT, 0);
+    for (let layer = 1; layer <= shells; layer++) {
+      gl.uniform1f(u.shell, layer / shells);
+      gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
     }
     gl.bindVertexArray(geometry.strands);
     gl.uniform1i(u.pass, PASS.strand);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 8, geometry.strandCount);
+    gl.uniform1f(u.strandWidth, ROOT_PASSES / strandPasses);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 8, rootsIn(geometry.strandCount, strandPasses));
     return image;
   };
 }

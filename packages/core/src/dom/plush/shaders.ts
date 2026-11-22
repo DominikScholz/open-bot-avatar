@@ -54,6 +54,7 @@ layout(location = 2) in vec2 seed;
 uniform mat3 view;
 uniform vec3 pivot, extent;
 uniform float radius, shell;
+uniform float strandWidth; // 1 at full detail; wider where fewer strands are drawn
 uniform int pass;
 out vec3 P, N, V, pilePosition, lean;
 out float tip, variation, across, pocketDepth;
@@ -117,7 +118,7 @@ void main() {
     vec3 direction = n * (.30 + .18 * tip) + comb * (.93 - .12 * tip) + bend * (seed.x - .5) * .45 * tip;
     pilePosition += comb * (.7 * len * tip);
     p += n * .52 * loft;
-    float width = .073 + .11 * seed.y;
+    float width = (.073 + .11 * seed.y) * strandWidth;
     p += .065 * n + len * tip * direction;
     vec3 screenDir = view * (direction + .06 * comb);
     vec2 widthDir = normalize(vec2(-screenDir.y, screenDir.x) + vec2(.0001, 0));
