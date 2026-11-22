@@ -564,7 +564,8 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const [cx, cy] = pivotOf(b);
   return {
     body: bodyScale(pose.bang, pose.dots),
-    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
+    // No ribbons are out below a presence of 0.01 (see ribbonPieces), so their rims are not measured for it.
+    ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
       // The piece's stretch of its ribbon's colour run, front and back alike.
       const [s0, s1] = r.along;
