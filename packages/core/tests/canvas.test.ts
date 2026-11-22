@@ -97,6 +97,31 @@ describe('mountAvatar on a canvas', () => {
     expect(el.innerHTML).toBe('');
   });
 
+  it('paints a plush still once and updates when its dye or material changes', async () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(plush, 'renderCoat').mockReturnValue({ canvas: tile, radius: 24, cx: 50, cy: 50 });
+    const el = host();
+    const avatar = mountAvatar(el, { definition: examples[0], material: 'plush', still: true, color: '#1f7cf2', eyeColor: '#151515' });
+    try {
+      await frame();
+      expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(1);
+      await frame();
+      expect(render).toHaveBeenCalledTimes(1);
+      avatar.update({ color: '#ec4899' });
+      await frame();
+      expect(render.mock.lastCall?.[2]).toBe('#ec4899');
+      avatar.update({ material: 'flat' });
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      avatar.update({ material: 'plush' });
+      await frame();
+      expect(el.querySelector('canvas')).not.toBeNull();
+    } finally {
+      avatar.destroy();
+      render.mockRestore();
+    }
+  });
+
   it('takes any CSS color, like the scene', async () => {
     const el = host();
     const avatar = mountAvatar(el, { definition: examples[3], color: 'rgb(0 128 255)', eyeColor: 'red', reducedMotion: true });

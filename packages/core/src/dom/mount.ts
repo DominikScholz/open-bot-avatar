@@ -9,8 +9,8 @@
  * layer and a small bitmap per avatar. `renderer: 'scene'` mounts a CSS 3D scene
  * instead, where every cross-section is its own small SVG and each frame only
  * writes a few CSS transforms; it costs a compositor layer per visible slice,
- * and is also the fallback where canvas is unavailable. `still` avatars are a
- * single static SVG and never animate. Every avatar on the page shares one
+ * and is also the fallback where canvas is unavailable. `still` avatars are
+ * static images and never animate. Every avatar on the page shares one
  * animation loop.
  */
 import { createAnimator } from '../animator.ts';
@@ -51,7 +51,7 @@ export interface AvatarOptions {
   view?: { yaw: number; pitch: number };
   /** true or false to force; 'system' (default) follows prefers-reduced-motion. */
   reducedMotion?: boolean | 'system';
-  /** Render one static SVG and never animate (thumbnails, lists). */
+  /** Render a fixed pose. Flat stills use SVG and plush stills use the canvas material. */
   still?: boolean;
   /**
    * How a live avatar draws. 'canvas' (default) paints each frame to one canvas: one compositor layer
@@ -169,6 +169,9 @@ const VIEW_MARGIN = 100;
 /** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
 const FRAME_SLACK = 0.004;
 
+// Spread costly plush stills across frames when a whole gallery changes finish.
+let lastPlushStillFrame = -1;
+
 export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedAvatar {
   let opts: AvatarOptions = { ...initial };
   const animator = createAnimator();
@@ -186,6 +189,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const next = entry.contentRect.width;
         if (next === size) return;
         size = next;
+        dirty = true;
         requestFrame();
       });
   resize?.observe(host);
@@ -235,7 +239,20 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     lastStill = '';
   };
 
-  const draw = (time: number, pointer: { x: number; y: number } | null): boolean => {
+  const paint = (p: AvatarOptions, options: RenderOptions, material: AvatarMaterial | undefined) => {
+    if (scene || lastStill) clear();
+    const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+    const key = `${geometryKey(p.definition)}|${p.depth}`;
+    if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+    // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
+    // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
+    const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
+    const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
+    const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
+    paintCanvas(surface, flat, size, fill, ink, material);
+  };
+
+  const draw = (time: number, pointer: { x: number; y: number } | null, material: AvatarMaterial | undefined): boolean => {
     const p = opts;
     const reducedMotion = p.reducedMotion === 'system' || p.reducedMotion === undefined ? prefersReducedMotion() : p.reducedMotion;
     const now = performance.now();
@@ -243,8 +260,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const look = resolveLook({ state: p.state, mood: p.mood, motion: p.mood });
     try {
       if (p.still) {
-        if (scene || surface) clear();
-        const svg = renderAvatarSvg(p.definition, {
+        const options: RenderOptions = {
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
@@ -253,7 +269,14 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           view: p.view,
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
-        });
+        };
+        if (material === 'plush' && p.renderer !== 'scene' && canvasSupported()) {
+          if (size > 0) paint(p, { ...options, size }, material);
+          failed = false;
+          return false;
+        }
+        if (scene || surface) clear();
+        const svg = renderAvatarSvg(p.definition, options);
         // The engine derives SVG ids from geometry, so repeated avatars can share them safely.
         if (svg !== lastStill) {
           host.innerHTML = svg;
@@ -283,16 +306,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         reducedMotion,
       };
       if (p.renderer !== 'scene' && canvasSupported()) {
-        if (scene) clear();
-        const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
-        const key = `${geometryKey(p.definition)}|${p.depth}`;
-        if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
-        // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
-        // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
-        const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
-        const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
-        const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
-        paintCanvas(surface, flat, size, fill, ink, readAvatarMaterial(p.material));
+        paint(p, options, material);
         failed = false;
         return !reducedMotion || step.moving;
       }
@@ -323,8 +337,13 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
       // frame they ask for. A change still draws offscreen, so the content is current when printed.
       if ((opts.still || !visible) && !dirty) return false;
+      const material = readAvatarMaterial(opts.material);
+      if (opts.still && material === 'plush' && size > 0 && opts.renderer !== 'scene' && canvasSupported()) {
+        if (lastPlushStillFrame === time) return true;
+        lastPlushStillFrame = time;
+      }
       dirty = false;
-      const more = draw(time, pointer);
+      const more = draw(time, pointer, material);
       if (!visible) return false;
       return more && size > 0 && size < SMALL_SIZE ? 1 / SMALL_FPS - FRAME_SLACK : more;
     },

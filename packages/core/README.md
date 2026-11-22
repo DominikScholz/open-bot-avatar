@@ -43,7 +43,8 @@ avatar.destroy();
 | `view` | Extra `{ yaw, pitch }` rotation in radians, relative to the resting view. |
 | `depth` | Volume amount from 0 to 14. Default: 6; 0 is flat. |
 | `reducedMotion` | `true`, `false` or `"system"` (default), which follows `prefers-reduced-motion`. |
-| `still` | Render a static SVG without animation. Default: `false`. |
+| `material` | `"flat"` (default) or `"plush"` for a brushed coat on canvas. |
+| `still` | Freeze the pose. Flat stills use SVG and plush stills use canvas. Default: `false`. |
 | `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
 | `label` | Accessible name. Defaults to the definition's name; `""` marks it decorative. |
 

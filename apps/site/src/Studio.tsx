@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type SetStateAction } from "react";
 import { DEFAULT_COLOR, examples, validateAvatar, type AvatarDefinition } from "open-bot-avatar";
 import { GALLERY, findGallery } from "./gallery";
 import { Actions } from "./studio/Actions";
@@ -6,7 +6,7 @@ import { BotPanel, type LibraryEntry } from "./studio/BotPanel";
 import { CreatePanel } from "./studio/CreatePanel";
 import { usePrefersReducedMotion, useStoredState } from "./studio/hooks";
 import { ImportPanel } from "./studio/ImportPanel";
-import { DEFAULT_LOOK, PALETTE, colorOf, defaultColor, reviveLook, withColor, type LookState } from "./studio/look";
+import { PALETTE, colorOf, defaultColor, withColor, type LookState } from "./studio/look";
 import { readShare } from "./studio/share";
 import { Settings } from "./studio/Settings";
 import { Stage, type ViewAngle } from "./studio/Stage";
@@ -64,9 +64,8 @@ const FRONT: ViewAngle = { yaw: 0, pitch: 0 };
  * The avatar studio: a live avatar over a card with its picker, the design prompt to copy into a
  * chat model, and the import for what the model returns.
  */
-export function Studio() {
+export function Studio({ look, setLook }: { look: LookState; setLook: Dispatch<SetStateAction<LookState>> }) {
   const [yoursDefs, setYoursDefs] = useStoredState<AvatarDefinition[]>("open-bot-avatar:yours", [], reviveLibrary);
-  const [look, setLook] = useStoredState<LookState>("open-bot-avatar:look", DEFAULT_LOOK, reviveLook);
   const [selectedKey, setSelectedKey] = useState<string>(OPENING);
   const [tab, setTab] = useState<Tab>("bot");
   const [view, setView] = useState<ViewAngle>(FRONT);

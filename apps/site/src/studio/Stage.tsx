@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, typ
 import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import type { AvatarMaterial } from "open-bot-avatar/dom";
 import { BotAvatar } from "../BotAvatar";
-import { Icon, Switch } from "./ui";
-import { FaceToggle, MOODS, STATES, StatePills } from "./pickers";
+import { Icon } from "./ui";
+import { FaceToggle, MaterialToggle, MOODS, STATES, StatePills } from "./pickers";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
@@ -145,7 +145,10 @@ export function Stage({ coat, onCoat, definition, color, state, mood, followCurs
         reducedMotion={reducedMotion}
         label=""
       />
-      <FaceToggle mood={mood} onMood={onMood} />
+      <div className="preview-toggles" onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+        <FaceToggle mood={mood} onMood={onMood} />
+        <MaterialToggle coat={coat} onCoat={onCoat} definition={definition} color={color} />
+      </div>
       <button
         type="button"
         className="stage-reset"
@@ -167,7 +170,6 @@ export function Stage({ coat, onCoat, definition, color, state, mood, followCurs
       <h1 className="sr-only">{definition.name}</h1>
       {preview}
       <div className="stage-picks">
-        <Switch label="Plush" checked={coat === "plush"} onChange={enabled => onCoat(enabled ? "plush" : "flat")} />
         <StatePills state={state} onState={onState} />
       </div>
       {children}

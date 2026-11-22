@@ -3,7 +3,9 @@
  * preview, the mood as a toggle of eyes in the preview's corner.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { AvatarMood, AvatarState } from "open-bot-avatar";
+import { BASE_PITCH, BASE_YAW, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import type { AvatarMaterial } from "open-bot-avatar/dom";
+import { BotAvatar } from "../BotAvatar";
 import type { Choice } from "./ui";
 
 export const STATES: Choice<AvatarState>[] = [
@@ -114,11 +116,39 @@ function Eyes({ mood }: { mood: AvatarMood }) {
   );
 }
 
-export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: AvatarMood) => void }) {
-  // Inside the preview: keep its drag, double-click reset and arrow-key turning out of this.
+const MATERIALS: Choice<AvatarMaterial>[] = [
+  { value: "flat", label: "Flat", hint: "Solid color" },
+  { value: "plush", label: "Plush", hint: "Brushed fur" },
+];
+
+const FRONT = { yaw: -BASE_YAW, pitch: -BASE_PITCH };
+
+export function MaterialToggle({ coat, onCoat, definition, color }: {
+  coat: AvatarMaterial;
+  onCoat: (coat: AvatarMaterial) => void;
+  definition: AvatarDefinition;
+  color: string;
+}) {
+  // Both swatches frame the same eye and cheek, even on off-center faces.
+  const { x, y, spacing, scale } = definition.eyes;
+  const zoom = 1.1 / scale;
+  const left = 4 - (x + spacing / 2) * zoom;
+  const top = 7 - y * zoom;
   return (
-    <div className="face-toggle" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />
-    </div>
+    <RadioGroup label="Material" value={coat} options={MATERIALS} onChange={onCoat} className="face-segmented" itemClassName="face-option material-option"
+      render={({ value, label }) => (
+        <>
+          <span className="material-sample" aria-hidden="true">
+            <BotAvatar definition={definition} color={color} material={value} view={FRONT} still label=""
+              size={100 * zoom} className="avatar-view" style={{ position: "absolute", left, top }} />
+          </span>
+          {label}
+        </>
+      )}
+    />
   );
+}
+
+export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: AvatarMood) => void }) {
+  return <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />;
 }
