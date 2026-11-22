@@ -98,6 +98,13 @@ describe("share links", () => {
     expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", state: "working", mood: "happy" });
   });
 
+  it("opens old velvet links and saved looks as brushed plush", () => {
+    expect(readShare("?coat=velvet").coat).toBe("brushed");
+    expect(reviveLook({ coat: "velvet" })?.coat).toBe("brushed");
+    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, coat: "brushed", color: defaultColor("mug") });
+    expect(readShare(new URL(link).search).coat).toBe("brushed");
+  });
+
   it("still open links from before state and mood were separate", () => {
     expect(readShare("?avatar=mug&mood=happy")).toEqual({ avatar: "mug", state: "idle", mood: "happy" });
     expect(readShare("?avatar=mug&mood=thinking")).toEqual({ avatar: "mug", state: "thinking", mood: "neutral" });

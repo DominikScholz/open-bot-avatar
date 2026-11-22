@@ -1,10 +1,11 @@
 import { EYE_TILE, exposedHeight, SOCKET_PAD, eyeBox, eyeDistanceTile } from './eye.ts';
 import type { FrameShape, ViewBasis } from '../render.ts';
 import type { Volume } from '../volume.ts';
+import { brushedPile } from './brushed-pile.ts';
 import { coatMesh } from './coat-mesh.ts';
 import { coatVertex, coatFragment } from './coat-shaders.ts';
 
-export type Coat = 'velvet' | 'shell' | 'fleece';
+export type Coat = 'brushed' | 'shell' | 'fleece';
 export type CoatLighting = 'current' | 'previous';
 
 // Tileable strand-density texture. Shells sample different thresholds of the same locks.
@@ -53,7 +54,7 @@ function makePainter(){
   const program = linkProgram(gl, coatVertex, coatFragment);
   gl.useProgram(program);
   const loc=(name:string)=>gl.getUniformLocation(program,name);
-  const u={view:loc('view'),pivot:loc('pivot'),extent:loc('extent'),radius:loc('radius'),shell:loc('shell'),pass:loc('pass'),technique:loc('technique'),color:loc('color')};
+  const u={view:loc('view'),pivot:loc('pivot'),extent:loc('extent'),radius:loc('radius'),shell:loc('shell'),pass:loc('pass'),brushed:loc('brushed'),color:loc('color')};
   gl.bindTexture(gl.TEXTURE_2D,gl.createTexture());
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,densityTile());
   gl.generateMipmap(gl.TEXTURE_2D);
@@ -65,6 +66,9 @@ function makePainter(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.uniform1i(loc('eyeField'), 1);
+  const brushedSampler = loc('brushedPile');
+  const brushedTexture = gl.createTexture();
+  let brushedReady = false;
   const regionUniform = loc('eyeRegion[0]'), inkUniform = loc('ink');
   const previousLightingUniform = loc('previousLighting');
   const sizeUniform = loc('eyeSize[0]'), eyeSizes = new Float32Array(4);
@@ -159,16 +163,31 @@ function makePainter(){
       gl.uniform1i(previousLightingUniform, lighting === 'previous' ? 1 : 0);
       lastLighting = lighting;
     }
-    gl.uniform1i(u.technique,coat==='velvet'?0:1);
+    const brushed = coat === 'brushed';
+    if (brushed && !brushedReady) {
+      const size = 640;
+      gl.uniform1i(brushedSampler, 2);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, brushedTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, size, size, 0, gl.RED, gl.UNSIGNED_BYTE, brushedPile(size));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.activeTexture(gl.TEXTURE1); // Eye distance tiles are updated on this unit.
+      brushedReady = true;
+    }
+    gl.uniform1i(u.brushed, brushed ? 1 : 0);
     gl.uniform1i(u.pass,0); gl.bindVertexArray(surface);
     gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
-    if(coat==='shell'){
+    if(coat==='shell' || brushed){
       gl.uniform1i(u.pass,1);
-      for(let layer=1;layer<=9;layer++){
-        gl.uniform1f(u.shell,layer/9);
+      const layers=brushed ? 5 : 9;
+      for(let layer=1;layer<=layers;layer++){
+        gl.uniform1f(u.shell,layer/layers);
         gl.drawElements(gl.TRIANGLES,triangles,gl.UNSIGNED_INT,0);
       }
-    } else if(coat==='fleece'){
+    }
+    if(coat==='fleece' || brushed){
       gl.uniform1i(u.pass,2);gl.bindVertexArray(hairs);
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP,0,8,count);
     }

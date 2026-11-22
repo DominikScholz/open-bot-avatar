@@ -5,13 +5,14 @@ export type MotionPreference = "system" | "reduced" | "full";
 
 export const COATS = [
   { value: "fleece", label: "Curled fibers" },
+  { value: "brushed", label: "Brushed plush" },
   { value: "shell", label: "Shell fur" },
-  { value: "velvet", label: "Velvet sheen" },
   { value: "flat", label: "Flat" },
 ] as const;
 export type Coat = typeof COATS[number]["value"];
 
 export function readCoat(value: unknown): Coat | undefined {
+  if (value === "velvet") return "brushed"; // Migrate saved looks and shared links.
   return COATS.find(option => option.value === value)?.value;
 }
 

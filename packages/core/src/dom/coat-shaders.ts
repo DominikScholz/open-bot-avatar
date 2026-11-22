@@ -24,6 +24,14 @@ float socketDistance(vec3 p, vec3 normal, out vec2 uv, out vec3 local) {
   return 3.8;
 }`;
 
+// Keep the crown and the shell lean in the same coordinates as the baked groom.
+const groom = `
+uniform bool brushed;
+uniform vec3 pivot, extent;
+vec3 fromCrown(vec3 p) {
+  return p - (pivot + vec3(-.08*extent.x, -.28*extent.y, 0.));
+}`;
+
 export const coatVertex = `#version 300 es
 precision highp float;
 precision highp int;
@@ -31,8 +39,7 @@ layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
 layout(location=2) in vec2 seed;
 uniform mat3 view;
-uniform vec3 pivot;
-uniform vec3 extent;
+${groom}
 uniform float radius, shell;
 uniform int pass;
 out vec3 P, N, V;
@@ -54,8 +61,14 @@ void main(){
   float loft=mix(.14,1.,smoothstep(.0,3.1,d));
   tip=0.; variation=.5; across=0.;
   if(pass==1){
-    p+=n*shell*1.55*loft;
-    p.y+=shell*shell*.42;
+    p+=n*shell*(brushed ? 1.10 : 1.55)*loft;
+    if (brushed) {
+      vec3 radial=fromCrown(position);
+      vec3 along=radial-n*dot(radial,n);
+      p+=along*inversesqrt(dot(along,along)+3.)*(1.05*shell*loft);
+    } else {
+      p.y+=shell*shell*.42;
+    }
   }
   if(pass==2){
     // Four cross-sections make a bent, tapered strand. Roots are fixed in model space.
@@ -66,6 +79,17 @@ void main(){
     float flow=2.3*sin(.24*p.x+.13*p.z+sin(.22*p.y))+1.3*sin(.32*p.y-.15*p.x);
     float angle=flow+(seed.x-.5)*2.6;
     vec3 comb=tangent*cos(angle)+bitangent*sin(angle);
+    float crownSpread=1.;
+    if (brushed) {
+      vec3 radial=fromCrown(position);
+      vec3 along=radial-n*dot(radial,n);
+      // Lift the nap near the crown; farther out neighboring tips sweep
+      // together, with a little local curl and seed-dependent splay.
+      vec3 groomDir=along*inversesqrt(dot(along,along)+30.);
+      crownSpread=smoothstep(0.,8.,length(along));
+      vec3 splay=tangent*cos(6.283*seed.x)+bitangent*sin(6.283*seed.x);
+      comb=normalize(groomDir+mix(.92*splay,.28*comb,crownSpread)+vec3(.0001));
+    }
     if (d < 3.5) {
       vec2 radial = normalize(local.xy*vec2(1.7,1.)+vec2(.001));
       vec2 alongEdge = vec2(-radial.y,radial.x);
@@ -74,10 +98,17 @@ void main(){
     vec3 bend=cross(n,comb);
     float len=mix(1.05,3.25,seed.y)*loft;
     vec3 direction=n*(.30+.42*tip)+comb*(.85-.26*tip)+bend*(seed.x-.5)*1.8*tip;
+    float width=.115+.18*seed.y;
+    if (brushed) {
+      len=mix(1.6,3.8,seed.y)*loft*mix(.62,1.,crownSpread);
+      direction=n*(.30+.18*tip)+comb*(.93-.12*tip)+bend*(seed.x-.5)*.45*tip;
+      p+=n*.52*loft;
+      width=.073+.11*seed.y;
+    }
     p+=.065*n+len*tip*direction;
     vec3 screenDir=view*(direction+.06*comb);
     vec2 widthDir=normalize(vec2(-screenDir.y,screenDir.x)+vec2(.0001,0));
-    p+=transpose(view)*vec3(widthDir*across*(.115+.18*seed.y)*(1.-.94*tip),0);
+    p+=transpose(view)*vec3(widthDir*across*width*(1.-.94*tip),0);
     shadingNormal=normalize(shadingNormal+.19*comb);
     variation=seed.x;
   }
@@ -101,11 +132,12 @@ void main(){
 export const coatFragment = `#version 300 es
 precision highp float;
 precision highp int;
-uniform sampler2D pile;
+uniform sampler2D pile, brushedPile;
+${groom}
 uniform vec3 color, ink;
 uniform mat3 view;
 ${socketField}
-uniform int pass, technique;
+uniform int pass;
 uniform bool previousLighting;
 uniform float shell;
 in vec3 P,N,V;
@@ -116,6 +148,13 @@ float fiberMap(vec3 p, vec3 n){
   vec3 w=pow(abs(n),vec3(5.));
   w/=max(.001,w.x+w.y+w.z);
   return dot(w,vec3(texture(pile,p.zy/16.).r,texture(pile,p.xz/16.).r,texture(pile,p.xy/16.).r));
+}
+float brushedHeight(vec3 p, vec3 n){
+  vec3 uvw=fromCrown(p)/(2.8*max(extent.x,max(extent.y,extent.z)))+.5;
+  vec3 w=pow(abs(n),vec3(6.));
+  w/=max(.001,w.x+w.y+w.z);
+  return dot(w,vec3(texture(brushedPile,uvw.zy).r,texture(brushedPile,uvw.xz).r,
+                    texture(brushedPile,uvw.xy).r));
 }
 // Scale the dye's value for recesses and fiber texture. At the bright end
 // sRGB runs out of headroom in the strongest channel. Lift the other dyed
@@ -143,7 +182,29 @@ void main(){
   float d=socketDistance(P,normalize(V),uv,local);
   if(pass==1 && d<.1) discard;
   if(pass==2 && d<.10-.08*variation) discard;
-  if(pass==1){
+  float pileFill=1.;
+  float height=0.;
+  if(brushed){
+    height=brushedHeight(P,normalize(V));
+    // A little variation in the density of the whole lock survives bright
+    // rim lighting, even when the strongest dye channel reaches full value.
+    pileFill=.925+.075*smoothstep(.22,.81,height);
+  }
+  if(brushed && pass==2){
+    // MSAA can evaluate a subpixel ribbon outside its edges at the pixel center.
+    float edge=min(1.,abs(across));
+    float glint=smoothstep(.08,.82,tip)*(1.-.32*edge*edge);
+    diffuseLevel*=.935+.11*variation+.035*clamp(tip,0.,1.);
+    sheen+=(.012+.20*glint)*(.44+.56*variation)*facingLight;
+  }else if(brushed){
+    float layer=pass==1 ? shell : 0.;
+    if(pass==1 && height<.21+.59*layer) discard;
+    // The solid backing is dyed as brightly as the roots. Relief is mostly
+    // from the softly lit crests of neighboring locks.
+    diffuseLevel*=.895+.16*height+.035*layer;
+    sheen+=(.012+.13*smoothstep(.41,.86,height)+.022*layer)*facingLight;
+    rimExposure=.80+.34*layer;
+  }else if(pass==1){
     // A single density field across all shells gives each lock roots and thinning tips.
     float density=fiberMap(P-vec3(shell*.43,shell*.56,0),normalize(V));
     if(density<.20+.68*shell)discard;
@@ -154,9 +215,6 @@ void main(){
     diffuseLevel*=previousLighting ? .86+.12*variation+.095*tip : .80+.14*variation+.20*tip;
     sheen+=(.013+.069*tip)*facingLight*(1.-.48*abs(across));
     rimExposure=.67+.38*variation+.50*tip;
-  }else if(technique==0){
-    // Velvet: broad grazing sheen and a quiet nap on the diffuse base.
-    diffuseLevel+=(fiberMap(P,normalize(V))-.49)*.016;
   }else{
     diffuseLevel*=.95+.075*fiberMap(P,normalize(V));
   }
@@ -198,6 +256,7 @@ void main(){
     diffuseLevel=(diffuseLevel*(1.-.48*occlusion)+pileRelief)*(1.-(.36+.04*upper)*contact);
     base=litPile(diffuseLevel,fiberLight*(1.-crease)+lipLight);
   }
+  base*=pileFill;
   if(pass==0 && d<3.7) {
     vec2 curve=local.xy*.94;
     vec3 dome=normalize(vec3(curve,sqrt(max(.02,1.-dot(curve,curve)))));
