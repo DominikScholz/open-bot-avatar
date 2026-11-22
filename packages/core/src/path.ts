@@ -314,7 +314,7 @@ export class EdgeBands {
     let count = 0;
     for (const poly of polys) count += poly.length;
     const e = this.e = new Float64Array(4 * count);
-    let k = 0, lo = Infinity, hi = -Infinity;
+    let k = 0, lo = Infinity, hi = -Infinity, climb = 0;
     for (const poly of polys) {
       for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
         const yj = poly[j][1], yi = poly[i][1];
@@ -322,9 +322,13 @@ export class EdgeBands {
         k += 4;
         if (yj < lo) lo = yj;
         if (yj > hi) hi = yj;
+        climb += Math.abs(yi - yj);
       }
     }
-    const n = this.n = Math.max(1, Math.min(512, Math.ceil(count / 4)));
+    // About four edges to a band, but fewer bands where the edges are tall: an edge is listed in
+    // every band it crosses, and the lists should not outgrow the outline (a few entries an edge).
+    const tall = climb > 0 ? Math.floor((3 * count * (hi - lo)) / climb) : Infinity;
+    const n = this.n = Math.max(1, Math.min(512, Math.ceil(count / 4), tall));
     this.y0 = count ? lo : 0;
     this.inv = hi > lo ? n / (hi - lo) : 0;
     // Counting sort of the edges into every band their y range touches.
