@@ -238,7 +238,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const reducedMotion = p.reducedMotion === 'system' || p.reducedMotion === undefined ? prefersReducedMotion() : p.reducedMotion;
     const now = performance.now();
     // `mood: 'idle' | 'thinking'` are the states they were before `state` existed.
-    const look = resolveLook({ state: p.state, mood: p.mood, motion: p.mood });
+    const look = resolveLook({ state: p.state, mood: p.mood, mark: p.mark, motion: p.mood });
     try {
       if (p.still) {
         if (scene || surface) clear();
@@ -246,9 +246,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
-          state: look.state,
-          mood: look.mood,
-          mark: p.mark,
+          ...look,
           view: p.view,
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
@@ -268,12 +266,10 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         : p.followPointer && pointer && rect && rect.width > 0
           ? pointerGaze(pointer, rect, eyesOrigin(p.definition))
           : null;
-      const step = animator.step({ now, state: look.state, mood: look.mood, mark: p.mark, target, hold: p.holdGaze, reducedMotion });
+      const step = animator.step({ now, ...look, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
-        state: look.state,
-        mood: look.mood,
-        mark: p.mark,
+        ...look,
         stateAge: step.stateAge,
         motionBlend: step.motionBlend,
         size: size || undefined,

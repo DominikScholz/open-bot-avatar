@@ -564,7 +564,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const still = options.reducedMotion === true;
   const [cx, cy] = pivotOf(b);
   return {
-    body: bodyScale(pose.bang, pose.ask, pose.dots),
+    body: bodyScale(pose),
     // No ribbons are out below a presence of 0.01 (see ribbonPieces), so their rims are not measured for it.
     ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
@@ -578,7 +578,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
         gradient: long ? { x1: r.from[0], y1: r.from[1], x2: r.to[0], y2: r.to[1], stops } : { x1: r.from[0], y1: r.from[1], x2: r.from[0] + 0.01, y2: r.from[1], stops: [stops[1], stops[1], stops[1]] },
       };
     }),
-    marks: markParts(b, pose.bang, pose.ask, pose.dots, p.seed, time, still).map((part) => {
+    marks: markParts(b, pose, p.seed, time, still).map((part) => {
       const turn: M = [Math.cos(part.turn), Math.sin(part.turn), -Math.sin(part.turn), Math.cos(part.turn), 0, 0];
       return {
         id: `${p.id}-${part.shape}`,

@@ -1,9 +1,9 @@
 /**
  * What a state draws besides the body: the ribbons that circle a working bot, and the marks a
- * thinking or blocked bot turns into (three dots, an exclamation or question mark). Pure geometry in viewBox
- * units, from the body's bounds, a seed and the animation clock.
+ * thinking or blocked bot turns into (three dots, an exclamation or question mark). Pure geometry
+ * in viewBox units, from the body's bounds, a seed and the animation clock.
  */
-import { noise } from './motion.ts';
+import { noise, type Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 
 const TAU = Math.PI * 2;
@@ -392,12 +392,11 @@ const capsule = (w: number, h: number) => {
   return `M${f(-r)} ${f(-y)}A${f(r)} ${f(r)} 0 0 1 ${f(r)} ${f(-y)}L${f(r)} ${f(y)}A${f(r)} ${f(r)} 0 0 1 ${f(-r)} ${f(y)}Z`;
 };
 
-const hook = (R: number, w: number) => {
-  const h = w / 2, o = R + h, i = R - h, sin = Math.sqrt(3) / 2, end = 2 * R * sin;
-  const mid = (end - R) / 2;
-  const y = (v: number) => f(v - mid);
-  const arc = (r: number, large: 0 | 1, sweep: 0 | 1, x: number, to: number) => `A${f(r)} ${f(r)} 0 ${large} ${sweep} ${f(x)} ${y(to)}`;
-  return `M${f(-o)} ${y(0)}${arc(o, 1, 1, o / 2, o * sin)}${arc(i, 0, 0, h, end)}${arc(h, 0, 1, -h, end)}${arc(o, 0, 1, i / 2, i * sin)}${arc(i, 1, 0, -i, 0)}${arc(h, 0, 1, -o, 0)}Z`;
+const hook = (u: number) => {
+  const arc = (r: number, large: 0 | 1, sweep: 0 | 1, x: number, y: number) => `A${f(r * u)} ${f(r * u)} 0 ${large} ${sweep} ${f(x * u)} ${f(y * u)}`;
+  const outside = arc(0.26, 1, 1, 0.13, 0.163) + arc(0.08, 0, 0, 0.09, 0.232);
+  const inside = arc(0.26, 0, 1, 0.04, 0.007) + arc(0.08, 1, 0, -0.08, -0.062);
+  return `M${f(-0.26 * u)} ${f(-0.062 * u)}${outside}${arc(0.09, 0, 1, -0.09, 0.232)}${inside}${arc(0.09, 0, 1, -0.26, -0.062)}Z`;
 };
 
 /** The unit every mark is sized in: a share of the body's smaller side, within limits that read at any size. */
@@ -406,11 +405,11 @@ function markUnit(b: Bounds): number {
 }
 
 /**
- * The parts of the marks at one moment. `bang`, `ask` and `dots` 0..1 are how far the body has given
- * way to each (see Pose): a mark grows in as the body goes, from the body's centre.
- * The dots take turns hopping; the exclamation mark jumps and shakes every couple of seconds, the question mark jumps and tilts.
+ * The parts of the marks at one moment. The pose says how far the body has given way to each
+ * (see Pose): a mark grows in as the body goes, from the body's centre. The dots take turns
+ * hopping; the exclamation and question marks jump and shake every couple of seconds.
  */
-export function markParts(b: Bounds, bang: number, ask: number, dots: number, seed: number, time: number, still: boolean): MarkPart[] {
+export function markParts(b: Bounds, pose: Pose, seed: number, time: number, still: boolean): MarkPart[] {
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const u = markUnit(b);
   const t = still ? 0 : time + noise(seed, 9) * 10;
@@ -418,42 +417,27 @@ export function markParts(b: Bounds, bang: number, ask: number, dots: number, se
   // A mark starts to grow just before the body is gone, so something is always on screen.
   const grown = (weight: number) => smooth((clamp(weight, 0, 1) - 0.45) / 0.55);
 
-  const gb = grown(bang);
-  if (gb > 0) {
-    const barW = 0.21 * u, barH = 0.5 * u, dot = 0.115 * u, gap = 0.1 * u;
-    const total = barH + gap + 2 * dot;
+  const sign = (g: number, shape: string, d: string, w: number, h: number) => {
+    const dot = 0.115 * u, gap = 0.1 * u;
+    const total = h + gap + 2 * dot;
     // One alarm every 2.6 s: a jump, with a shake that dies away as it lands.
     const p = still ? 1 : ((t % 2.6) + 2.6) % 2.6 / 2.6;
     const alarm = p < 0.3 ? p / 0.3 : 1;
     const jump = still ? 0 : Math.sin(Math.PI * alarm);
     const turn = still ? 0 : 0.2 * Math.sin(TAU * 3 * alarm) * (1 - alarm);
     const lift = -0.09 * u * jump;
-    const barY = -total / 2 + barH / 2, dotY = total / 2 - dot;
+    const strokeY = -total / 2 + h / 2, dotY = total / 2 - dot;
     // The dot lags the bar on the way up, so the mark stretches as it jumps.
     parts.push(
-      { shape: 'bar', d: capsule(barW, barH), box: { x: -barW / 2, y: -barH / 2, w: barW, h: barH }, x: cx, y: cy + (barY + lift) * gb, turn, scale: gb },
-      { shape: 'dot', d: circle(dot), box: { x: -dot, y: -dot, w: 2 * dot, h: 2 * dot }, x: cx, y: cy + (dotY + lift * 0.45) * gb, turn, scale: gb },
+      { shape, d, box: { x: -w / 2, y: -h / 2, w, h }, x: cx, y: cy + (strokeY + lift) * g, turn, scale: g },
+      { shape: 'dot', d: circle(dot), box: { x: -dot, y: -dot, w: 2 * dot, h: 2 * dot }, x: cx, y: cy + (dotY + lift * 0.45) * g, turn, scale: g },
     );
-  }
+  };
+  const gb = grown(pose.bang), ga = grown(pose.ask);
+  if (gb > 0) sign(gb, 'bar', capsule(0.21 * u, 0.5 * u), 0.21 * u, 0.5 * u);
+  if (ga > 0) sign(ga, 'hook', hook(u), 0.52 * u, 0.645 * u);
 
-  const ga = grown(ask);
-  if (ga > 0) {
-    const R = 0.17 * u, w = 0.18 * u, dot = 0.115 * u, gap = 0.08 * u;
-    const wide = 2 * R + w, high = R * (1 + Math.sqrt(3)) + w;
-    const total = high + gap + 2 * dot;
-    const p = still ? 1 : ((t % 2.6) + 2.6) % 2.6 / 2.6;
-    const alarm = p < 0.3 ? p / 0.3 : 1;
-    const jump = still ? 0 : Math.sin(Math.PI * alarm);
-    const turn = still ? 0 : 0.12 * Math.sin(TAU * alarm) * (1 - alarm);
-    const lift = -0.09 * u * jump;
-    const hookY = -total / 2 + high / 2, dotY = total / 2 - dot;
-    parts.push(
-      { shape: 'hook', d: hook(R, w), box: { x: -wide / 2, y: -high / 2, w: wide, h: high }, x: cx, y: cy + (hookY + lift) * ga, turn, scale: ga },
-      { shape: 'dot', d: circle(dot), box: { x: -dot, y: -dot, w: 2 * dot, h: 2 * dot }, x: cx, y: cy + (dotY + lift * 0.45) * ga, turn, scale: ga },
-    );
-  }
-
-  const gd = grown(dots);
+  const gd = grown(pose.dots);
   if (gd > 0) {
     const r = 0.1 * u, step = 0.31 * u;
     for (let i = 0; i < 3; i++) {
@@ -470,6 +454,6 @@ export function markParts(b: Bounds, bang: number, ask: number, dots: number, se
 }
 
 /** How much of its size the body keeps while it gives way to a mark: gone a little past half way. */
-export function bodyScale(bang: number, ask: number, dots: number): number {
+export function bodyScale({ bang, ask, dots }: Pose): number {
   return 1 - smooth(clamp(bang + ask + dots, 0, 1) / 0.55);
 }

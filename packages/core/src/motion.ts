@@ -54,7 +54,6 @@ export interface Pose {
 /** Every state and mood, in the order hosts list them. */
 export const STATES: readonly AvatarState[] = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
 export const MOODS: readonly AvatarMood[] = ['neutral', 'happy'];
-export const MARKS: readonly AvatarMark[] = ['exclamation', 'question'];
 
 export function isState(value: unknown): value is AvatarState {
   return STATES.includes(value as AvatarState);
@@ -64,22 +63,16 @@ export function isMood(value: unknown): value is AvatarMood {
   return MOODS.includes(value as AvatarMood);
 }
 
-export function isMark(value: unknown): value is AvatarMark {
-  return MARKS.includes(value as AvatarMark);
-}
-
-export function resolveMark(value: unknown): AvatarMark {
-  return isMark(value) ? value : 'exclamation';
-}
-
 /**
- * The state and mood to show. `motion` is the single option that came before them: `thinking`
+ * The state, mood and mark to show. `motion` is the single option that came before them: `thinking`
  * is a state, `happy` a mood. An explicit `state` or `mood` wins over it.
  */
-export function resolveLook(given: { state?: unknown; mood?: unknown; motion?: unknown }): { state: AvatarState; mood: AvatarMood } {
+export function resolveLook(given: { state?: unknown; mood?: unknown; mark?: unknown; motion?: unknown }): { state: AvatarState; mood: AvatarMood; mark?: AvatarMark } {
+  const state = isState(given.state) ? given.state : given.motion === 'thinking' ? 'thinking' : 'idle';
   return {
-    state: isState(given.state) ? given.state : given.motion === 'thinking' ? 'thinking' : 'idle',
+    state,
     mood: isMood(given.mood) ? given.mood : given.motion === 'happy' ? 'happy' : 'neutral',
+    mark: state === 'blocked' && given.mark === 'question' ? 'question' : undefined,
   };
 }
 
@@ -203,7 +196,7 @@ export function computePose(input: PoseInput): Pose {
   const pose = statePose(input);
   const blend = input.blend;
   if (!blend || !(blend.t < 1)) return pose;
-  const from = typeof blend.from === 'string' ? { motion: blend.from, mark: undefined } : blend.from;
+  const from = typeof blend.from === 'string' ? { motion: blend.from } : blend.from;
   // A change of mood alone keeps the state's clock running on both sides, so a turn under way
   // stays one turn; a state that was left is held at the age it had.
   const stateAge = resolveLook(from).state === resolveLook(input).state ? input.stateAge : from.age;
@@ -280,7 +273,7 @@ function celebration(t: number): number {
 
 function statePose(input: PoseInput): Pose {
   const { seed, time, gaze, reducedMotion, view } = input;
-  const { state, mood } = resolveLook(input);
+  const { state, mood, mark } = resolveLook(input);
   // Per-avatar phase offset so several avatars on a page do not move in lockstep.
   const t = reducedMotion ? 0 : time + noise(seed, 7) * 10;
   const live = reducedMotion ? 0 : 1;
@@ -392,7 +385,7 @@ function statePose(input: PoseInput): Pose {
     // Stops still while it gives way to its mark.
     pose.sy = 1.02;
     pose.sx = 0.99;
-    if (resolveMark(input.mark) === 'question') pose.ask = 1;
+    if (mark === 'question') pose.ask = 1;
     else pose.bang = 1;
   } else if (state === 'done') {
     // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
