@@ -1,4 +1,4 @@
-<p><img src="assets/banner.png" width="100%" alt="Open Bot Avatar: colorful object avatars with eyes, such as a ghost, a controller, a sprout, a cat and a mug"></p>
+<p><img src="assets/banner.png" width="100%" alt="Open Bot Avatar: colorful object avatars with eyes, a row of flat ones over two rows of plush ones, such as a ghost, a controller, a sprout, a cat and a mug"></p>
 
 A JSON spec and renderer for interactive agent avatars.
 
