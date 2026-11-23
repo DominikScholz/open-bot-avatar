@@ -37,6 +37,7 @@ avatar.destroy();
 | `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
 | `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`. Changes ease from the current pose. |
 | `mood` | How the bot feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on top of any state, and the eyes morph from one shape to the next. `"idle"` and `"thinking"` are still accepted here and mean those states. |
+| `mark` | What a `blocked` bot turns into: `"exclamation"` (default) or `"question"`. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
 | `holdGaze` | Keep the current look direction. Default: `false`. |
@@ -57,7 +58,7 @@ The six states are the ones an agent moves through. Each is motion on the same a
 | `thinking` | The body gives way to three dots that hop in turn. |
 | `working` | Bent over the work with a quick bob and darting eyes. Every few seconds three to five round-ended ribbons sweep once round the body side by side, in front of it along the top and behind it along the bottom, and the eyes follow them. |
 | `waiting` | Leans to one side with its eyes flattened to slits, glancing off, and sighs now and then. |
-| `blocked` | The body gives way to an exclamation mark that jumps and shakes every few seconds. |
+| `blocked` | The body gives way to an exclamation mark that jumps and shakes every few seconds, or with `mark: "question"` to a question mark that jumps and tilts. |
 | `done` | Celebrates: a few turns inside a cage of nine ribbons on three crossing hoops, then a rest, and after a while again. |
 
 A mood combines with any state: a bot can be working and happy. A happy bot keeps its arcs while it waits. The marks of `thinking` and `blocked` have no eyes, so a mood shows again when the body returns. Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.

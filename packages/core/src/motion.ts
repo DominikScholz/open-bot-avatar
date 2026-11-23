@@ -3,7 +3,7 @@
  * mood, gaze, reducedMotion): no wall clock, no Math.random, so any frame can
  * be reproduced exactly (tests, SSR, scrubbing).
  */
-import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
+import type { AvatarMark, AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 /**
  * How the eyes are drawn, as numbers that blend: any two looks mix into a shape in between, so
@@ -45,14 +45,16 @@ export interface Pose {
    * ribbon goes its own share of it, so a whole turn more does not put them back where they were.
    */
   sweep: number;
-  /** How far the body has given way to a mark, 0..1 each: the exclamation mark and the three dots. */
+  /** How far the body has given way to a mark, 0..1 each: the exclamation mark, the question mark and the three dots. */
   bang: number;
+  ask: number;
   dots: number;
 }
 
 /** Every state and mood, in the order hosts list them. */
 export const STATES: readonly AvatarState[] = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
 export const MOODS: readonly AvatarMood[] = ['neutral', 'happy'];
+export const MARKS: readonly AvatarMark[] = ['exclamation', 'question'];
 
 export function isState(value: unknown): value is AvatarState {
   return STATES.includes(value as AvatarState);
@@ -60,6 +62,14 @@ export function isState(value: unknown): value is AvatarState {
 
 export function isMood(value: unknown): value is AvatarMood {
   return MOODS.includes(value as AvatarMood);
+}
+
+export function isMark(value: unknown): value is AvatarMark {
+  return MARKS.includes(value as AvatarMark);
+}
+
+export function resolveMark(value: unknown): AvatarMark {
+  return isMark(value) ? value : 'exclamation';
 }
 
 /**
@@ -153,6 +163,7 @@ export interface PoseInput {
   time: number;
   state?: AvatarState;
   mood?: AvatarMood;
+  mark?: AvatarMark;
   /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
   /** Seconds since `state` began: `done` celebrates from then on. Without it the state is at rest. */
@@ -184,7 +195,7 @@ export function blendPoses(a: Pose, b: Pose, t: number): Pose {
     sx: m(a.sx, b.sx), sy: m(a.sy, b.sy), gazeX: m(a.gazeX, b.gazeX), gazeY: m(a.gazeY, b.gazeY),
     blink: m(a.blink, b.blink), squintL: m(a.squintL, b.squintL), squintR: m(a.squintR, b.squintR),
     eyes: { arc: m(a.eyes.arc, b.eyes.arc), slit: m(a.eyes.slit, b.eyes.slit) },
-    ribbons: m(a.ribbons, b.ribbons), cage, sweep, bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
+    ribbons: m(a.ribbons, b.ribbons), cage, sweep, bang: m(a.bang, b.bang), ask: m(a.ask, b.ask), dots: m(a.dots, b.dots),
   };
 }
 
@@ -192,11 +203,11 @@ export function computePose(input: PoseInput): Pose {
   const pose = statePose(input);
   const blend = input.blend;
   if (!blend || !(blend.t < 1)) return pose;
-  const from = typeof blend.from === 'string' ? { motion: blend.from } : blend.from;
+  const from = typeof blend.from === 'string' ? { motion: blend.from, mark: undefined } : blend.from;
   // A change of mood alone keeps the state's clock running on both sides, so a turn under way
   // stays one turn; a state that was left is held at the age it had.
   const stateAge = resolveLook(from).state === resolveLook(input).state ? input.stateAge : from.age;
-  const before = computePose({ ...input, state: from.state, mood: from.mood, motion: from.motion, stateAge, blend: from.blend });
+  const before = computePose({ ...input, state: from.state, mood: from.mood, mark: from.mark, motion: from.motion, stateAge, blend: from.blend });
   return blendPoses(before, pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
 
@@ -284,7 +295,7 @@ function statePose(input: PoseInput): Pose {
   const pose: Pose = {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
-    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, bang: 0, dots: 0,
+    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, bang: 0, ask: 0, dots: 0,
   };
   /** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
   const rest = (pace: number) => {
@@ -378,10 +389,11 @@ function statePose(input: PoseInput): Pose {
     pose.eyes.slit = 1 - pose.eyes.arc;
     if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.6);
   } else if (state === 'blocked') {
-    // Stops still while it gives way to the exclamation mark.
+    // Stops still while it gives way to its mark.
     pose.sy = 1.02;
     pose.sx = 0.99;
-    pose.bang = 1;
+    if (resolveMark(input.mark) === 'question') pose.ask = 1;
+    else pose.bang = 1;
   } else if (state === 'done') {
     // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
     // slower than idle, and after a while again, the other way round.

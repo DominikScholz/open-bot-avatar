@@ -6,15 +6,16 @@
  * frame and whether it is still easing.
  */
 import { REST, followGaze, followStep, type FollowState } from './follow.ts';
-import { DONE_TURN_S, resolveLook } from './motion.ts';
+import { DONE_TURN_S, resolveLook, resolveMark } from './motion.ts';
 import { moodProgress, settleMood, type MoodState } from './mood.ts';
-import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
+import type { AvatarMark, AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 export interface AnimatorInput {
   /** Wall clock, ms (e.g. performance.now()). Easing runs on it even when the animation clock stops. */
   now: number;
   state?: AvatarState;
   mood?: AvatarMood;
+  mark?: AvatarMark;
   /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
   /** Look target, -1..1 per axis (x right, y down), e.g. from pointerGaze; null eases back to rest. */
@@ -44,7 +45,7 @@ export function createAnimator(): Animator {
   let follow: FollowState = REST;
   let last: number | null = null;
   // What is on screen, when its change began and when its state began.
-  let shown: { state: AvatarState; mood: AvatarMood; blend?: AvatarMotionBlend; since: number; began: number } | null = null;
+  let shown: { state: AvatarState; mood: AvatarMood; mark: AvatarMark; blend?: AvatarMotionBlend; since: number; began: number } | null = null;
 
   return {
     step({ now, target, hold = false, reducedMotion, ...given }) {
@@ -55,16 +56,19 @@ export function createAnimator(): Animator {
 
       // A new state or mood eases in from the pose on screen (a change under way included); reduced motion switches at once.
       const { state, mood } = resolveLook(given);
-      if (shown && (state !== shown.state || mood !== shown.mood)) {
+      const mark = resolveMark(given.mark);
+      if (shown && (state !== shown.state || mood !== shown.mood || (state === 'blocked' && mark !== shown.mark))) {
         const before: MoodState = {
           state: shown.state,
           mood: shown.mood,
+          ...(shown.mark !== 'exclamation' && { mark: shown.mark }),
           age: (now - shown.began) / 1000,
           blend: shown.blend && { from: shown.blend.from, t: moodProgress(now - shown.since) },
         };
         shown = {
           state,
           mood,
+          mark,
           blend: reducedMotion ? undefined : { from: settleMood(before), t: 0 },
           since: now,
           began: state === shown.state ? shown.began : now,
@@ -72,7 +76,8 @@ export function createAnimator(): Animator {
       }
       // An avatar that mounts done starts it at rest, as if it had just finished celebrating; any
       // other state starts afresh (a working bot's first sweep comes a second or two in).
-      shown ??= { state, mood, since: now, began: now - (state === 'done' ? DONE_TURN_S * 1000 : 0) };
+      shown ??= { state, mood, mark, since: now, began: now - (state === 'done' ? DONE_TURN_S * 1000 : 0) };
+      shown.mark = mark;
       const t = reducedMotion ? 1 : moodProgress(now - shown.since);
       let motionBlend: AvatarMotionBlend | undefined;
       if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };

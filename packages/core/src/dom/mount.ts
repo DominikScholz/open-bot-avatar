@@ -17,7 +17,7 @@ import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
-import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
+import type { AvatarDefinition, AvatarMark, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -38,6 +38,7 @@ export interface AvatarOptions {
    * `thinking` are still accepted here from before `state` existed and mean those states.
    */
   mood?: AvatarMood | 'idle' | 'thinking';
+  mark?: AvatarMark;
   /** Eyes look and the body turns toward the mouse, pen or finger anywhere on the page. */
   followPointer?: boolean;
   /** Fixed look direction (-1..1 per axis, x right, y down). Wins over the pointer. */
@@ -247,6 +248,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           depth: p.depth,
           state: look.state,
           mood: look.mood,
+          mark: p.mark,
           view: p.view,
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
@@ -266,11 +268,12 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         : p.followPointer && pointer && rect && rect.width > 0
           ? pointerGaze(pointer, rect, eyesOrigin(p.definition))
           : null;
-      const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
+      const step = animator.step({ now, state: look.state, mood: look.mood, mark: p.mark, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
         state: look.state,
         mood: look.mood,
+        mark: p.mark,
         stateAge: step.stateAge,
         motionBlend: step.motionBlend,
         size: size || undefined,
