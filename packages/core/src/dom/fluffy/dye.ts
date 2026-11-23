@@ -1,5 +1,5 @@
 /**
- * How a plush coat takes its color: one row of colors per dye, from the darkest recess to the
+ * How a fluffy coat takes its color: one row of colors per dye, from the darkest recess to the
  * brightest lit tip. The shader works out how much light a fiber catches and looks the color up
  * here, so every dye keeps its hue through the same range of shading.
  */

@@ -81,8 +81,8 @@ const PROPS: [string, string][] = [
   ["view", "Extra rotation, { yaw, pitch } in radians."],
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
   ["reducedMotion", 'true, false or "system" (default).'],
-  ["material", '"flat" (default) or "plush", a coat of fur. Plush needs the canvas renderer and WebGL2.'],
-  ["still", "One fixed pose, no animation: an SVG, or one painted canvas for plush. Default: false."],
+  ["material", '"flat" (default) or "fluffy", a coat of fur. Fluffy needs the canvas renderer and WebGL2.'],
+  ["still", "One fixed pose, no animation: an SVG, or one painted canvas for fluffy. Default: false."],
   ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],
   ["label", 'Accessible name. Default: the definition\'s name; "" for decorative.'],
 ];

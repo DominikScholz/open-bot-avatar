@@ -2,7 +2,7 @@
 /**
  * Draw the site's social preview (Open Graph / X card): the name and one line on what it is on the
  * left, on the site's dark background, and a grid of avatars on the right: a row of flat ones over
- * two rows of plush ones.
+ * two rows of fluffy ones.
  *
  *   node apps/site/scripts/og.ts
  */
@@ -23,8 +23,8 @@ const CELL = 150;
 const X = W - M - 2 * CELL - 51;
 const AVATARS = [
   ...avatarRow(['ghost', '+chat', 'bull'], 'flat', SIZE, X, H / 2 - CELL + 6, CELL),
-  ...avatarRow(['sprout', 'controller', '+brain'], 'plush', SIZE, X, H / 2 + 6, CELL),
-  ...avatarRow(['magnifier', 'book', 'watering-can'], 'plush', SIZE, X, H / 2 + CELL + 6, CELL),
+  ...avatarRow(['sprout', 'controller', '+brain'], 'fluffy', SIZE, X, H / 2 + 6, CELL),
+  ...avatarRow(['magnifier', 'book', 'watering-can'], 'fluffy', SIZE, X, H / 2 + CELL + 6, CELL),
 ];
 
 const logo = renderAvatarSvg(LOGO, { color: LOGO_COLOR, size: 104, reducedMotion: true })

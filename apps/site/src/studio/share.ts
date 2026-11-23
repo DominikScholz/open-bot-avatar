@@ -9,7 +9,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, readMaterial, type LookState } fro
  *   &state=working           idle, thinking, working, waiting, blocked or done
  *   &mood=happy              neutral or happy; an older link's mood=thinking
  *                            still opens the thinking state
- *   &material=flat           flat or plush
+ *   &material=flat           flat or fluffy
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
@@ -88,7 +88,7 @@ export function readShare(search: string): SharedLook {
 /**
  * A link to this avatar in this look: a starter or gallery avatar by id, one of yours with its
  * definition. The color, material, state and mood are left out at their defaults (the avatar's
- * own color, plush, idle, neutral).
+ * own color, fluffy, idle, neutral).
  */
 export function shareLink(
   base: string,

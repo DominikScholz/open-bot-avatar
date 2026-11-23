@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ROOT_PASSES, buildMesh, rootsIn, type Capsule } from '../src/dom/plush/mesh.ts';
-import { plushDetail } from '../src/dom/plush/renderer.ts';
+import { ROOT_PASSES, buildMesh, rootsIn, type Capsule } from '../src/dom/fluffy/mesh.ts';
+import { fluffyDetail } from '../src/dom/fluffy/renderer.ts';
 import { getExample } from '../src/examples.ts';
 import { preparedVolume } from '../src/render.ts';
 
 const vec = (a: Float32Array, i: number, stride: number, offset = 0) => [a[i * stride + offset], a[i * stride + offset + 1], a[i * stride + offset + 2]];
 
-describe('plush mesh', () => {
+describe('fluffy mesh', () => {
   const { vol } = preparedVolume(getExample('mug')!);
   const mesh = buildMesh(vol);
 
@@ -92,20 +92,20 @@ describe('plush mesh', () => {
   });
 });
 
-describe('plush detail', () => {
+describe('fluffy detail', () => {
   it('draws everything from 128 CSS pixels on a 2× display, and less below', () => {
     const full = { shells: 5, strandPasses: ROOT_PASSES, fineSockets: true };
-    expect(plushDetail(2.56)).toEqual(full);
-    expect(plushDetail(8)).toEqual(full);
+    expect(fluffyDetail(2.56)).toEqual(full);
+    expect(fluffyDetail(8)).toEqual(full);
     // 64 CSS pixels at 2×, or 128 at 1×.
-    expect(plushDetail(1.28)).toEqual({ shells: 3, strandPasses: 6, fineSockets: false });
-    expect(plushDetail(0.1)).toEqual({ shells: 2, strandPasses: ROOT_PASSES / 4, fineSockets: false });
+    expect(fluffyDetail(1.28)).toEqual({ shells: 3, strandPasses: 6, fineSockets: false });
+    expect(fluffyDetail(0.1)).toEqual({ shells: 2, strandPasses: ROOT_PASSES / 4, fineSockets: false });
   });
 
   it('never draws more as an avatar gets smaller', () => {
-    let last = plushDetail(3);
+    let last = fluffyDetail(3);
     for (let scale = 3; scale > 0.1; scale -= 0.05) {
-      const detail = plushDetail(scale);
+      const detail = fluffyDetail(scale);
       expect(detail.shells).toBeLessThanOrEqual(last.shells);
       expect(detail.strandPasses).toBeLessThanOrEqual(last.strandPasses);
       expect(Number(detail.fineSockets)).toBeLessThanOrEqual(Number(last.fineSockets));

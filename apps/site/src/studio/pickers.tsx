@@ -123,7 +123,7 @@ export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: 
 
 const MATERIALS: Choice<AvatarMaterial>[] = [
   { value: "flat", label: "Flat", hint: "Solid color" },
-  { value: "plush", label: "Plush", hint: "Brushed fur" },
+  { value: "fluffy", label: "Fluffy", hint: "Brushed fur" },
 ];
 
 const SMOOTH_FACE = "M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0ZM8.9 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0ZM13.1 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0Z";
@@ -136,8 +136,8 @@ const FUR =
 function Face({ material }: { material: AvatarMaterial }) {
   return (
     <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d={material === "plush" ? FURRY_FACE : SMOOTH_FACE} fill="currentColor" fillRule="evenodd" />
-      {material === "plush" ? <path d={FUR} fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" /> : null}
+      <path d={material === "fluffy" ? FURRY_FACE : SMOOTH_FACE} fill="currentColor" fillRule="evenodd" />
+      {material === "fluffy" ? <path d={FUR} fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" /> : null}
     </svg>
   );
 }

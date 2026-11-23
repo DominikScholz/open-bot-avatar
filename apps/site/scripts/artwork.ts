@@ -1,6 +1,6 @@
 /**
  * What the site's drawn graphics (og.ts, banner.ts) share: the palette, Geist as outlines, since
- * the rasterizer has no web fonts, and stills of the avatars, flat or plush, from headless
+ * the rasterizer has no web fonts, and stills of the avatars, flat or fluffy, from headless
  * Chromium (CHROME_BIN may point to it).
  */
 import { readFileSync } from 'node:fs';

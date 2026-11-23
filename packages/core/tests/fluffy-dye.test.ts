@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mix, parseHex, toOklch, type Rgb } from '../src/color.ts';
-import { DYE_RAMP_RANGE, DYE_RAMP_SIZE, dyeRamp } from '../src/dom/plush/dye.ts';
+import { DYE_RAMP_RANGE, DYE_RAMP_SIZE, dyeRamp } from '../src/dom/fluffy/dye.ts';
 
 // Sample between texel centers, as the GPU's linear sampler does.
 function sample(rgb: Rgb, exposure: number): Rgb {
@@ -10,7 +10,7 @@ function sample(rgb: Rgb, exposure: number): Rgb {
   return mix(texel(Math.floor(x)), texel(Math.ceil(x)), x - Math.floor(x));
 }
 
-describe('plush dye ramp', () => {
+describe('fluffy dye ramp', () => {
   it('restores the yellow response across the whole lighting range and blends neighboring dyes', () => {
     const weights = (hex: string) => dyeRamp(parseHex(hex)!).filter((_, index) => index % 4 === 3);
     for (const hex of ['#ffcf36', '#f8a01c', '#ffff00']) {

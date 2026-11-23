@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
 import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
-import * as plush from '../src/dom/plush/renderer.ts';
+import * as fluffy from '../src/dom/fluffy/renderer.ts';
 import { avatarExtent, liveFrame } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
@@ -97,11 +97,11 @@ describe('mountAvatar on a canvas', () => {
     expect(el.innerHTML).toBe('');
   });
 
-  it('paints a plush still once, and again when its color or material changes', async () => {
+  it('paints a fluffy still once, and again when its color or material changes', async () => {
     const tile = document.createElement('canvas');
-    const render = vi.spyOn(plush, 'renderPlush').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
     const el = host();
-    const avatar = mountAvatar(el, { definition: examples[0], material: 'plush', still: true, color: '#1f7cf2', eyeColor: '#151515' });
+    const avatar = mountAvatar(el, { definition: examples[0], material: 'fluffy', still: true, color: '#1f7cf2', eyeColor: '#151515' });
     try {
       await frame();
       expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(1);
@@ -113,7 +113,7 @@ describe('mountAvatar on a canvas', () => {
       avatar.update({ material: 'flat' });
       await frame();
       expect(el.querySelector('svg')).not.toBeNull();
-      avatar.update({ material: 'plush' });
+      avatar.update({ material: 'fluffy' });
       await frame();
       expect(el.querySelector('canvas')).not.toBeNull();
     } finally {
@@ -133,19 +133,19 @@ describe('mountAvatar on a canvas', () => {
     avatar.destroy();
   });
 
-  it('paints plush marks from one sprite through a hop, and fills them where plush is unavailable', () => {
+  it('paints fluffy marks from one sprite through a hop, and fills them where fluffy is unavailable', () => {
     const tile = document.createElement('canvas');
-    const render = vi.spyOn(plush, 'renderPlush').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 0, cy: 0, radius: 24 });
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 0, cy: 0, radius: 24 });
     try {
       const def = examples[0], el = host();
       const surface = mountCanvas(el, 'marks', def, 6);
       const markFrame = (state: 'thinking' | 'blocked', time: number) => liveFrame(def, { state, time, size: 96 });
-      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'plush');
+      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'fluffy');
       expect(render).toHaveBeenCalledTimes(1);
       expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(6);
 
       render.mockReturnValue(null);
-      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'plush');
+      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'fluffy');
       expect(painted(el).filter(call => call.op === 'fill')).toHaveLength(2);
     } finally {
       render.mockRestore();

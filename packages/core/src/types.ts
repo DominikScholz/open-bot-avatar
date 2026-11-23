@@ -64,8 +64,8 @@ export interface AvatarMotionBlend {
   t: number;
 }
 
-/** A body's finish: a flat fill, or a coat of plush fur (live avatars on a canvas, see AvatarOptions). */
-export type AvatarMaterial = 'flat' | 'plush';
+/** A body's finish: a flat fill, or a coat of fluffy fur (live avatars on a canvas, see AvatarOptions). */
+export type AvatarMaterial = 'flat' | 'fluffy';
 
 export interface RenderOptions {
   /** Body color as #rgb or #rrggbb. Invalid values fall back to the default. */

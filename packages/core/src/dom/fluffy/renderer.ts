@@ -1,5 +1,5 @@
 /**
- * The plush renderer: draws a body as a lit coat of fur with the eyes seated in it. Every plush
+ * The fluffy renderer: draws a body as a lit coat of fur with the eyes seated in it. Every fluffy
  * avatar on the page shares one WebGL2 context (browsers allow only a handful), which renders one
  * avatar at a time into its own canvas; the 2D painter copies that image into the avatar's canvas
  * (see paint.ts), under the ribbons and marks it draws itself.
@@ -7,16 +7,16 @@
  * A frame is three kinds of draw over the same mesh: the solid body, a few shells of pile lifted
  * off it, and the single strands (see shaders.ts). Meshes are built once per shape and kept on
  * the GPU while their avatars keep painting, so a page of avatars only pays for drawing, and a
- * small avatar draws less of each (see plushDetail).
+ * small avatar draws less of each (see fluffyDetail).
  */
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
-import { ROOT_PASSES, buildMesh, halfDepth, rootsIn, type IndexRange, type PlushShape } from './mesh.ts';
+import { ROOT_PASSES, buildMesh, halfDepth, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
 import { PASS, fragmentShader, vertexShader } from './shaders.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from './socket.ts';
 
 /** The colors of a coat and the eyes set into it (none for a state mark). */
-export interface PlushLook {
+export interface FluffyLook {
   /** Body color, any CSS color. */
   color: string;
   /** Eye color, any CSS color. */
@@ -26,7 +26,7 @@ export interface PlushLook {
 }
 
 /** A rendered coat. It lasts until the next render: draw or copy it at once. */
-export interface PlushImage {
+export interface FluffyImage {
   /** The renderer's canvas, which may be larger than the image. */
   canvas: HTMLCanvasElement;
   /** The image's square in the canvas, pixels: `size` to the right of and below (x, y). */
@@ -43,7 +43,7 @@ export interface PlushImage {
 const SHELLS = 5;
 /**
  * Pixels per viewBox unit from which a coat is drawn in full: an avatar 128 CSS pixels wide on a
- * 2× display. Below it the pile is finer than the pixels that show it (see plushDetail).
+ * 2× display. Below it the pile is finer than the pixels that show it (see fluffyDetail).
  */
 const FULL_DETAIL = 2.56;
 /** Largest image, pixels a side. */
@@ -65,7 +65,7 @@ const IDLE_MS = 2000;
  * mesh's ROOT_PASSES), each widened by as much as there are fewer, so they cover the same. The
  * image averages out to the same coat at half to two thirds of the cost.
  */
-export function plushDetail(scale: number): { shells: number; strandPasses: number; fineSockets: boolean } {
+export function fluffyDetail(scale: number): { shells: number; strandPasses: number; fineSockets: boolean } {
   const detail = Math.min(1, scale / FULL_DETAIL);
   return {
     shells: Math.max(2, Math.ceil(SHELLS * detail)),
@@ -175,7 +175,7 @@ function colorReader(): (color: string) => Rgb {
   };
 }
 
-type Renderer = (shape: PlushShape, view: ViewBasis, look: PlushLook, scale: number) => PlushImage | null;
+type Renderer = (shape: FluffyShape, view: ViewBasis, look: FluffyLook, scale: number) => FluffyImage | null;
 
 /** Null without WebGL2. Throws if the shaders don't compile. */
 function createRenderer(onContextRestored: () => void): Renderer | null {
@@ -230,10 +230,10 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 
   // --- Meshes -------------------------------------------------------------------------------------
 
-  const geometries = new Map<PlushShape, Geometry>();
+  const geometries = new Map<FluffyShape, Geometry>();
   let sweepPending = false;
 
-  const upload = (shape: PlushShape): Geometry => {
+  const upload = (shape: FluffyShape): Geometry => {
     const mesh = buildMesh(shape);
     const buffer = (target: number, data: Float32Array | Uint32Array) => {
       const b = gl.createBuffer();
@@ -292,7 +292,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     }
   };
 
-  const geometryOf = (shape: PlushShape): Geometry => {
+  const geometryOf = (shape: FluffyShape): Geometry => {
     let geometry = geometries.get(shape);
     if (geometry) geometries.delete(shape);
     else geometry = upload(shape);
@@ -398,7 +398,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.viewport(0, 0, pixels, pixels);
     gl.scissor(0, 0, pixels, pixels);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    const { shells, strandPasses, fineSockets } = plushDetail(scale);
+    const { shells, strandPasses, fineSockets } = fluffyDetail(scale);
     const triangles = fineSockets ? geometry.fine : geometry.coarse;
     gl.bindVertexArray(geometry.surface);
     gl.uniform1i(u.pass, PASS.body);
@@ -419,17 +419,17 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 let renderer: Renderer | null | undefined;
 
 /**
- * Render `shape` under `view` at `scale` pixels per viewBox unit. Null where plush can't be
+ * Render `shape` under `view` at `scale` pixels per viewBox unit. Null where fluffy can't be
  * drawn (no WebGL2, or its context is lost): the caller paints flat instead.
  */
-export function renderPlush(shape: PlushShape, view: ViewBasis, look: PlushLook, scale: number): PlushImage | null {
+export function renderFluffy(shape: FluffyShape, view: ViewBasis, look: FluffyLook, scale: number): FluffyImage | null {
   if (renderer === undefined) {
     renderer = null;
     try {
       // After a restore everything on the GPU is gone: start over on the next frame.
       renderer = createRenderer(() => (renderer = undefined));
     } catch (error) {
-      console.warn('open-bot-avatar: plush is unavailable, drawing flat', error);
+      console.warn('open-bot-avatar: fluffy is unavailable, drawing flat', error);
     }
   }
   return renderer?.(shape, view, look, scale) ?? null;

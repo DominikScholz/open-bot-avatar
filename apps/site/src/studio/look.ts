@@ -34,7 +34,7 @@ export const PALETTE = [
 
 export const DEFAULT_LOOK: LookState = {
   colors: {},
-  material: "plush",
+  material: "fluffy",
   state: "idle",
   mood: "neutral",
   followCursor: true,
@@ -71,7 +71,7 @@ export function withColor(look: LookState, key: string, id: string, color: strin
 
 /** A material by name, from a stored look or a link. */
 export function readMaterial(value: unknown): AvatarMaterial | undefined {
-  return value === "flat" || value === "plush" ? value : undefined;
+  return value === "flat" || value === "fluffy" ? value : undefined;
 }
 
 /** Revive a stored look; anything missing or invalid falls back to the default. */

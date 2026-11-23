@@ -1,4 +1,4 @@
-/** An eye mark on a 2D canvas: its bounds, and its paint. Shared by the flat painter and the plush sockets. */
+/** An eye mark on a 2D canvas: its bounds, and its paint. Shared by the flat painter and the fluffy sockets. */
 import type { EyeMark, FramePath } from '../render.ts';
 
 export function eyeBox(mark: EyeMark): FramePath['box'] {

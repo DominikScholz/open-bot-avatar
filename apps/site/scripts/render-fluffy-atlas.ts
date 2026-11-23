@@ -16,7 +16,7 @@ const keys = avatars.map((definition, i) => {
   const color = defaultColor(definition.id);
   const frame = liveFrame(definition, { size: cell, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK });
   const surface = mountCanvas(document.createElement('div'), definition.id, definition, undefined);
-  paintCanvas(surface, frame, cell, color, frame.ink, 'plush');
+  paintCanvas(surface, frame, cell, color, frame.ink, 'fluffy');
   const x = (i % side) * cell, y = Math.floor(i / side) * cell;
   ctx.save();
   ctx.beginPath();
@@ -30,7 +30,7 @@ const keys = avatars.map((definition, i) => {
   for (let j = 0; j < pixels.length; j += 4) {
     if (pixels[j + 3] === 255) colors.add((pixels[j] << 16) | (pixels[j + 1] << 8) | pixels[j + 2]);
   }
-  if (colors.size < 32) throw new Error('Could not render plush for ' + definition.id);
+  if (colors.size < 32) throw new Error('Could not render fluffy for ' + definition.id);
   return thumbnailKey(definition, color);
 });
 document.body.textContent = JSON.stringify({ keys, image: atlas.toDataURL('image/webp', .97).split(',')[1] });

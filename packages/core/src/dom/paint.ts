@@ -12,16 +12,16 @@
  * The canvas sits in a wrapper at the host's content box, as the scene does,
  * overhangs it by the avatar's reach and ignores the pointer.
  *
- * A plush avatar is painted the same way, except that its body and eyes come as one image from
- * the plush renderer (see plush/renderer.ts) in place of the slices and eye marks.
+ * A fluffy avatar is painted the same way, except that its body and eyes come as one image from
+ * the fluffy renderer (see fluffy/renderer.ts) in place of the slices and eye marks.
  */
 import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
 import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
-import { paintPlushMark } from './plush/marks.ts';
-import { renderPlush } from './plush/renderer.ts';
+import { paintFluffyMark } from './fluffy/marks.ts';
+import { renderFluffy } from './fluffy/renderer.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -42,7 +42,7 @@ export interface Bounds {
 export const FIT_SLACK = 8;
 /** Margin a frame keeps from the bitmap's edge for antialiasing, viewBox units. */
 export const FIT_PAD = 1;
-/** How far a plush coat's pile reaches past the frame's flat bounds, viewBox units. */
+/** How far a fluffy coat's pile reaches past the frame's flat bounds, viewBox units. */
 const PILE_MARGIN = 3;
 
 /**
@@ -127,7 +127,7 @@ export interface CanvasSurface {
   key: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
-  /** The avatar's volume, for a plush coat: built when first asked for. Null at depth 0, which has no surface to coat. */
+  /** The avatar's volume, for a fluffy coat: built when first asked for. Null at depth 0, which has no surface to coat. */
   volume: (() => Volume) | null;
   cap: Square;
   fit: Square | null;
@@ -158,7 +158,7 @@ const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
 
 /**
  * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
- * canvas color. A `plush` body falls back to flat where plush can't be drawn.
+ * canvas color. A `fluffy` body falls back to flat where fluffy can't be drawn.
  */
 export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
   const { canvas, ctx } = surface;
@@ -171,9 +171,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
-  const volume = material === 'plush' ? surface.volume : null;
-  const plush = volume !== null;
-  if (plush) {
+  const volume = material === 'fluffy' ? surface.volume : null;
+  const fluffy = volume !== null;
+  if (fluffy) {
     bounds.x0 -= PILE_MARGIN;
     bounds.y0 -= PILE_MARGIN;
     bounds.x1 += PILE_MARGIN;
@@ -198,7 +198,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
 
   // The whole body and its eyes as one image, unless it has shrunk away into a mark.
   const { view, scale: bodyScale, eyes } = frame.surface;
-  const coat = volume && bodyScale > 0.001 ? renderPlush(volume(), view, { color: fill, ink, eyes }, scale) : null;
+  const coat = volume && bodyScale > 0.001 ? renderFluffy(volume(), view, { color: fill, ink, eyes }, scale) : null;
   let coatPainted = false;
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
@@ -210,7 +210,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
-        if (!plush || !paintPlushMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+        if (!fluffy || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
       } else if (!coat) {
         ctx.fill(section.path, section.rule);
       } else if (!coatPainted) {

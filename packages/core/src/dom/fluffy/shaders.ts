@@ -1,5 +1,5 @@
 /**
- * The plush shaders. One program draws three kinds of geometry, chosen by `pass`: the body's
+ * The fluffy shaders. One program draws three kinds of geometry, chosen by `pass`: the body's
  * solid surface with the eyes seated in it, shells of pile lifted off that surface, and single
  * strands on top. All three sample the same model-space pile, so the coat holds together as the
  * avatar turns.

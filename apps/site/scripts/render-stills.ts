@@ -1,5 +1,5 @@
 // Browser entry for artwork.ts: one still per entry of `window.input`, as PNGs, drawn by the
-// canvas renderer the studio uses. Flat and plush stills of the same pose lie exactly over each other.
+// canvas renderer the studio uses. Flat and fluffy stills of the same pose lie exactly over each other.
 import { examples, type AvatarDefinition, type AvatarMaterial, type RenderOptions } from 'open-bot-avatar';
 import { liveFrame } from '../../../packages/core/src/render.ts';
 import { mountCanvas, paintCanvas } from '../../../packages/core/src/dom/paint.ts';

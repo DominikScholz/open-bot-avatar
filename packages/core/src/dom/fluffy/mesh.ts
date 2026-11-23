@@ -1,5 +1,5 @@
 /**
- * The plush body as a triangle mesh: surface nets over the union of the avatar's parts. One vertex
+ * The fluffy body as a triangle mesh: surface nets over the union of the avatar's parts. One vertex
  * per boundary cell gives a closed surface, including the backs of ears and the walls of holes.
  * Hair roots are scattered over it by area, and the front around the eyes is refined so a socket
  * and its bead keep their shape in profile.
@@ -12,7 +12,7 @@ import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC } from '../../validate.ts';
 import type { Volume, VolumePart } from '../../volume.ts';
 import { SOCKET_PAD } from './socket.ts';
 
-export interface PlushMesh {
+export interface FluffyMesh {
   /** Position and outward normal per vertex (6 floats). */
   vertices: Float32Array;
   /** The triangles twice: as the grid gives them, then with those around the eyes refined. */
@@ -39,12 +39,12 @@ export interface Capsule {
   radius: number;
 }
 
-export type PlushShape = Volume | Capsule;
+export type FluffyShape = Volume | Capsule;
 
-const isCapsule = (shape: PlushShape): shape is Capsule => 'radius' in shape;
+const isCapsule = (shape: FluffyShape): shape is Capsule => 'radius' in shape;
 
 /** Front-to-back half extent of a shape, viewBox units. */
-export function halfDepth(shape: PlushShape): number {
+export function halfDepth(shape: FluffyShape): number {
   return isCapsule(shape) ? shape.radius : Math.max(0.5, ...shape.parts.map((part) => part.depth / 2));
 }
 
@@ -81,7 +81,7 @@ interface Grid {
   field: Float32Array;
 }
 
-function emptyGrid(shape: PlushShape): Grid {
+function emptyGrid(shape: FluffyShape): Grid {
   const b = shape.bounds, half = halfDepth(shape);
   const nx = Math.ceil((b.maxX - b.minX + 2 * PAD) / STEP) + 1;
   const ny = Math.ceil((b.maxY - b.minY + 2 * PAD) / STEP) + 1;
@@ -243,7 +243,7 @@ function refineSockets(vertices: number[], indices: number[], vol: Volume): numb
   return refined;
 }
 
-export function buildMesh(shape: PlushShape): PlushMesh {
+export function buildMesh(shape: FluffyShape): FluffyMesh {
   const grid = emptyGrid(shape);
   if (isCapsule(shape)) addCapsule(grid, shape);
   else for (const part of shape.parts) addPart(grid, part);

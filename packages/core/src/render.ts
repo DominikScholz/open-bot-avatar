@@ -452,7 +452,7 @@ export interface AvatarFrame {
   /** Back to front. */
   shapes: FrameShape[];
   /**
-   * The body as one surface, for a renderer that draws it in 3D instead of as slices (the plush
+   * The body as one surface, for a renderer that draws it in 3D instead of as slices (the fluffy
    * material): the view's rotation, the body's scale as it gives way to a mark, and both eyes,
    * including an eye `shapes` leaves out because its spot faces away.
    */

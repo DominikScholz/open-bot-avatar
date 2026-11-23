@@ -1,11 +1,11 @@
 /**
- * The marks of `thinking` and `blocked` in plush: each dot or bar is a small pompom, rendered
+ * The marks of `thinking` and `blocked` in fluffy: each dot or bar is a small pompom, rendered
  * once per shape, color and size and kept as a sprite, since the three dots and both parts of
  * the exclamation mark only ever move, squash and fade.
  */
 import { viewBasis, type FramePath } from '../../render.ts';
 import type { Capsule } from './mesh.ts';
-import { renderPlush } from './renderer.ts';
+import { renderFluffy } from './renderer.ts';
 
 /** Radius of a mark's model, viewBox units: enough for the short pile to read on a small dot. */
 const RADIUS = 12;
@@ -17,11 +17,11 @@ const models = new Map<number, Capsule>();
 const sprites = new Map<string, { canvas: HTMLCanvasElement; radius: number }>();
 
 /**
- * Paint a mark face-on as a plush ball or capsule filling `box`, under the context's transform
- * (which animates it). `scale` is device pixels per viewBox unit. False where plush can't be
+ * Paint a mark face-on as a fluffy ball or capsule filling `box`, under the context's transform
+ * (which animates it). `scale` is device pixels per viewBox unit. False where fluffy can't be
  * drawn: the caller fills the mark's path instead.
  */
-export function paintPlushMark(ctx: CanvasRenderingContext2D, box: FramePath['box'], scale: number, color: string): boolean {
+export function paintFluffyMark(ctx: CanvasRenderingContext2D, box: FramePath['box'], scale: number, color: string): boolean {
   const aspect = Math.round((1000 * box.h) / box.w) / 1000;
   let model = models.get(aspect);
   if (!model) {
@@ -36,7 +36,7 @@ export function paintPlushMark(ctx: CanvasRenderingContext2D, box: FramePath['bo
   const key = `${aspect}|${color}|${density}`;
   let sprite = sprites.get(key);
   if (!sprite) {
-    const image = renderPlush(model, FRONT, { color, ink: color, eyes: [] }, density);
+    const image = renderFluffy(model, FRONT, { color, ink: color, eyes: [] }, density);
     if (!image) return false;
     // The renderer's canvas is shared with the body: keep a copy.
     const canvas = document.createElement('canvas');

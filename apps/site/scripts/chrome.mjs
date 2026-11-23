@@ -1,5 +1,5 @@
 // Runs a script from this folder in headless Chromium and returns the JSON it leaves as the page's
-// text. Plush needs WebGL, which Node has none of. CHROME_BIN may point to Chromium.
+// text. Fluffy needs WebGL, which Node has none of. CHROME_BIN may point to Chromium.
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
