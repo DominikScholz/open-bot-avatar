@@ -15,7 +15,10 @@ export interface Box { x: number; y: number; w: number; h: number }
 
 /** One part of a mark: a fixed outline about its own centre, and where that centre is this frame. */
 export interface MarkPart {
-  /** Stable name of the outline, e.g. "dot". */
+  /**
+   * Stable name of the outline, e.g. "dot". An avatar's frame lists each name's outline once, so
+   * parts of one name share one outline: distinct outlines need distinct names, across marks.
+   */
   shape: string;
   d: string;
   box: Box;

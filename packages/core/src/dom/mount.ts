@@ -15,7 +15,7 @@
  */
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
-import { resolveLook } from '../motion.ts';
+import { lookOf, type AvatarStateDefinition } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
@@ -36,8 +36,11 @@ export interface AvatarOptions {
   material?: AvatarMaterial;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
-  /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
-  state?: AvatarState;
+  /**
+   * What the bot is doing (default `idle`): one of the six states by name, or a definition of the
+   * host's own. Changes ease from what is on screen.
+   */
+  state?: AvatarState | AvatarStateDefinition;
   /**
    * How the bot feels (default `neutral`): it shapes the eyes on top of any state. `idle` and
    * `thinking` are still accepted here from before `state` existed and mean those states.
@@ -265,7 +268,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const reducedMotion = p.reducedMotion === 'system' || p.reducedMotion === undefined ? prefersReducedMotion() : p.reducedMotion;
     const now = performance.now();
     // `mood: 'idle' | 'thinking'` are the states they were before `state` existed.
-    const look = resolveLook({ state: p.state, mood: p.mood, motion: p.mood });
+    const look = lookOf({ state: p.state, mood: p.mood, motion: p.mood });
     try {
       if (p.still) {
         const options: RenderOptions = {

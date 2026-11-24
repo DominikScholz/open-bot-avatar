@@ -35,7 +35,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | Required avatar definition. Validate imported data first. |
 | `color`, `eyeColor` | Body and eye colors as `#rgb` or `#rrggbb`, or any CSS color such as `var(--brand)`. Defaults: `#ff6a1a`, `#151515`. |
-| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`. Changes ease from the current pose. |
+| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`, or a [state of your own](#custom-states). Changes ease from the current pose. |
 | `mood` | How the bot feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on top of any state, and the eyes morph from one shape to the next. `"idle"` and `"thinking"` are still accepted here and mean those states. |
 | `followPointer` | Follow the mouse, pen or finger on the page. Default: `false`. |
 | `lookAt` | Fixed `{ x, y }` direction, each from -1 to 1 (x right, y down). Overrides the pointer; `null` clears it. |
@@ -62,6 +62,61 @@ The six states are the ones an agent moves through. Each is motion on the same a
 | `done` | Celebrates: a few turns inside a cage of nine ribbons on three crossing hoops, then a rest, and after a while again. |
 
 A mood combines with any state: a bot can be working and happy. A happy bot keeps its arcs while it waits. The marks of `thinking` and `blocked` have no eyes, so a mood shows again when the body returns. Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.
+
+### Custom states
+
+The six names are one vocabulary. If your bot has a status they don't cover, pass a definition instead of a name. A definition is an `id` and a `pose` function that returns what differs from the resting pose:
+
+```ts
+import type { AvatarMark, AvatarStateDefinition } from "open-bot-avatar";
+
+// A mark is an id and the outlines it is made of, placed from the mark's center.
+const square: AvatarMark = {
+  id: "square",
+  parts: ({ unit }) => {
+    const r = 0.2 * unit;
+    return [{ shape: "square", d: `M${-r} ${-r}H${r}V${r}H${-r}Z`, box: { x: -r, y: -r, w: 2 * r, h: 2 * r }, x: 0, y: 0, turn: 0, scale: 1 }];
+  },
+};
+
+// The body gives way to the mark.
+const paused: AvatarStateDefinition = {
+  id: "paused",
+  pose: () => ({ marks: [{ mark: square, weight: 1 }] }),
+};
+
+// The body stays: calm as in idle, leaning, with narrowed eyes.
+const listening: AvatarStateDefinition = {
+  id: "listening",
+  pose: (ctx) => ({ ...ctx.rest(), roll: 6 + ctx.wave(4), squintL: 0.3, squintR: 0.3 }),
+};
+
+avatar.update({ state: paused });
+```
+
+A definition works wherever a state does: `mountAvatar`, `update`, the render functions and `createAnimator`. Changes to and from it ease like any other, and a mood shapes its eyes.
+
+- `id` names the state. Two definitions with the same `id` are the same state, so you can build a definition inline on every render without restarting it.
+- `pose` receives a context with the clock (`t`, `wave`), the state's age (`stateAge`), the mood, `reducedMotion`, the resting pose (`base`) and the calm idle pose (`rest`). It must be a pure function of the context. Under `reducedMotion`, `t` is 0 and `wave` returns 0; a pose that uses neither holds still.
+- `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
+- A mark's `parts` are sized in `unit`, a share of the body's smaller side. Each distinct outline needs its own `shape` name, across all the marks you use.
+- `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
+- `isState` and `resolveLook` read names only. Use them for values from links and storage; they never return a definition.
+
+To show the statuses of an agent protocol, map each status to a state in your own code:
+
+```ts
+import type { AvatarOptions } from "open-bot-avatar/dom";
+
+// The task states of the Model Context Protocol.
+const states: Record<string, AvatarOptions["state"]> = {
+  working: "working",
+  input_required: paused,
+  completed: "done",
+  failed: "blocked",
+  cancelled: "idle",
+};
+```
 
 ## React
 

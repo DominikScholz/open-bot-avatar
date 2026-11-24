@@ -62,7 +62,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`. |
+| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`, or a [state of your own](packages/core/README.md#custom-states). |
 | `mood` | How it feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on any state. |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
 | `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |

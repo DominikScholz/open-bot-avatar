@@ -33,6 +33,26 @@ describe('mountAvatar', () => {
     expect(el.innerHTML).toBe('');
   });
 
+  it('takes a state of the host\'s own, live and still', async () => {
+    const d = 'M-9 -9H9V9H-9Z';
+    const asking = {
+      id: 'asking',
+      pose: () => ({ marks: [{ mark: { id: 'square', parts: () => [{ shape: 'square', d, box: { x: -9, y: -9, w: 18, h: 18 }, x: 0, y: 0, turn: 0, scale: 1 }] }, weight: 1 }] }),
+    };
+    const el = document.createElement('div');
+    document.body.append(el);
+    const avatar = mountAvatar(el, { definition: examples[0], state: asking, reducedMotion: true });
+    await frame();
+    expect(el.querySelector('[data-fx="front"]')?.innerHTML).toContain(d);
+    avatar.update({ state: 'idle' });
+    await frame();
+    expect(el.querySelector('[data-fx="front"]')?.innerHTML).not.toContain(d);
+    avatar.update({ state: asking, still: true });
+    await frame();
+    expect(el.querySelector('svg')?.outerHTML).toContain(d);
+    avatar.destroy();
+  });
+
   it('shows ribbons, marks and morphing eyes in the scene, and still takes the old mood values', async () => {
     const el = document.createElement('div');
     document.body.append(el);

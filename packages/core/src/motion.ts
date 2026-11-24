@@ -66,8 +66,10 @@ export function isMood(value: unknown): value is AvatarMood {
 }
 
 /**
- * The state and mood to show. `motion` is the single option that came before them: `thinking`
- * is a state, `happy` a mood. An explicit `state` or `mood` wins over it.
+ * The state and mood to show, from values that may come from anywhere (a stored look, a link):
+ * a state is one of the six by name, and anything else is `idle`. `motion` is the single option
+ * that came before them: `thinking` is a state, `happy` a mood. An explicit `state` or `mood`
+ * wins over it.
  */
 export function resolveLook(given: { state?: unknown; mood?: unknown; motion?: unknown }): { state: AvatarState; mood: AvatarMood } {
   return {
@@ -154,7 +156,7 @@ function dartAt(seed: number, t: number): [number, number] {
 export interface PoseInput {
   seed: number;
   time: number;
-  state?: AvatarState;
+  state?: AvatarState | AvatarStateDefinition;
   mood?: AvatarMood;
   /** @deprecated Use `state` and `mood`; they win when given. */
   motion?: AvatarMotion;
@@ -198,7 +200,7 @@ export function computePose(input: PoseInput): Pose {
   const from = typeof blend.from === 'string' ? { motion: blend.from } : blend.from;
   // A change of mood alone keeps the state's clock running on both sides, so a turn under way
   // stays one turn; a state that was left is held at the age it had.
-  const stateAge = resolveLook(from).state === resolveLook(input).state ? input.stateAge : from.age;
+  const stateAge = stateId(lookOf(from).state) === stateId(lookOf(input).state) ? input.stateAge : from.age;
   const before = computePose({ ...input, state: from.state, mood: from.mood, motion: from.motion, stateAge, blend: from.blend });
   return blendPoses(before, pose, Number.isFinite(blend.t) ? blend.t : 1);
 }
@@ -271,7 +273,7 @@ function celebration(t: number): number {
 }
 
 /** What a state works its pose out from. */
-interface StateContext {
+export interface StateContext {
   /** The avatar's own seed, for noise that differs from one avatar to the next. */
   seed: number;
   /** The animation clock as given, seconds. */
@@ -290,13 +292,29 @@ interface StateContext {
   wave(period: number, phase?: number): number;
   /** The pose a state starts from: the resting view, eyes open and shaped by the mood, no ribbons or marks. */
   base: Pose;
+  /**
+   * The calm pose of a bot with nothing to do, for a state that keeps the body: it breathes,
+   * sways, blinks and looks around. `pace` stretches its periods (default 1; `done` rests at 1.25).
+   */
+  rest(pace?: number): Pose;
 }
 
 /**
- * A state: what the bot does while it is in it, as a pose for each moment. `pose` returns what
- * differs from the context's `base`. The look target and the view are applied on top.
+ * A state: what the bot does while it is in it, as a pose for each moment. The six of
+ * AvatarState are definitions (see stateDefinition), and a host can pass one of its own wherever
+ * a state is taken.
  */
-interface StateDefinition {
+export interface AvatarStateDefinition {
+  /**
+   * Names the state. Two definitions with one id are the same state: changing between them is
+   * not a change of state, so nothing eases and the state's age runs on.
+   */
+  id: string;
+  /**
+   * The pose at one moment: what differs from the context's `base`. A pure function of the
+   * context, so a frame can be drawn again exactly. Under `reducedMotion` it returns a pose that
+   * holds still. The look target and the view are applied on top.
+   */
   pose(ctx: StateContext): Partial<Pose>;
   /**
    * The age the state has when an avatar mounts in it, seconds (default 0: it starts afresh).
@@ -306,7 +324,7 @@ interface StateDefinition {
 }
 
 /** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
-function rest({ seed, t, reducedMotion, sway, wave, base }: StateContext, pace: number): Pose {
+function rest({ seed, t, reducedMotion, sway, wave, base }: Omit<StateContext, 'rest'>, pace: number): Pose {
   const pose = { ...base };
   pose.yaw += 0.07 * sway * wave(6.1 * pace);
   pose.pitch += 0.04 * sway * wave(4.7 * pace, 1);
@@ -322,10 +340,11 @@ function rest({ seed, t, reducedMotion, sway, wave, base }: StateContext, pace: 
   return pose;
 }
 
-const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
+const STATE_DEFINITIONS: Record<AvatarState, AvatarStateDefinition> = {
   idle: {
+    id: 'idle',
     pose(ctx) {
-      if (ctx.mood !== 'happy') return rest(ctx, 1);
+      if (ctx.mood !== 'happy') return ctx.rest();
       // With nothing to do, a happy bot hops.
       const { t, reducedMotion, live, wave } = ctx;
       const pose = { ...ctx.base };
@@ -342,6 +361,7 @@ const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
     },
   },
   thinking: {
+    id: 'thinking',
     // Looks up and away while it gives way to the three dots.
     pose({ seed, t, reducedMotion, live, sway, wave, base }) {
       const pose = { ...base };
@@ -359,6 +379,7 @@ const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
     },
   },
   working: {
+    id: 'working',
     // Bent over the work and busy: a quick steady bob and eyes darting across it, and every so
     // often a turn with a band of ribbons sweeping round it.
     pose({ seed, time, t, stateAge, reducedMotion, live, sway, wave, base }) {
@@ -401,6 +422,7 @@ const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
     },
   },
   waiting: {
+    id: 'waiting',
     // Leans to one side, eyes flattened to slits, glancing off at whatever it is waiting on.
     // Now and then it sighs. A happy bot keeps its arcs.
     pose({ seed, t, reducedMotion, live, sway, wave, base }) {
@@ -422,16 +444,18 @@ const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
     },
   },
   blocked: {
+    id: 'blocked',
     // Stops still while it gives way to the exclamation mark.
     pose: () => ({ sy: 1.02, sx: 0.99, marks: [{ mark: BANG, weight: 1 }] }),
   },
   done: {
+    id: 'done',
     startAge: DONE_TURN_S,
     // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
     // slower than idle, and after a while again, the other way round.
     pose(ctx) {
       const { seed, stateAge, reducedMotion } = ctx;
-      const pose = rest(ctx, 1.25);
+      const pose = ctx.rest(1.25);
       // Counted from when the state began. Without an age it is at rest.
       const age = !reducedMotion && Number.isFinite(stateAge) ? Math.max(0, stateAge as number) : DONE_TURN_S;
       const length = DONE_CYCLE_S * (1 + 0.15 * noise(seed, 31));
@@ -455,14 +479,33 @@ const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
   },
 };
 
-/** The age a state has when an avatar mounts in it, seconds. */
-export function stateStartAge(state: AvatarState): number {
-  return STATE_DEFINITIONS[state].startAge ?? 0;
+export function isStateDefinition(value: unknown): value is AvatarStateDefinition {
+  const v = value as AvatarStateDefinition | null;
+  return typeof v === 'object' && v !== null && typeof v.id === 'string' && typeof v.pose === 'function';
+}
+
+/** The definition of a state: one of the six by name, or the host's own as it is. */
+export function stateDefinition(state: AvatarState | AvatarStateDefinition): AvatarStateDefinition {
+  return typeof state === 'string' ? STATE_DEFINITIONS[state] : state;
+}
+
+/** What names a state: two states with one id are the same state. */
+export function stateId(state: AvatarState | AvatarStateDefinition): string {
+  return typeof state === 'string' ? state : state.id;
+}
+
+/**
+ * The state and mood to show, where the state may be a definition of the host's own. Anything
+ * else resolves as in resolveLook.
+ */
+export function lookOf(given: { state?: unknown; mood?: unknown; motion?: unknown }): { state: AvatarState | AvatarStateDefinition; mood: AvatarMood } {
+  const named = resolveLook(given);
+  return isStateDefinition(given.state) ? { state: given.state, mood: named.mood } : named;
 }
 
 function statePose(input: PoseInput): Pose {
   const { seed, time, gaze, reducedMotion, view } = input;
-  const { state, mood } = resolveLook(input);
+  const { state, mood } = lookOf(input);
   // Per-avatar phase offset so several avatars on a page do not move in lockstep.
   const t = reducedMotion ? 0 : time + noise(seed, 7) * 10;
   const given = gaze && Number.isFinite(gaze.x) && Number.isFinite(gaze.y)
@@ -475,17 +518,15 @@ function statePose(input: PoseInput): Pose {
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
     eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, marks: [],
   };
-  const pose: Pose = {
-    ...base,
-    ...STATE_DEFINITIONS[state].pose({
-      seed, time, t, stateAge: input.stateAge, mood, reducedMotion,
-      live: reducedMotion ? 0 : 1,
-      // While it attends to a target the body holds its aim: idle sway of the turn settles to a trace.
-      sway: 1 - 0.7 * weight,
-      wave: (period, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase)),
-      base,
-    }),
+  const ctx: Omit<StateContext, 'rest'> = {
+    seed, time, t, stateAge: input.stateAge, mood, reducedMotion,
+    live: reducedMotion ? 0 : 1,
+    // While it attends to a target the body holds its aim: idle sway of the turn settles to a trace.
+    sway: 1 - 0.7 * weight,
+    wave: (period, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase)),
+    base,
   };
+  const pose: Pose = { ...base, ...stateDefinition(state).pose({ ...ctx, rest: (pace = 1) => rest(ctx, pace) }) };
 
   if (given && weight > 0) {
     // A look target wins over idle wander. The body turns to face it: the resting

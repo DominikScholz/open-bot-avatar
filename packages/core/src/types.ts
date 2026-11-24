@@ -6,6 +6,7 @@
  * (color, implied volume, view, gaze, blinking, motion) is owned by the
  * runtime renderer.
  */
+import type { AvatarStateDefinition } from './motion.ts';
 
 export interface AvatarEyes {
   /** Center of the eye pair, viewBox units. */
@@ -53,7 +54,7 @@ export interface AvatarMotionBlend {
   from:
     | AvatarMotion
     | {
-        state?: AvatarState;
+        state?: AvatarState | AvatarStateDefinition;
         mood?: AvatarMood;
         /** @deprecated Use `state` and `mood`. */
         motion?: AvatarMotion;
@@ -89,8 +90,8 @@ export interface RenderOptions {
    * over the idle pose so following can start and stop without a jump.
    */
   gaze?: { x: number; y: number; weight?: number };
-  /** What the bot is doing (default `idle`). */
-  state?: AvatarState;
+  /** What the bot is doing (default `idle`): one of the six states by name, or a definition of the host's own. */
+  state?: AvatarState | AvatarStateDefinition;
   /** How the bot feels (default `neutral`). */
   mood?: AvatarMood;
   /** @deprecated Use `state` and `mood`; they win when given. */

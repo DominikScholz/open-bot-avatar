@@ -3,6 +3,7 @@
  * eases from what is on screen into the new state and mood (see blendPoses in
  * motion.ts), and a change during a change continues from where it is.
  */
+import type { AvatarStateDefinition } from './motion.ts';
 import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 /** Length of a mood change, ms. */
@@ -20,7 +21,7 @@ export function moodProgress(elapsedMs: number): number {
 
 /** A state and mood on screen, possibly still easing in over what came before. */
 export interface MoodState {
-  state?: AvatarState;
+  state?: AvatarState | AvatarStateDefinition;
   mood?: AvatarMood;
   /** @deprecated Use `state` and `mood`. */
   motion?: AvatarMotion;
