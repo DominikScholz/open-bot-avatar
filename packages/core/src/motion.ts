@@ -3,6 +3,7 @@
  * mood, gaze, reducedMotion): no wall clock, no Math.random, so any frame can
  * be reproduced exactly (tests, SSR, scrubbing).
  */
+import { BANG, DOTS, blendMarks, type PoseMark } from './marks.ts';
 import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 /**
@@ -45,9 +46,11 @@ export interface Pose {
    * ribbon goes its own share of it, so a whole turn more does not put them back where they were.
    */
   sweep: number;
-  /** How far the body has given way to a mark, 0..1 each: the exclamation mark and the three dots. */
-  bang: number;
-  dots: number;
+  /**
+   * The marks the body gives way to (see marks.ts), each with how far it has, 0..1: a state shows
+   * one, and a pose on the way from one state to another may show two. In the order of their ids.
+   */
+  marks: readonly PoseMark[];
 }
 
 /** Every state and mood, in the order hosts list them. */
@@ -184,7 +187,7 @@ export function blendPoses(a: Pose, b: Pose, t: number): Pose {
     sx: m(a.sx, b.sx), sy: m(a.sy, b.sy), gazeX: m(a.gazeX, b.gazeX), gazeY: m(a.gazeY, b.gazeY),
     blink: m(a.blink, b.blink), squintL: m(a.squintL, b.squintL), squintR: m(a.squintR, b.squintR),
     eyes: { arc: m(a.eyes.arc, b.eyes.arc), slit: m(a.eyes.slit, b.eyes.slit) },
-    ribbons: m(a.ribbons, b.ribbons), cage, sweep, bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
+    ribbons: m(a.ribbons, b.ribbons), cage, sweep, marks: blendMarks(a.marks, b.marks, m),
   };
 }
 
@@ -267,146 +270,222 @@ function celebration(t: number): number {
   return DONE_SWEEPS * TAU;
 }
 
+/** What a state works its pose out from. */
+interface StateContext {
+  /** The avatar's own seed, for noise that differs from one avatar to the next. */
+  seed: number;
+  /** The animation clock as given, seconds. */
+  time: number;
+  /** The clock offset per avatar, so several on a page do not move in lockstep; 0 under reduced motion. */
+  t: number;
+  /** Seconds since the state began, where the host gave it (see PoseInput.stateAge). */
+  stateAge: number | undefined;
+  mood: AvatarMood;
+  reducedMotion: boolean;
+  /** 1, or 0 under reduced motion: a factor for motion that should stop. */
+  live: number;
+  /** How much of its idle turning the body keeps: less while it attends to a look target. */
+  sway: number;
+  /** A sine of this period (seconds) on the clock; 0 under reduced motion. */
+  wave(period: number, phase?: number): number;
+  /** The pose a state starts from: the resting view, eyes open and shaped by the mood, no ribbons or marks. */
+  base: Pose;
+}
+
+/**
+ * A state: what the bot does while it is in it, as a pose for each moment. `pose` returns what
+ * differs from the context's `base`. The look target and the view are applied on top.
+ */
+interface StateDefinition {
+  pose(ctx: StateContext): Partial<Pose>;
+  /**
+   * The age the state has when an avatar mounts in it, seconds (default 0: it starts afresh).
+   * `done` mounts past its celebration, as if it had just finished.
+   */
+  startAge?: number;
+}
+
+/** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
+function rest({ seed, t, reducedMotion, sway, wave, base }: StateContext, pace: number): Pose {
+  const pose = { ...base };
+  pose.yaw += 0.07 * sway * wave(6.1 * pace);
+  pose.pitch += 0.04 * sway * wave(4.7 * pace, 1);
+  pose.roll = 1.6 * wave(5.3 * pace, 2);
+  pose.lift = reducedMotion ? 0 : -0.45 * (1 - Math.cos((TAU * t) / (3.4 * pace)));
+  const breath = wave(3.4 * pace, -Math.PI / 2);
+  pose.sy = 1 + 0.012 * breath;
+  pose.sx = 1 - 0.008 * breath;
+  if (!reducedMotion) {
+    pose.blink = blinkAt(seed, t);
+    [pose.gazeX, pose.gazeY] = wanderAt(seed, t);
+  }
+  return pose;
+}
+
+const STATE_DEFINITIONS: Record<AvatarState, StateDefinition> = {
+  idle: {
+    pose(ctx) {
+      if (ctx.mood !== 'happy') return rest(ctx, 1);
+      // With nothing to do, a happy bot hops.
+      const { t, reducedMotion, live, wave } = ctx;
+      const pose = { ...ctx.base };
+      const period = 0.92;
+      const p = reducedMotion ? 0.5 : ((t % period) + period) % period / period;
+      const air = 4 * p * (1 - p);
+      const land = reducedMotion ? 0 : clamp(1 - Math.min(p, 1 - p) / 0.12, 0, 1);
+      pose.lift = reducedMotion ? 0 : -3.2 * air;
+      pose.sy = 1 - 0.09 * land + 0.03 * air * live;
+      pose.sx = 1 + 0.07 * land - 0.015 * air * live;
+      pose.roll = 4.5 * wave(period * 2);
+      pose.yaw += 0.1 * wave(period * 2, 0.6);
+      return pose;
+    },
+  },
+  thinking: {
+    // Looks up and away while it gives way to the three dots.
+    pose({ seed, t, reducedMotion, live, sway, wave, base }) {
+      const pose = { ...base };
+      pose.yaw += 0.12 + 0.05 * sway * wave(7.3);
+      pose.pitch += 0.08;
+      pose.roll = -5 + 1.4 * wave(4.1);
+      pose.lift = -0.5 * (1 - Math.cos((TAU * t) / 5.2)) * live;
+      pose.gazeX = 0.55 + 0.3 * wave(5.6);
+      pose.gazeY = -0.8;
+      pose.squintL = 0.22;
+      pose.squintR = 0.32 + 0.1 * wave(3.1);
+      if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.7);
+      pose.marks = [{ mark: DOTS, weight: 1 }];
+      return pose;
+    },
+  },
+  working: {
+    // Bent over the work and busy: a quick steady bob and eyes darting across it, and every so
+    // often a turn with a band of ribbons sweeping round it.
+    pose({ seed, time, t, stateAge, reducedMotion, live, sway, wave, base }) {
+      const pose = { ...base };
+      const beat = wave(0.7);
+      pose.yaw += 0.08 * sway * wave(2.3, 0.4);
+      pose.pitch -= 0.05;
+      pose.roll = 3 + 0.6 * beat;
+      pose.lift = -0.3 * (0.5 + 0.5 * beat) * live;
+      pose.sy = 0.99 - 0.008 * beat;
+      pose.sx = 1.005 + 0.005 * beat;
+      pose.squintL = 0.25;
+      pose.squintR = 0.25;
+      if (reducedMotion) {
+        pose.gazeX = 0.15;
+        pose.gazeY = 0.3;
+      } else {
+        [pose.gazeX, pose.gazeY] = dartAt(seed, t);
+        pose.blink = blinkAt(seed, t * 1.3);
+      }
+      // Counted from when the state began; without an age, from the clock.
+      const age = Number.isFinite(stateAge) ? Math.max(0, stateAge as number) : Math.max(0, time);
+      const into = reducedMotion ? null : workTurn(seed, age);
+      if (into !== null) {
+        // A full circle that eases in like a spring settling. The band rides it round, out at the
+        // start and back in at the end; the body keeps facing the work, leaning into the sweep, and
+        // the eyes follow the band across.
+        const e = WORK_EASE * into;
+        const turn = TAU * (1 - (1 + e) * Math.exp(-e));
+        const swell = Math.sin(turn / 2);
+        pose.ribbons = clamp(into / 0.16, 0, 1) * clamp((WORK_TURN_S - into) / 0.5, 0, 1);
+        pose.sweep = turn;
+        pose.yaw += 0.22 * swell;
+        pose.roll += 3 * swell;
+        pose.lift -= 1.2 * swell;
+        pose.gazeX = clamp(pose.gazeX * (1 - swell) - 0.85 * Math.sin(turn), -1, 1);
+        pose.gazeY = pose.gazeY * (1 - swell) - 0.3 * swell;
+      }
+      return pose;
+    },
+  },
+  waiting: {
+    // Leans to one side, eyes flattened to slits, glancing off at whatever it is waiting on.
+    // Now and then it sighs. A happy bot keeps its arcs.
+    pose({ seed, t, reducedMotion, live, sway, wave, base }) {
+      const pose = { ...base };
+      const p = reducedMotion ? 0 : ((t % 6.5) + 6.5) % 6.5 / 6.5;
+      // One breath in and out over the first third of the cycle.
+      const sigh = Math.sin(TAU * clamp(p / 0.33, 0, 1));
+      pose.yaw += 0.04 * sway * wave(7.4);
+      pose.pitch += 0.02 + 0.03 * sigh;
+      pose.roll = 7 + 1.2 * wave(6.4, 2);
+      pose.lift = -0.3 * (1 - Math.cos((TAU * t) / 6.5)) * live;
+      pose.sy = 1 + 0.025 * sigh;
+      pose.sx = 1 - 0.012 * sigh;
+      pose.gazeX = 0.5 + 0.15 * wave(8.2);
+      pose.gazeY = 0.1;
+      pose.eyes = { arc: base.eyes.arc, slit: 1 - base.eyes.arc };
+      if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.6);
+      return pose;
+    },
+  },
+  blocked: {
+    // Stops still while it gives way to the exclamation mark.
+    pose: () => ({ sy: 1.02, sx: 0.99, marks: [{ mark: BANG, weight: 1 }] }),
+  },
+  done: {
+    startAge: DONE_TURN_S,
+    // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
+    // slower than idle, and after a while again, the other way round.
+    pose(ctx) {
+      const { seed, stateAge, reducedMotion } = ctx;
+      const pose = rest(ctx, 1.25);
+      // Counted from when the state began. Without an age it is at rest.
+      const age = !reducedMotion && Number.isFinite(stateAge) ? Math.max(0, stateAge as number) : DONE_TURN_S;
+      const length = DONE_CYCLE_S * (1 + 0.15 * noise(seed, 31));
+      const cycle = Math.floor(age / length), since = age - cycle * length;
+      if (since < DONE_TURN_S) {
+        const swell = Math.sin((Math.PI * since) / DONE_TURN_S);
+        const way = cycle % 2 ? -1 : 1;
+        const sweep = celebration(since) * way;
+        // The body turns a third as often as the ribbons go round.
+        pose.yaw += near(sweep / 3);
+        pose.lift -= 2.2 * swell;
+        pose.sy += 0.04 * swell;
+        // All the ribbons out at full strength while the turn is quick, drawn back in as it settles.
+        pose.ribbons = clamp(since / 0.1, 0, 1) * clamp((DONE_TURN_S - since) / DONE_DRAW_IN_S, 0, 1);
+        pose.cage = 1;
+        // The ribbons only set off once the turn goes forward: the wind-up does not carry them.
+        pose.sweep = way * Math.max(0, celebration(since));
+      }
+      return pose;
+    },
+  },
+};
+
+/** The age a state has when an avatar mounts in it, seconds. */
+export function stateStartAge(state: AvatarState): number {
+  return STATE_DEFINITIONS[state].startAge ?? 0;
+}
+
 function statePose(input: PoseInput): Pose {
   const { seed, time, gaze, reducedMotion, view } = input;
   const { state, mood } = resolveLook(input);
   // Per-avatar phase offset so several avatars on a page do not move in lockstep.
   const t = reducedMotion ? 0 : time + noise(seed, 7) * 10;
-  const live = reducedMotion ? 0 : 1;
-  const wave = (period: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase));
   const given = gaze && Number.isFinite(gaze.x) && Number.isFinite(gaze.y)
     ? [clamp(gaze.x, -1, 1), clamp(gaze.y, -1, 1)] as [number, number]
     : null;
   const weight = given ? (Number.isFinite(gaze?.weight) ? clamp(gaze?.weight as number, 0, 1) : 1) : 0;
-  // While it attends to a target the body holds its aim: idle sway of the turn settles to a trace.
-  const sway = 1 - 0.7 * weight;
 
-  const pose: Pose = {
+  const base: Pose = {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
-    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, bang: 0, dots: 0,
+    eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, marks: [],
   };
-  /** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
-  const rest = (pace: number) => {
-    pose.yaw += 0.07 * sway * wave(6.1 * pace);
-    pose.pitch += 0.04 * sway * wave(4.7 * pace, 1);
-    pose.roll = 1.6 * wave(5.3 * pace, 2);
-    pose.lift = reducedMotion ? 0 : -0.45 * (1 - Math.cos((TAU * t) / (3.4 * pace)));
-    const breath = wave(3.4 * pace, -Math.PI / 2);
-    pose.sy = 1 + 0.012 * breath;
-    pose.sx = 1 - 0.008 * breath;
-    if (!reducedMotion) {
-      pose.blink = blinkAt(seed, t);
-      [pose.gazeX, pose.gazeY] = wanderAt(seed, t);
-    }
+  const pose: Pose = {
+    ...base,
+    ...STATE_DEFINITIONS[state].pose({
+      seed, time, t, stateAge: input.stateAge, mood, reducedMotion,
+      live: reducedMotion ? 0 : 1,
+      // While it attends to a target the body holds its aim: idle sway of the turn settles to a trace.
+      sway: 1 - 0.7 * weight,
+      wave: (period, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase)),
+      base,
+    }),
   };
-
-  if (state === 'idle' && mood === 'happy') {
-    // With nothing to do, a happy bot hops.
-    const period = 0.92;
-    const p = reducedMotion ? 0.5 : ((t % period) + period) % period / period;
-    const air = 4 * p * (1 - p);
-    const land = reducedMotion ? 0 : clamp(1 - Math.min(p, 1 - p) / 0.12, 0, 1);
-    pose.lift = reducedMotion ? 0 : -3.2 * air;
-    pose.sy = 1 - 0.09 * land + 0.03 * air * live;
-    pose.sx = 1 + 0.07 * land - 0.015 * air * live;
-    pose.roll = 4.5 * wave(period * 2);
-    pose.yaw += 0.1 * wave(period * 2, 0.6);
-  } else if (state === 'thinking') {
-    // Looks up and away while it gives way to the three dots.
-    pose.yaw += 0.12 + 0.05 * sway * wave(7.3);
-    pose.pitch += 0.08;
-    pose.roll = -5 + 1.4 * wave(4.1);
-    pose.lift = -0.5 * (1 - Math.cos((TAU * t) / 5.2)) * live;
-    pose.gazeX = 0.55 + 0.3 * wave(5.6);
-    pose.gazeY = -0.8;
-    pose.squintL = 0.22;
-    pose.squintR = 0.32 + 0.1 * wave(3.1);
-    if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.7);
-    pose.dots = 1;
-  } else if (state === 'working') {
-    // Bent over the work and busy: a quick steady bob and eyes darting across it, and every so
-    // often a turn with a band of ribbons sweeping round it.
-    const beat = wave(0.7);
-    pose.yaw += 0.08 * sway * wave(2.3, 0.4);
-    pose.pitch -= 0.05;
-    pose.roll = 3 + 0.6 * beat;
-    pose.lift = -0.3 * (0.5 + 0.5 * beat) * live;
-    pose.sy = 0.99 - 0.008 * beat;
-    pose.sx = 1.005 + 0.005 * beat;
-    pose.squintL = 0.25;
-    pose.squintR = 0.25;
-    if (reducedMotion) {
-      pose.gazeX = 0.15;
-      pose.gazeY = 0.3;
-    } else {
-      [pose.gazeX, pose.gazeY] = dartAt(seed, t);
-      pose.blink = blinkAt(seed, t * 1.3);
-    }
-    // Counted from when the state began; without an age, from the clock.
-    const age = Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : Math.max(0, time);
-    const into = reducedMotion ? null : workTurn(seed, age);
-    if (into !== null) {
-      // A full circle that eases in like a spring settling. The band rides it round, out at the
-      // start and back in at the end; the body keeps facing the work, leaning into the sweep, and
-      // the eyes follow the band across.
-      const e = WORK_EASE * into;
-      const turn = TAU * (1 - (1 + e) * Math.exp(-e));
-      const swell = Math.sin(turn / 2);
-      pose.ribbons = clamp(into / 0.16, 0, 1) * clamp((WORK_TURN_S - into) / 0.5, 0, 1);
-      pose.sweep = turn;
-      pose.yaw += 0.22 * swell;
-      pose.roll += 3 * swell;
-      pose.lift -= 1.2 * swell;
-      pose.gazeX = clamp(pose.gazeX * (1 - swell) - 0.85 * Math.sin(turn), -1, 1);
-      pose.gazeY = pose.gazeY * (1 - swell) - 0.3 * swell;
-    }
-  } else if (state === 'waiting') {
-    // Leans to one side, eyes flattened to slits, glancing off at whatever it is waiting on.
-    // Now and then it sighs. A happy bot keeps its arcs.
-    const p = reducedMotion ? 0 : ((t % 6.5) + 6.5) % 6.5 / 6.5;
-    // One breath in and out over the first third of the cycle.
-    const sigh = Math.sin(TAU * clamp(p / 0.33, 0, 1));
-    pose.yaw += 0.04 * sway * wave(7.4);
-    pose.pitch += 0.02 + 0.03 * sigh;
-    pose.roll = 7 + 1.2 * wave(6.4, 2);
-    pose.lift = -0.3 * (1 - Math.cos((TAU * t) / 6.5)) * live;
-    pose.sy = 1 + 0.025 * sigh;
-    pose.sx = 1 - 0.012 * sigh;
-    pose.gazeX = 0.5 + 0.15 * wave(8.2);
-    pose.gazeY = 0.1;
-    pose.eyes.slit = 1 - pose.eyes.arc;
-    if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.6);
-  } else if (state === 'blocked') {
-    // Stops still while it gives way to the exclamation mark.
-    pose.sy = 1.02;
-    pose.sx = 0.99;
-    pose.bang = 1;
-  } else if (state === 'done') {
-    // Celebrates: a few turns with ribbons flying round it, then a rest, content and a little
-    // slower than idle, and after a while again, the other way round.
-    rest(1.25);
-    // Counted from when the state began. Without an age it is at rest.
-    const age = !reducedMotion && Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : DONE_TURN_S;
-    const length = DONE_CYCLE_S * (1 + 0.15 * noise(seed, 31));
-    const cycle = Math.floor(age / length), since = age - cycle * length;
-    if (since < DONE_TURN_S) {
-      const swell = Math.sin((Math.PI * since) / DONE_TURN_S);
-      const way = cycle % 2 ? -1 : 1;
-      const sweep = celebration(since) * way;
-      // The body turns a third as often as the ribbons go round.
-      pose.yaw += near(sweep / 3);
-      pose.lift -= 2.2 * swell;
-      pose.sy += 0.04 * swell;
-      // All the ribbons out at full strength while the turn is quick, drawn back in as it settles.
-      pose.ribbons = clamp(since / 0.1, 0, 1) * clamp((DONE_TURN_S - since) / DONE_DRAW_IN_S, 0, 1);
-      pose.cage = 1;
-      // The ribbons only set off once the turn goes forward: the wind-up does not carry them.
-      pose.sweep = way * Math.max(0, celebration(since));
-    }
-  } else {
-    rest(1);
-  }
 
   if (given && weight > 0) {
     // A look target wins over idle wander. The body turns to face it: the resting

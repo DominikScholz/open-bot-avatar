@@ -1,20 +1,20 @@
 /**
  * What a state draws besides the body: the ribbons that circle a working bot, and the marks a
- * thinking or blocked bot turns into (three dots, an exclamation mark). Pure geometry in viewBox
- * units, from the body's bounds, a seed and the animation clock.
+ * thinking or blocked bot turns into (see marks.ts). Pure geometry in viewBox units, from the
+ * body's bounds, a seed and the animation clock.
  */
+import type { Box, MarkPart, PoseMark } from './marks.ts';
 import { noise } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 
-const TAU = Math.PI * 2;
+export type { Box, MarkPart } from './marks.ts';
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const smooth = (u: number) => { const x = clamp(u, 0, 1); return x * x * (3 - 2 * x); };
 const f = (n: number) => {
   const r = Math.round(n * 100) / 100;
   return (Object.is(r, -0) ? 0 : r).toString();
 };
-
-export interface Box { x: number; y: number; w: number; h: number }
 
 // ---------------------------------------------------------------------------
 // Ribbons
@@ -373,78 +373,29 @@ export function ribbonPieces(
 // ---------------------------------------------------------------------------
 // Marks
 
-/** One part of a mark: a fixed outline about its own centre, and where that centre is this frame. */
-export interface MarkPart {
-  /** Stable name of the outline, e.g. "dot". */
-  shape: string;
-  d: string;
-  box: Box;
-  /** Centre, viewBox units, then a rotation about the mark's centre (radians) and a scale about the part's own. */
-  x: number;
-  y: number;
-  turn: number;
-  scale: number;
-}
-
-const circle = (r: number) => `M${f(r)} 0A${f(r)} ${f(r)} 0 1 1 ${f(-r)} 0A${f(r)} ${f(r)} 0 1 1 ${f(r)} 0Z`;
-const capsule = (w: number, h: number) => {
-  const r = w / 2, y = h / 2 - r;
-  return `M${f(-r)} ${f(-y)}A${f(r)} ${f(r)} 0 0 1 ${f(r)} ${f(-y)}L${f(r)} ${f(y)}A${f(r)} ${f(r)} 0 0 1 ${f(-r)} ${f(y)}Z`;
-};
-
 /** The unit every mark is sized in: a share of the body's smaller side, within limits that read at any size. */
 function markUnit(b: Bounds): number {
   return clamp(Math.min(b.maxX - b.minX, b.maxY - b.minY), 34, 78);
 }
 
 /**
- * The parts of the marks at one moment. `bang` and `dots` 0..1 are how far the body has given
- * way to each (see Pose): a mark grows in as the body goes, from the body's centre.
- * The dots take turns hopping; the exclamation mark jumps and shakes every couple of seconds.
+ * The parts of a pose's marks at one moment, placed on the body. A mark's weight 0..1 is how far
+ * the body has given way to it (see Pose): the mark grows in as the body goes, from the body's
+ * centre.
  */
-export function markParts(b: Bounds, bang: number, dots: number, seed: number, time: number, still: boolean): MarkPart[] {
+export function markParts(b: Bounds, marks: readonly PoseMark[], seed: number, time: number, still: boolean): MarkPart[] {
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
-  const u = markUnit(b);
-  const t = still ? 0 : time + noise(seed, 9) * 10;
-  const parts: MarkPart[] = [];
+  const ctx = { unit: markUnit(b), time: still ? 0 : time + noise(seed, 9) * 10, still };
   // A mark starts to grow just before the body is gone, so something is always on screen.
   const grown = (weight: number) => smooth((clamp(weight, 0, 1) - 0.45) / 0.55);
-
-  const gb = grown(bang);
-  if (gb > 0) {
-    const barW = 0.21 * u, barH = 0.5 * u, dot = 0.115 * u, gap = 0.1 * u;
-    const total = barH + gap + 2 * dot;
-    // One alarm every 2.6 s: a jump, with a shake that dies away as it lands.
-    const p = still ? 1 : ((t % 2.6) + 2.6) % 2.6 / 2.6;
-    const alarm = p < 0.3 ? p / 0.3 : 1;
-    const jump = still ? 0 : Math.sin(Math.PI * alarm);
-    const turn = still ? 0 : 0.2 * Math.sin(TAU * 3 * alarm) * (1 - alarm);
-    const lift = -0.09 * u * jump;
-    const barY = -total / 2 + barH / 2, dotY = total / 2 - dot;
-    // The dot lags the bar on the way up, so the mark stretches as it jumps.
-    parts.push(
-      { shape: 'bar', d: capsule(barW, barH), box: { x: -barW / 2, y: -barH / 2, w: barW, h: barH }, x: cx, y: cy + (barY + lift) * gb, turn, scale: gb },
-      { shape: 'dot', d: circle(dot), box: { x: -dot, y: -dot, w: 2 * dot, h: 2 * dot }, x: cx, y: cy + (dotY + lift * 0.45) * gb, turn, scale: gb },
-    );
-  }
-
-  const gd = grown(dots);
-  if (gd > 0) {
-    const r = 0.1 * u, step = 0.31 * u;
-    for (let i = 0; i < 3; i++) {
-      // Each dot hops in turn, a beat after the one before it.
-      const p = still ? 0 : (((t - i * 0.17) % 1.25) + 1.25) % 1.25 / 1.25;
-      const hop = p < 0.4 ? Math.sin(Math.PI * (p / 0.4)) : 0;
-      parts.push({
-        shape: 'dot3', d: circle(r), box: { x: -r, y: -r, w: 2 * r, h: 2 * r },
-        x: cx + (i - 1) * step * gd, y: cy - 0.16 * u * hop * gd, turn: 0, scale: gd * (1 + 0.12 * hop),
-      });
-    }
-  }
-  return parts;
+  return marks.flatMap(({ mark, weight }) => {
+    const g = grown(weight);
+    if (!(g > 0)) return [];
+    return mark.parts(ctx).map((part) => ({ ...part, x: cx + part.x * g, y: cy + part.y * g, scale: part.scale * g }));
+  });
 }
 
-/** How much of its size the body keeps while it gives way to a mark: gone a little past half way. */
-export function bodyScale(bang: number, dots: number): number {
-  return 1 - smooth(clamp(bang + dots, 0, 1) / 0.55);
+/** How much of its size the body keeps while it gives way to its marks: gone a little past half way. */
+export function bodyScale(marks: readonly PoseMark[]): number {
+  return 1 - smooth(clamp(marks.reduce((sum, m) => sum + m.weight, 0), 0, 1) / 0.55);
 }

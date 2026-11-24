@@ -2,11 +2,12 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { createAnimator } from '../src/animator.ts';
 import { parseHex, toOklch, type Rgb } from '../src/color.ts';
-import { ribbonPieces, ribbonReach } from '../src/effects.ts';
+import { bodyScale, markParts, ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
 import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hashString, resolveLook } from '../src/motion.ts';
 
 const TAU = 2 * Math.PI;
+import { BANG, DOTS, type AvatarMark } from '../src/marks.ts';
 import { MOOD_MS } from '../src/mood.ts';
 import { isInside } from '../src/path.ts';
 import { avatarExtent, avatarFrame, preparedVolume, renderAvatarSvg, ribbonRims, ribbonsFollow, sceneFrame, type AvatarFrame, type FrameShape } from '../src/render.ts';
@@ -159,6 +160,43 @@ describe('marks', () => {
         if (s.kind === 'slice') expect([...thinking.paths, ...blocked.paths].some((p) => p.id === s.path)).toBe(true);
       }
     }
+  });
+
+  it('are named by the pose: one for a state, both part way between two, in the order of their ids', () => {
+    const base = { seed: 7, time: 1, reducedMotion: false };
+    const ids = (state: 'idle' | 'thinking' | 'blocked', from?: 'thinking' | 'blocked') =>
+      computePose({ ...base, state, blend: from && { from: { state: from }, t: 0.5 } }).marks.map((m) => [m.mark.id, m.weight]);
+    expect(ids('idle')).toEqual([]);
+    expect(ids('thinking')).toEqual([['dots', 1]]);
+    expect(ids('blocked')).toEqual([['bang', 1]]);
+    expect(ids('blocked', 'thinking')).toEqual([['bang', 0.5], ['dots', 0.5]]);
+    expect(ids('thinking', 'blocked')).toEqual([['bang', 0.5], ['dots', 0.5]]);
+    // A mark that has gone is left out, so a blend ends on exactly the pose it was heading for.
+    const thinking = computePose({ ...base, state: 'thinking' }), blocked = computePose({ ...base, state: 'blocked' });
+    expect(blendPoses(thinking, blocked, 1).marks).toEqual(blocked.marks);
+    expect(blendPoses(thinking, blocked, 0).marks).toEqual(thinking.marks);
+  });
+
+  it('are values: a mark of any shape is placed and grown like the built-in ones', () => {
+    const bounds = { minX: 10, minY: 20, maxX: 90, maxY: 80 };
+    const square: AvatarMark = {
+      id: 'square',
+      parts: ({ unit }) => [{ shape: 'square', d: 'M-1 -1H1V1H-1Z', box: { x: -1, y: -1, w: 2, h: 2 }, x: unit / 10, y: -unit / 5, turn: 0, scale: 2 }],
+    };
+    // The unit is the body's smaller side (60 here); offsets are measured from the body's centre.
+    expect(markParts(bounds, [{ mark: square, weight: 1 }], 1, 0, true)).toEqual([
+      { shape: 'square', d: 'M-1 -1H1V1H-1Z', box: { x: -1, y: -1, w: 2, h: 2 }, x: 56, y: 38, turn: 0, scale: 2 },
+    ]);
+    // Not yet grown while the body is still mostly there; offsets and scale grow in together.
+    expect(markParts(bounds, [{ mark: square, weight: 0.4 }], 1, 0, true)).toEqual([]);
+    const [half] = markParts(bounds, [{ mark: square, weight: 0.725 }], 1, 0, true);
+    expect(half.scale).toBeCloseTo(1);
+    expect(half.x).toBeCloseTo(53);
+    expect(half.y).toBeCloseTo(44);
+    // The body gives way to all of its marks together.
+    expect(bodyScale([])).toBe(1);
+    expect(bodyScale([{ mark: square, weight: 1 }])).toBe(0);
+    expect(bodyScale([{ mark: BANG, weight: 0.2 }, { mark: DOTS, weight: 0.2 }])).toBe(bodyScale([{ mark: square, weight: 0.4 }]));
   });
 
   it('grow in as the body shrinks away, and something is on screen all the way', () => {

@@ -6,7 +6,7 @@
  * frame and whether it is still easing.
  */
 import { REST, followGaze, followStep, type FollowState } from './follow.ts';
-import { DONE_TURN_S, resolveLook } from './motion.ts';
+import { resolveLook, stateStartAge } from './motion.ts';
 import { moodProgress, settleMood, type MoodState } from './mood.ts';
 import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
@@ -72,7 +72,7 @@ export function createAnimator(): Animator {
       }
       // An avatar that mounts done starts it at rest, as if it had just finished celebrating; any
       // other state starts afresh (a working bot's first sweep comes a second or two in).
-      shown ??= { state, mood, since: now, began: now - (state === 'done' ? DONE_TURN_S * 1000 : 0) };
+      shown ??= { state, mood, since: now, began: now - stateStartAge(state) * 1000 };
       const t = reducedMotion ? 1 : moodProgress(now - shown.since);
       let motionBlend: AvatarMotionBlend | undefined;
       if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };
