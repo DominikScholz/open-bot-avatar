@@ -27,6 +27,11 @@ export interface MarkPart {
   y: number;
   turn: number;
   scale: number;
+  /**
+   * The outline is a circle or an upright capsule that fills `box`. The fluffy material draws
+   * such a part as a ball of fur; any other outline it fills plainly, so its shape is kept.
+   */
+  round?: boolean;
 }
 
 /** What a mark is laid out from. */
@@ -73,8 +78,8 @@ export const BANG: AvatarMark = {
     const barY = -total / 2 + barH / 2, dotY = total / 2 - dot;
     // The dot lags the bar on the way up, so the mark stretches as it jumps.
     return [
-      { shape: 'bar', d: capsule(barW, barH), box: { x: -barW / 2, y: -barH / 2, w: barW, h: barH }, x: 0, y: barY + lift, turn, scale: 1 },
-      { shape: 'dot', d: circle(dot), box: { x: -dot, y: -dot, w: 2 * dot, h: 2 * dot }, x: 0, y: dotY + lift * 0.45, turn, scale: 1 },
+      { shape: 'bar', d: capsule(barW, barH), box: { x: -barW / 2, y: -barH / 2, w: barW, h: barH }, x: 0, y: barY + lift, turn, scale: 1, round: true },
+      { shape: 'dot', d: circle(dot), box: { x: -dot, y: -dot, w: 2 * dot, h: 2 * dot }, x: 0, y: dotY + lift * 0.45, turn, scale: 1, round: true },
     ];
   },
 };
@@ -88,7 +93,7 @@ export const DOTS: AvatarMark = {
       // Each dot hops in turn, a beat after the one before it.
       const p = still ? 0 : (((t - i * 0.17) % 1.25) + 1.25) % 1.25 / 1.25;
       const hop = p < 0.4 ? Math.sin(Math.PI * (p / 0.4)) : 0;
-      return { shape: 'dot3', d: circle(r), box: { x: -r, y: -r, w: 2 * r, h: 2 * r }, x: (i - 1) * step, y: -0.16 * u * hop, turn: 0, scale: 1 + 0.12 * hop };
+      return { shape: 'dot3', d: circle(r), box: { x: -r, y: -r, w: 2 * r, h: 2 * r }, x: (i - 1) * step, y: -0.16 * u * hop, turn: 0, scale: 1 + 0.12 * hop, round: true };
     });
   },
 };

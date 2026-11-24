@@ -71,18 +71,27 @@ The six names are one vocabulary. If your bot has a status they don't cover, pas
 import type { AvatarMark, AvatarStateDefinition } from "open-bot-avatar";
 
 // A mark is an id and the outlines it is made of, placed from the mark's center.
-const square: AvatarMark = {
-  id: "square",
-  parts: ({ unit }) => {
-    const r = 0.2 * unit;
-    return [{ shape: "square", d: `M${-r} ${-r}H${r}V${r}H${-r}Z`, box: { x: -r, y: -r, w: 2 * r, h: 2 * r }, x: 0, y: 0, turn: 0, scale: 1 }];
+// This one is a question mark: a hook over a dot, sized in `unit`.
+const question: AvatarMark = {
+  id: "question",
+  parts: ({ unit: u }) => {
+    const arc = (r: number, large: 0 | 1, sweep: 0 | 1, x: number, y: number) => `A${r * u} ${r * u} 0 ${large} ${sweep} ${x * u} ${y * u}`;
+    const hook =
+      `M${-0.26 * u} ${-0.062 * u}` + arc(0.26, 1, 1, 0.13, 0.163) + arc(0.08, 0, 0, 0.09, 0.232) + arc(0.09, 0, 1, -0.09, 0.232) +
+      arc(0.26, 0, 1, 0.04, 0.007) + arc(0.08, 1, 0, -0.08, -0.062) + arc(0.09, 0, 1, -0.26, -0.062) + "Z";
+    const w = 0.52 * u, h = 0.645 * u, r = 0.115 * u, gap = 0.1 * u;
+    const top = -(h + gap + 2 * r) / 2;
+    return [
+      { shape: "question-hook", d: hook, box: { x: -w / 2, y: -h / 2, w, h }, x: 0, y: top + h / 2, turn: 0, scale: 1 },
+      { shape: "question-dot", d: `M${r} 0A${r} ${r} 0 1 1 ${-r} 0A${r} ${r} 0 1 1 ${r} 0Z`, box: { x: -r, y: -r, w: 2 * r, h: 2 * r }, x: 0, y: -top - r, turn: 0, scale: 1 },
+    ];
   },
 };
 
-// The body gives way to the mark.
-const paused: AvatarStateDefinition = {
-  id: "paused",
-  pose: () => ({ marks: [{ mark: square, weight: 1 }] }),
+// The body gives way to the mark: the bot needs an answer.
+const asking: AvatarStateDefinition = {
+  id: "asking",
+  pose: () => ({ marks: [{ mark: question, weight: 1 }] }),
 };
 
 // The body stays: calm as in idle, leaning, with narrowed eyes.
@@ -91,7 +100,7 @@ const listening: AvatarStateDefinition = {
   pose: (ctx) => ({ ...ctx.rest(), roll: 6 + ctx.wave(4), squintL: 0.3, squintR: 0.3 }),
 };
 
-avatar.update({ state: paused });
+avatar.update({ state: asking });
 ```
 
 A definition works wherever a state does: `mountAvatar`, `update`, the render functions and `createAnimator`. Changes to and from it ease like any other, and a mood shapes its eyes.
@@ -100,6 +109,7 @@ A definition works wherever a state does: `mountAvatar`, `update`, the render fu
 - `pose` receives a context with the clock (`t`, `wave`), the state's age (`stateAge`), the mood, `reducedMotion`, the resting pose (`base`) and the calm idle pose (`rest`). It must be a pure function of the context. Under `reducedMotion`, `t` is 0 and `wave` returns 0; a pose that uses neither holds still.
 - `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
 - A mark's `parts` are sized in `unit`, a share of the body's smaller side. Each distinct outline needs its own `shape` name, across all the marks you use.
+- The `fluffy` material draws a part as a ball of fur only if the part sets `round: true`, which says its outline is a circle or an upright capsule that fills `box`. It fills any other part as a plain shape, so the outline is kept.
 - `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
 - `isState` and `resolveLook` read names only. Use them for values from links and storage; they never return a definition.
 
@@ -111,7 +121,7 @@ import type { AvatarOptions } from "open-bot-avatar/dom";
 // The task states of the Model Context Protocol.
 const states: Record<string, AvatarOptions["state"]> = {
   working: "working",
-  input_required: paused,
+  input_required: asking,
   completed: "done",
   failed: "blocked",
   cancelled: "idle",

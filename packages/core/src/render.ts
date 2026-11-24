@@ -426,6 +426,8 @@ export interface FramePath {
   d: string;
   evenOdd: boolean;
   box: { x: number; y: number; w: number; h: number };
+  /** Set on a mark's part that is a circle or an upright capsule filling `box` (see MarkPart). */
+  round?: boolean;
 }
 
 /**
@@ -576,7 +578,7 @@ interface Effects {
   /** How much of its size the body keeps while it gives way to a mark (0 = gone). */
   body: number;
   ribbons: { d: string; box: Box; front: boolean; fill: string; gradient: RibbonGradient }[];
-  marks: { id: string; d: string; box: Box; matrix: M }[];
+  marks: { id: string; d: string; box: Box; matrix: M; round: boolean }[];
 }
 
 function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
@@ -605,6 +607,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
         id: `${p.id}-${part.shape}`,
         d: part.d,
         box: part.box,
+        round: part.round === true,
         matrix: mul(about(cx, cy, turn), mul(translate(part.x, part.y), [part.scale, 0, 0, part.scale, 0, 0])),
       };
     }),
@@ -668,7 +671,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient }] : [],
     );
   const marks = fx.marks.map((mark, i): FrameShape => {
-    if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
+    if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box, ...(mark.round ? { round: true } : {}) });
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {

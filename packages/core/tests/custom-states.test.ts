@@ -33,6 +33,19 @@ describe('a state of the host\'s own', () => {
     expect(renderAvatarSvg(mug, { state: 'blocked', time: 1 })).not.toContain('M-9 -9H9V9H-9Z');
   });
 
+  it('says which parts of a mark are round, for a material that draws those its own way', () => {
+    const roundOf = (frame: AvatarFrame) => marksOf(frame).map((s) => s.kind === 'slice' && frame.paths.find((p) => p.id === s.path)?.round);
+    // The built-in marks are balls and capsules.
+    expect(roundOf(avatarFrame(mug, { state: 'thinking', time: 1 }))).toEqual([true, true, true]);
+    expect(roundOf(avatarFrame(mug, { state: 'blocked', time: 1 }))).toEqual([true, true]);
+    // A host's outline is not, unless it says so: the fluffy material fills it as it is.
+    expect(roundOf(avatarFrame(mug, { state: asking, time: 1 }))).toEqual([undefined]);
+    const ball: AvatarMark = { id: 'ball', parts: () => [{ shape: 'ball', d: 'M5 0A5 5 0 1 1 -5 0A5 5 0 1 1 5 0Z', box: { x: -5, y: -5, w: 10, h: 10 }, x: 0, y: 0, turn: 0, scale: 1, round: true }] };
+    expect(roundOf(avatarFrame(mug, { state: { id: 'ball', pose: () => ({ marks: [{ mark: ball, weight: 1 }] }) }, time: 1 }))).toEqual([true]);
+    // The body's own cross-sections never are.
+    expect(avatarFrame(mug, { state: 'idle' }).paths.some((p) => 'round' in p)).toBe(false);
+  });
+
   it('lays what its pose returns over the base pose, with the look target and view on top', () => {
     const pose = computePose({ ...base, state: asking });
     const idle = computePose({ ...base, state: 'idle' });

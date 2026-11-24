@@ -77,6 +77,8 @@ interface Section {
   box: FramePath['box'];
   path: Path2D;
   rule: CanvasFillRule;
+  /** A mark's part that fluffy can draw as a ball of fur (see MarkPart.round). */
+  round: boolean;
 }
 
 const MAX_SECTIONS = 4096;
@@ -167,8 +169,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const scale = (size / 100) * dpr;
   const layout = `${size}|${dpr}`;
   if (sections.size > MAX_SECTIONS) sections.clear();
-  for (const { id, d, evenOdd, box } of frame.paths) {
-    if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
+  for (const { id, d, evenOdd, box, round } of frame.paths) {
+    if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
   }
   const { matrices, bounds } = framePlacement(frame);
   const volume = material === 'fluffy' ? surface.volume : null;
@@ -210,7 +212,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
-        if (!fluffy || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+        // Fur for a ball or a capsule; any other outline is filled as it is, so its shape is kept.
+        if (!fluffy || !section.round || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
       } else if (!coat) {
         ctx.fill(section.path, section.rule);
       } else if (!coatPainted) {
