@@ -47,8 +47,12 @@ function tokenize(d: string): (string | number)[] {
   return tokens;
 }
 
-/** Parse and convert to absolute M/L/C/Q/A/Z segments. Throws PathError. */
-export function parsePath(d: string): Segment[] {
+/**
+ * Parse and convert to absolute M/L/C/Q/A/Z segments. Throws PathError. `bounded` (the default)
+ * rejects coordinates far outside the 0..100 viewBox; a mark's outline, drawn about its own centre,
+ * is parsed without.
+ */
+export function parsePath(d: string, bounded = true): Segment[] {
   if (typeof d !== 'string' || d.trim() === '') throw new PathError('path is empty');
   if (d.length > PATH_LIMITS.maxChars) throw new PathError(`path longer than ${PATH_LIMITS.maxChars} characters`);
   const tokens = tokenize(d);
@@ -138,7 +142,7 @@ export function parsePath(d: string): Segment[] {
   }
   if (open) out.push({ c: 'Z' });
   if (subpaths > PATH_LIMITS.maxSubpaths) throw new PathError(`more than ${PATH_LIMITS.maxSubpaths} subpaths`);
-  for (const s of out) {
+  for (const s of bounded ? out : []) {
     for (const [k, v] of Object.entries(s)) {
       if (k === 'c' || typeof v !== 'number') continue;
       if (k === 'rot' || k === 'large' || k === 'sweep') continue;

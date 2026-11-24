@@ -20,7 +20,7 @@ import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
 import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
-import { paintFluffyMark } from './fluffy/marks.ts';
+import { paintFluffyMark, paintFluffyOutline } from './fluffy/marks.ts';
 import { renderFluffy } from './fluffy/renderer.ts';
 
 /** A square in viewBox units. */
@@ -74,10 +74,11 @@ export function fitSquare(prev: Square | null, b: Bounds, cap: Square): Square {
 }
 
 interface Section {
+  d: string;
   box: FramePath['box'];
   path: Path2D;
   rule: CanvasFillRule;
-  /** A mark's part that fluffy can draw as a ball of fur (see MarkPart.round). */
+  /** A mark's part that is a ball or a capsule (see MarkPart.round). */
   round: boolean;
 }
 
@@ -170,7 +171,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const layout = `${size}|${dpr}`;
   if (sections.size > MAX_SECTIONS) sections.clear();
   for (const { id, d, evenOdd, box, round } of frame.paths) {
-    if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
+    if (!sections.has(id)) sections.set(id, { d, box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
   }
   const { matrices, bounds } = framePlacement(frame);
   const volume = material === 'fluffy' ? surface.volume : null;
@@ -212,8 +213,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
-        // Fur for a ball or a capsule; any other outline is filled as it is, so its shape is kept.
-        if (!fluffy || !section.round || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+        // A ball or a capsule from the ready model, any other outline from a coat of its own.
+        const furred = fluffy && (section.round ? paintFluffyMark(ctx, section.box, scale, fill) : paintFluffyOutline(ctx, section.d, section.box, scale, fill));
+        if (!furred) ctx.fill(section.path, section.rule);
       } else if (!coat) {
         ctx.fill(section.path, section.rule);
       } else if (!coatPainted) {

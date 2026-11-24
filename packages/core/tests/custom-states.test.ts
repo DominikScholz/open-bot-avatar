@@ -38,7 +38,7 @@ describe('a state of the host\'s own', () => {
     // The built-in marks are balls and capsules.
     expect(roundOf(avatarFrame(mug, { state: 'thinking', time: 1 }))).toEqual([true, true, true]);
     expect(roundOf(avatarFrame(mug, { state: 'blocked', time: 1 }))).toEqual([true, true]);
-    // A host's outline is not, unless it says so: the fluffy material fills it as it is.
+    // A host's outline is not, unless it says so: the fluffy material builds it a coat of its own.
     expect(roundOf(avatarFrame(mug, { state: asking, time: 1 }))).toEqual([undefined]);
     const ball: AvatarMark = { id: 'ball', parts: () => [{ shape: 'ball', d: 'M5 0A5 5 0 1 1 -5 0A5 5 0 1 1 5 0Z', box: { x: -5, y: -5, w: 10, h: 10 }, x: 0, y: 0, turn: 0, scale: 1, round: true }] };
     expect(roundOf(avatarFrame(mug, { state: { id: 'ball', pose: () => ({ marks: [{ mark: ball, weight: 1 }] }) }, time: 1 }))).toEqual([true]);

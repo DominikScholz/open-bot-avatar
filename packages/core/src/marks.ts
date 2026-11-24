@@ -29,7 +29,8 @@ export interface MarkPart {
   scale: number;
   /**
    * The outline is a circle or an upright capsule that fills `box`. The fluffy material draws
-   * such a part as a ball of fur; any other outline it fills plainly, so its shape is kept.
+   * such a part from a ready ball of fur; for any other outline it builds a coat in the outline's
+   * shape, once per outline.
    */
   round?: boolean;
 }
