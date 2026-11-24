@@ -19,6 +19,10 @@ import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
 import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
 import type { Volume } from '../volume.ts';
+import { rampHexAt } from '../material.ts';
+import { softSprite } from '../softsprite.ts';
+import { parseHex } from '../color.ts';
+import type { Rgb } from '../color.ts';
 import { eyeBox, paintEye } from './eye.ts';
 import { paintFluffyMark } from './fluffy/marks.ts';
 import { renderFluffy } from './fluffy/renderer.ts';
@@ -156,6 +160,26 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
 /** The marks of `thinking` and `blocked`, which a frame lists as slices in place of the body. */
 const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
 
+/** Offscreen sprites of the soft body, one per outline + colour + material. */
+const spriteCanvases = new Map<string, HTMLCanvasElement>();
+
+function softSpriteCanvas(body: NonNullable<AvatarFrame['softBody']>, color: string): HTMLCanvasElement | null {
+  if (typeof ImageData === 'undefined') return null;
+  const key = `${body.d}|${color}|${JSON.stringify(body.material)}`;
+  let canvas = spriteCanvases.get(key);
+  if (!canvas) {
+    const sprite = softSprite(body.d, parseHex(color) as Rgb, body.material);
+    canvas = document.createElement('canvas');
+    canvas.width = canvas.height = sprite.size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.putImageData(new ImageData(sprite.data, sprite.size, sprite.size), 0, 0);
+    if (spriteCanvases.size > 96) spriteCanvases.clear();
+    spriteCanvases.set(key, canvas);
+  }
+  return canvas;
+}
+
 /**
  * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
  * canvas color. A `fluffy` body falls back to flat where fluffy can't be drawn.
@@ -200,6 +224,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const { view, scale: bodyScale, eyes } = frame.surface;
   const coat = volume && bodyScale > 0.001 ? renderFluffy(volume(), view, { color: fill, ink, eyes }, scale) : null;
   let coatPainted = false;
+  const soft = material === 'soft' && fill === frame.color && frame.softBody ? softSpriteCanvas(frame.softBody, frame.color) : null;
+  let softPainted = false;
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
@@ -211,8 +237,26 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
         if (!fluffy || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+      } else if (soft) {
+        if (!softPainted && frame.softBody) {
+          // The soft sprite takes the place of the slice stack, under the root's motion.
+          softPainted = true;
+          const b = frame.softBody.matrix;
+          const [ra, rb, rc, rd, re, rf] = frame.root;
+          const m0 = ra * b[0] + rc * b[1], m1 = rb * b[0] + rd * b[1];
+          const m2 = ra * b[2] + rc * b[3], m3 = rb * b[2] + rd * b[3];
+          const m4 = ra * b[4] + rc * b[5] + re, m5 = rb * b[4] + rd * b[5] + rf;
+          ctx.setTransform(scale * m0, scale * m1, scale * m2, scale * m3, scale * m4 - surface.left, scale * m5 - surface.top);
+          ctx.drawImage(soft, 0, 0, 100, 100);
+        }
       } else if (!coat) {
-        ctx.fill(section.path, section.rule);
+        if (material === 'soft' && frame.ramp) {
+          ctx.fillStyle = rampHexAt(frame.ramp, shape.tone);
+          ctx.fill(section.path, section.rule);
+          ctx.fillStyle = fill;
+        } else {
+          ctx.fill(section.path, section.rule);
+        }
       } else if (!coatPainted) {
         // The body's slices follow one another: the coat takes the place of the first, under the root's motion.
         coatPainted = true;

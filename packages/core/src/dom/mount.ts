@@ -18,6 +18,7 @@ import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
+import type { SoftMaterial } from '../material.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -30,10 +31,13 @@ export interface AvatarOptions {
   /** Eye color: #rgb or #rrggbb, or any CSS color. Defaults to a near-black ink. */
   eyeColor?: string;
   /**
-   * The body's finish: 'flat' (default), or 'fluffy' for a coat of fur with the eyes set into it.
+   * The body's finish: 'flat' (default), 'fluffy' for a coat of fur with the eyes set into it,
+   * or 'soft' for the soft-shape subsurface material (hex color; canvas renderer).
    * Fluffy needs the canvas renderer and WebGL2; without them the avatar draws flat.
    */
   material?: AvatarMaterial;
+  /** Tuning for the 'soft' material (density, ambient, spread, softness, lift, liftColor). */
+  soft?: SoftMaterial;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
   /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
@@ -272,6 +276,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
+          material: p.material,
+          soft: p.soft,
           state: look.state,
           mood: look.mood,
           view: p.view,
@@ -304,6 +310,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
+        material: p.material,
+        soft: p.soft,
         state: look.state,
         mood: look.mood,
         stateAge: step.stateAge,
@@ -314,7 +322,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         view: p.view,
         reducedMotion,
       };
-      if (p.renderer !== 'scene' && canvasSupported()) {
+      if ((p.renderer !== 'scene' || p.material === 'soft') && canvasSupported()) {
         paint(p, options);
         failed = false;
         return !reducedMotion || step.moving;

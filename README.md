@@ -34,6 +34,8 @@ One SVG path in a `0 0 100 100` box, and the eyes.
 
 The volume is inferred from the outline as stacked cross-sections. Live avatars project them and paint each frame to one canvas; stills are projected into one SVG. A CSS 3D scene with one SVG per cross-section is available as `renderer: "scene"`.
 
+With `material: "soft"` the body is painted with the soft-shape look of the Hark design study: per-pixel subsurface scattering in the canvas renderer (a cached sprite port of the source shader), and a depth ramp of the body colour in vector renderers. States, moods and gaze work unchanged. `HARK_ROSTER` ships eight bots tuned for the Hark design system; see [docs/material.md](docs/material.md).
+
 ## Install
 
 ```sh
@@ -62,6 +64,7 @@ avatar.destroy();
 | --- | --- |
 | `definition` | The avatar. Required. |
 | `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
+| `material`, `soft` | `'flat'` (default) or `'soft'`: a subsurface ramp of the body colour through the volume, tuned by `soft` ([docs](docs/material.md)). Needs a hex `color`. |
 | `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`. |
 | `mood` | How it feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on any state. |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
@@ -70,7 +73,7 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `material` | `"flat"` (default) or `"fluffy"`, a coat of fur. |
+| `material` | `"flat"` (default), `"fluffy"` (a coat of fur), or `"soft"` (the soft-shape subsurface material, [docs](docs/material.md)). |
 | `still` | One static image, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 

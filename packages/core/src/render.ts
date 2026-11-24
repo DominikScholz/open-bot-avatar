@@ -20,6 +20,8 @@
  * and rolls.
  */
 import { mix, oklch, parseHex, toHex, toOklch } from './color.ts';
+import { rampHexAt, sliceTone, softRamp } from './material.ts';
+import type { SoftMaterial } from './material.ts';
 import type { Rgb } from './color.ts';
 import { bodyScale, markParts, ribbonPieces, ribbonReach, rimOf } from './effects.ts';
 import type { Rim } from './effects.ts';
@@ -398,6 +400,8 @@ export type FrameShape =
       /** Id of an entry in AvatarFrame.paths. */
       path: string;
       matrix: Matrix;
+      /** Depth in the part's volume, 0 (surface) .. 1 (deepest); indexes AvatarFrame.ramp. */
+      tone: number;
     }
   | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
   | {
@@ -457,6 +461,20 @@ export interface AvatarFrame {
    * including an eye `shapes` leaves out because its spot faces away.
    */
   surface: { view: ViewBasis; scale: number; eyes: SurfaceEye[] };
+  /**
+   * The soft material's colour ramp, surface first, as hex stops — present only when
+   * `material: 'soft'` and the body colour is hex. Slice shapes index it by `tone`;
+   * vector renderers paint it per slice, the canvas renderer prefers softBody.
+   */
+  ramp?: string[];
+  /**
+   * The soft material's per-pixel body: the outline to shade with the soft-shape
+   * subsurface integral (see softsprite.ts), its material, and the matrix to draw it
+   * under (the body's shrink about its pivot, before the frame root). The canvas
+   * renderer paints one cached sprite in place of the slice stack; the body faces
+   * front in this mode — gaze, 2D motion, states and moods stay live.
+   */
+  softBody?: { d: string; evenOdd: boolean; material: SoftMaterial; matrix: Matrix };
 }
 
 /**
@@ -616,7 +634,12 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const { vol } = p;
   const b = vol.bounds;
   const { color, ink } = colors(options);
+  const soft = options.material === 'soft' && !!parseHex(options.color);
   const pose = poseOf(p, options);
+  if (soft) {
+    pose.yaw = 0;
+    pose.pitch = 0;
+  }
   const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
   const stack = activeStack(v);
@@ -638,7 +661,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       }
       // Parallel slices have the same order along every viewing ray.
       const depth = stack === 'z' ? v.facing * s.at : -v.sY * v.cP * s.at;
-      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
+      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m), tone: sliceTone(vol.parts[i], s) } });
     });
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
@@ -669,10 +692,12 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     );
   const marks = fx.marks.map((mark, i): FrameShape => {
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
-    return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
+    return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix), tone: 0 };
   });
   return {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
+    ramp: soft ? softRamp(parseHex(color) as Rgb, options.soft).map(toHex) : undefined,
+    softBody: soft ? { d: p.def.body.path, evenOdd: false, material: options.soft ?? {}, matrix: shrink([1, 0, 0, 1, 0, 0]) as Matrix } : undefined,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
     surface: { view: v, scale: fx.body, eyes },
   };
@@ -710,7 +735,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) =>
-      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${frame.ramp ? ` fill="${rampHexAt(frame.ramp, s.tone)}"` : ''}/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
