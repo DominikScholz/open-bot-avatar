@@ -131,15 +131,11 @@ describe('soft material in the renderers', () => {
     expect(flat).not.toMatch(/<use [^>]*fill="/);
   });
 
-  it('bakes per-slice colours into the scene and keys the markup by material', () => {
-    const soft = renderAvatarScene(ghost, { material: 'soft', color: '#65A3DD' });
-    const flat = renderAvatarScene(ghost, { color: '#65A3DD' });
-    expect((soft.match(/color:#[0-9a-f]{6};/g) ?? []).length).toBeGreaterThan(0);
-    expect(flat).not.toMatch(/color:#[0-9a-f]{6};/);
-    const keyOf = (m: string) => /data-avatar-scene="([^"]+)"/.exec(m)?.[1];
-    expect(keyOf(soft)).not.toBe(keyOf(flat));
-    expect(sceneFrame(ghost, { material: 'soft', color: '#65A3DD' }).scene).toBe(keyOf(soft));
-    expect(sceneFrame(ghost, { color: '#65A3DD' }).scene).toBe(keyOf(flat));
+  it('leaves the CSS 3D scene untouched: soft is a canvas-renderer feature', () => {
+    const soft = renderAvatarScene(ghost, { depth: 6 });
+    const flat = renderAvatarScene(ghost, { depth: 6 });
+    expect(soft).toBe(flat);
+    expect(sceneFrame(ghost, { material: 'soft', color: '#65A3DD' }).scene).toBe(sceneFrame(ghost, { color: '#65A3DD' }).scene);
   });
 
   it('keeps states and moods working with the material on', () => {

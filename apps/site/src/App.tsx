@@ -1,6 +1,8 @@
 import { BotAvatar } from "./BotAvatar";
 import { Docs } from "./Docs";
 import { REPO, href, useRoute, type Route } from "./route";
+import { useStoredState } from "./studio/hooks";
+import { DEFAULT_LOOK, reviveLook } from "./studio/look";
 import { Studio } from "./Studio";
 import { LOGO, LOGO_COLOR } from "./logo";
 
@@ -11,6 +13,7 @@ const NAV: { route: Route; label: string }[] = [
 
 export function App() {
   const route = useRoute();
+  const [look, setLook] = useStoredState("open-bot-avatar:look", DEFAULT_LOOK, reviveLook);
   return (
     <div className={`avatar-studio route-${route}`}>
       <header className="site-top">
@@ -32,7 +35,7 @@ export function App() {
           </a>
         </nav>
       </header>
-      {route === "studio" ? <Studio /> : <Docs />}
+      {route === "studio" ? <Studio look={look} setLook={setLook} /> : <Docs material={look.material} />}
       <a className="credit" href="https://x.com/dom_scholz" target="_blank" rel="noopener">
         by @dom_scholz
       </a>

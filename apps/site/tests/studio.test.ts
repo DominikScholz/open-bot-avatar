@@ -98,6 +98,17 @@ describe("share links", () => {
     expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", state: "working", mood: "happy" });
   });
 
+  it("carry the material when it isn't the default, and saved looks keep it", () => {
+    const link = (material: "flat" | "fluffy") => shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, material, color: defaultColor("mug") });
+    expect(DEFAULT_LOOK.material).toBe("fluffy");
+    expect(link("fluffy")).toBe("https://example.test/?avatar=mug");
+    expect(link("flat")).toBe("https://example.test/?avatar=mug&material=flat");
+    expect(readShare("?avatar=mug&material=flat")).toEqual({ avatar: "mug", material: "flat" });
+    expect(readShare("?material=velvet")).toEqual({});
+    expect(reviveLook({ material: "flat" })?.material).toBe("flat");
+    expect(reviveLook({ material: "velvet" })?.material).toBe("fluffy");
+  });
+
   it("still open links from before state and mood were separate", () => {
     expect(readShare("?avatar=mug&mood=happy")).toEqual({ avatar: "mug", state: "idle", mood: "happy" });
     expect(readShare("?avatar=mug&mood=thinking")).toEqual({ avatar: "mug", state: "thinking", mood: "neutral" });

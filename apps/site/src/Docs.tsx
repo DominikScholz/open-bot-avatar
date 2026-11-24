@@ -2,7 +2,7 @@ import { parse, render } from "sugar-high/core";
 import * as typescript from "sugar-high/lang/typescript";
 import * as shell from "sugar-high/lang/shell";
 import * as json from "sugar-high/lang/json";
-import { examples } from "open-bot-avatar";
+import { examples, type AvatarMaterial } from "open-bot-avatar";
 import { GALLERY } from "./gallery";
 import { defaultColor } from "./studio/look";
 import { BotAvatar } from "./BotAvatar";
@@ -81,7 +81,8 @@ const PROPS: [string, string][] = [
   ["view", "Extra rotation, { yaw, pitch } in radians."],
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
   ["reducedMotion", 'true, false or "system" (default).'],
-  ["still", "One static SVG, no animation. Default: false."],
+  ["material", '"flat" (default) or "fluffy", a coat of fur. Fluffy needs the canvas renderer and WebGL2.'],
+  ["still", "One fixed pose, no animation: an SVG, or one painted canvas for fluffy. Default: false."],
   ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],
   ["label", 'Accessible name. Default: the definition\'s name; "" for decorative.'],
 ];
@@ -90,11 +91,11 @@ const PROPS: [string, string][] = [
 const ALL = [...examples, ...GALLERY];
 const PICK = ALL[Math.floor(Math.random() * ALL.length)];
 
-export function Docs() {
+export function Docs({ material }: { material: AvatarMaterial }) {
   return (
     <main className="page docs">
       <section className="page-head">
-        <BotAvatar className="avatar-view docs-avatar" definition={PICK} color={defaultColor(PICK.id)} followPointer label="" />
+        <BotAvatar className="avatar-view docs-avatar" definition={PICK} material={material} color={defaultColor(PICK.id)} followPointer label="" />
         <h1>Docs</h1>
         <p className="lead">A JSON spec and renderer for interactive agent avatars.</p>
         <ul className="lead what">

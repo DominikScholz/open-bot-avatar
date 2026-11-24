@@ -20,9 +20,9 @@
  * and rolls.
  */
 import { mix, oklch, parseHex, toHex, toOklch } from './color.ts';
-import type { Rgb } from './color.ts';
-import { rampAt, rampHexAt, sliceTone, softRamp } from './material.ts';
+import { rampHexAt, sliceTone, softRamp } from './material.ts';
 import type { SoftMaterial } from './material.ts';
+import type { Rgb } from './color.ts';
 import { bodyScale, markParts, ribbonPieces, ribbonReach, rimOf } from './effects.ts';
 import type { Rim } from './effects.ts';
 import type { Box } from './effects.ts';
@@ -34,7 +34,7 @@ import type { Bounds, Point } from './path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
 import type { GazeRange } from './validate.ts';
 import { buildVolume } from './volume.ts';
-import type { Volume, VolumeSlice } from './volume.ts';
+import type { EyePlane, Vec3, Volume, VolumeSlice } from './volume.ts';
 import type { AvatarDefinition, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
@@ -43,12 +43,12 @@ export const DEFAULT_EYE_COLOR = '#151515';
 export const DEFAULT_DEPTH = 6;
 const MAX_DEPTH = 14;
 /**
- * Eyes sit this far above the surface so they never touch the body planes. iOS WebKit treats planes
+ * CSS eyes sit this far above the surface so they never touch the body planes. iOS WebKit treats planes
  * closer than about a pixel as one and may draw the body over an eye (0.3 did: a band of the
  * barbell's bar through one eye), so the gap is a few pixels at the stage's size. Turned, an eye
  * drifts lift × sin(angle) from its spot: under half a unit at rest, about one at 45°.
  */
-const EYE_LIFT = 1.5;
+const CSS_EYE_LIFT = 1.5;
 
 interface Prepared {
   def: AvatarDefinition;
@@ -203,17 +203,23 @@ export function viewBasis(yaw: number, pitch: number): ViewBasis {
   return { cY, sY: Math.sin(yaw), cP, sP: Math.sin(pitch), facing: cY * cP };
 }
 
-/** Minimum facing (toward-viewer component of the surface normal) for an eye to be drawn. */
-const EYE_FACING = 0.22;
-
 /** Toward-viewer component of a model-space direction under this view (1 = straight at the viewer). */
-export function facingOf(v: ViewBasis, [x, y, z]: [number, number, number]): number {
+export function facingOf(v: ViewBasis, [x, y, z]: Vec3): number {
   return v.sP * y + v.cP * (-v.sY * x + v.cY * z);
 }
 
-/** Whether eye `i` is drawn: every surface normal under it must face the viewer. */
-function eyeVisible(vol: Volume, v: ViewBasis, i: number): boolean {
-  return vol.eyeNormals[i].every((n) => facingOf(v, n) > EYE_FACING);
+/** The signed projected area of a unit of eye plane goes to zero at the limb. */
+function eyeVisible(v: ViewBasis, plane: EyePlane): boolean {
+  return facingOf(v, [-plane.dzdx, -plane.dzdy, 1]) > 1e-6;
+}
+
+function eyeMatrix(v: ViewBasis, { x, y, z, dzdx, dzdy }: EyePlane, pivot: Point): M {
+  const m = planeMatrix(v, z - x * dzdx - y * dzdy, pivot);
+  m[0] += v.sY * dzdx;
+  m[1] -= v.cY * v.sP * dzdx;
+  m[2] += v.sY * dzdy;
+  m[3] -= v.cY * v.sP * dzdy;
+  return m;
 }
 
 /** Which slice stack faces the viewer more: front-facing z-planes or side-facing x-planes. */
@@ -241,7 +247,7 @@ export function sidePlaneMatrix(v: ViewBasis, x0: number, pivot: Point): M {
 }
 
 /** Project a 3D point: screen x, screen y and depth toward the viewer. */
-export function projectPoint(v: ViewBasis, [x, y, z]: [number, number, number], pivot: Point): [number, number, number] {
+export function projectPoint(v: ViewBasis, [x, y, z]: Vec3, pivot: Point): Vec3 {
   const m = planeMatrix(v, z, pivot);
   const X = x - pivot[0], Y = y - pivot[1];
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5], v.sP * Y + v.cP * (-v.sY * X + v.cY * z)];
@@ -269,7 +275,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
-  const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * EYE_LIFT) / 2;
+  const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * CSS_EYE_LIFT) / 2;
   // Ribbons reach their hoop plus their band from the middle of the body's box, and keep the
   // canvas's antialiasing margin (FIT_PAD) inside.
   const { work, cage } = p.rims();
@@ -441,21 +447,6 @@ export interface AvatarFrame {
   color: string;
   ink: string;
   /**
-   * The soft material's colour ramp, surface first, as hex stops — present only when
-   * `material: 'soft'` and the body colour is hex. Slice shapes index it by `tone`;
-   * without it every slice paints `color`.
-   */
-  ramp?: string[];
-  /**
-   * The soft material's per-pixel body: the outline to shade with the soft-shape
-   * subsurface integral (see softsprite.ts), its material, and the matrix to draw
-   * it under (the body's shrink about its pivot, before the frame root). Present
-   * only for `material: 'soft'` with a hex colour. The canvas renderer paints one
-   * cached sprite instead of the slice stack; vector renderers keep the ramp.
-   * The body faces front in this mode — gaze, 2D motion, states and moods stay live.
-   */
-  softBody?: { d: string; evenOdd: boolean; material: SoftMaterial; matrix: Matrix };
-  /**
    * Distinct cross-section paths this frame uses; ids are stable for equal geometry and depth.
    * `box` bounds `d` in its own coordinates, before a shape's matrix.
    */
@@ -464,6 +455,36 @@ export interface AvatarFrame {
   root: Matrix;
   /** Back to front. */
   shapes: FrameShape[];
+  /**
+   * The body as one surface, for a renderer that draws it in 3D instead of as slices (the fluffy
+   * material): the view's rotation, the body's scale as it gives way to a mark, and both eyes,
+   * including an eye `shapes` leaves out because its spot faces away.
+   */
+  surface: { view: ViewBasis; scale: number; eyes: SurfaceEye[] };
+  /**
+   * The soft material's colour ramp, surface first, as hex stops — present only when
+   * `material: 'soft'` and the body colour is hex. Slice shapes index it by `tone`;
+   * vector renderers paint it per slice, the canvas renderer prefers softBody.
+   */
+  ramp?: string[];
+  /**
+   * The soft material's per-pixel body: the outline to shade with the soft-shape
+   * subsurface integral (see softsprite.ts), its material, and the matrix to draw it
+   * under (the body's shrink about its pivot, before the frame root). The canvas
+   * renderer paints one cached sprite in place of the slice stack; the body faces
+   * front in this mode — gaze, 2D motion, states and moods stay live.
+   */
+  softBody?: { d: string; evenOdd: boolean; material: SoftMaterial; matrix: Matrix };
+}
+
+/**
+ * An eye on the body's surface, in face coordinates: its mark where it rests, and how far its
+ * gaze has moved it from there. Apart, so a renderer can tell a moving eye from a changing one.
+ */
+export interface SurfaceEye {
+  mark: EyeMark;
+  dx: number;
+  dy: number;
 }
 
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
@@ -583,7 +604,8 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const [cx, cy] = pivotOf(b);
   return {
     body: bodyScale(pose.bang, pose.dots),
-    ribbons: still ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
+    // No ribbons are out below a presence of 0.01 (see ribbonPieces), so their rims are not measured for it.
+    ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
       // The piece's stretch of its ribbon's colour run, front and back alike.
       const [s0, s1] = r.along;
@@ -621,7 +643,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
   const stack = activeStack(v);
-  const eyesMid: Point = [p.def.eyes.x, p.def.eyes.y];
+  const eyes: SurfaceEye[] = [];
   const fx = effectsOf(p, pose, options);
   const root = rootMatrix(pose, b);
   // The body shrinks toward its center as it gives way to a mark.
@@ -637,20 +659,27 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
         path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
         paths.set(s.d, path);
       }
-      // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
-      const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
-      const depth = stack === 'z' ? projectPoint(v, [rx, ry, s.at], pivot)[2] : projectPoint(v, [s.at, ry, 0], pivot)[2];
+      // Parallel slices have the same order along every viewing ray.
+      const depth = stack === 'z' ? v.facing * s.at : -v.sY * v.cP * s.at;
       items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m), tone: sliceTone(vol.parts[i], s) } });
     });
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
-      if (eyeVisible(vol, v, idx)) {
-        const z = vol.eyeZ[idx] + EYE_LIFT;
-        items.push({
-          depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
-          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(planeMatrix(v, z, pivot)), mark: eyeMark(e) },
-        });
-      }
+      const plane = vol.eyePlanes[idx];
+      eyes.push({ mark: eyeMark({ ...e, dx: 0, dy: 0 }), dx: e.dx, dy: e.dy });
+      if (!eyeVisible(v, plane)) return;
+      // A slice through the middle of a mark must paint before the entire mark: sort at the near
+      // edge of its footprint on the active stack.
+      const halfW = e.w * (e.plain === 'pill' ? 0.5 : HAPPY_ARC.halfWidth + 0.5 * HAPPY_ARC.stroke);
+      const xDepth = -v.sY * v.cP;
+      const z = plane.z + e.dx * plane.dzdx + e.dy * plane.dzdy;
+      const depth = stack === 'z'
+        ? v.facing * z + Math.abs(v.facing) * (Math.abs(plane.dzdx) * halfW + (Math.abs(plane.dzdy) * e.h) / 2)
+        : xDepth * (e.x + e.dx) + Math.abs(xDepth) * halfW;
+      items.push({
+        depth: depth + 1e-6,
+        shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(eyeMatrix(v, plane, pivot)), mark: eyeMark(e) },
+      });
     });
     items.sort((a, c) => a.depth - c.depth);
   }
@@ -665,23 +694,17 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix), tone: 0 };
   });
-  const ramp = options.material === 'soft' && parseHex(options.color) ? softRamp(parseHex(color) as Rgb, options.soft).map(toHex) : undefined;
-  const softBody = soft
-    ? { d: p.def.body.path, evenOdd: false, material: options.soft ?? {}, matrix: shrink([1, 0, 0, 1, 0, 0]) as Matrix }
-    : undefined;
   return {
-    name: p.def.name, color, ink, paths: [...paths.values()], root, ramp, softBody,
+    name: p.def.name, color, ink, paths: [...paths.values()], root,
+    ramp: soft ? softRamp(parseHex(color) as Rgb, options.soft).map(toHex) : undefined,
+    softBody: soft ? { d: p.def.body.path, evenOdd: false, material: options.soft ?? {}, matrix: shrink([1, 0, 0, 1, 0, 0]) as Matrix } : undefined,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
+    surface: { view: v, scale: fx.body, eyes },
   };
 }
 
 // ---------------------------------------------------------------------------
 // Standalone SVG still
-
-/** Scene markup identity: the soft material bakes per-slice colours, so it is part of the key. */
-function sceneKey(id: string, options: Pick<RenderOptions, 'material' | 'soft' | 'color'>): string {
-  return options.material === 'soft' ? `${id}|soft|${options.color ?? ''}|${JSON.stringify(options.soft ?? {})}` : id;
-}
 
 function eyeSvg(mark: EyeMark, ink: string): string {
   if (mark.shape === 'path') return `<path d="${mark.d}" fill="${ink}"/>`;
@@ -736,9 +759,11 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
 
 /** 1 viewBox unit = 1% of the scene's (square) container width. */
 const u = (n: number) => `${f(n)}cqw`;
+const eyePlaneCss = ({ z, dzdx, dzdy }: EyePlane) =>
+  `translateZ(${u(z + CSS_EYE_LIFT)}) matrix3d(1,0,${r4(dzdx)},0,0,1,${r4(dzdy)},0,0,0,1,0,0,0,0,1)`;
 const FILL = 'position:absolute;left:0;top:0;width:100%;height:100%;';
 
-function sliceMarkup(s: VolumeSlice, color?: string): string {
+function sliceMarkup(s: VolumeSlice): string {
   const pad = 0.3;
   const x = s.box.x - pad, y = s.box.y - pad, w = s.box.w + 2 * pad, h = s.box.h + 2 * pad;
   const rule = s.evenOdd ? ' fill-rule="evenodd"' : '';
@@ -747,7 +772,7 @@ function sliceMarkup(s: VolumeSlice, color?: string): string {
     : // The side plane's u = 0 line sits at x = s.at; turning it 90° about that line maps u to -z.
       `left:${u(s.at + x)};top:${u(y)};transform-origin:${u(-x)} 50%;transform:rotateY(90deg)`;
   return (
-    `<svg viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}" style="position:absolute;width:${u(w)};height:${u(h)};overflow:visible;${color ? `color:${color};` : ''}${place}" aria-hidden="true">` +
+    `<svg viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}" style="position:absolute;width:${u(w)};height:${u(h)};overflow:visible;${place}" aria-hidden="true">` +
     `<path d="${s.d}"${rule} fill="currentColor"/></svg>`
   );
 }
@@ -760,22 +785,20 @@ const overlay = (side: 'back' | 'front') =>
  * then apply `sceneFrame` every frame. Body color comes from CSS `color` on
  * an ancestor, eye ink from `--avatar-ink`.
  */
-export function renderAvatarScene(definition: AvatarDefinition, options: Pick<RenderOptions, 'depth' | 'material' | 'soft' | 'color'> = {}): string {
+export function renderAvatarScene(definition: AvatarDefinition, options: Pick<RenderOptions, 'depth'> = {}): string {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
   const ink = `var(--avatar-ink,${DEFAULT_EYE_COLOR})`;
-  const ramp = options.material === 'soft' && parseHex(options.color) ? softRamp(parseHex(options.color) as Rgb, options.soft) : undefined;
-  const sliceColor = (part: Volume['parts'][number], s: VolumeSlice) => (ramp ? toHex(rampAt(ramp, sliceTone(part, s))) : undefined);
   const stack = (axis: 'z' | 'x') =>
     `<div data-stack="${axis}" style="${FILL}transform-style:preserve-3d">` +
-    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map((s) => sliceMarkup(s, sliceColor(part, s))).join('')).join('') +
+    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
     `</div>`;
   const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
     const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
     return (
-      `<div data-eye="${i}" style="position:absolute;${box};backface-visibility:hidden;transform:translateZ(${u(vol.eyeZ[i] + EYE_LIFT)})">` +
+      `<div data-eye="${i}" style="position:absolute;${box};backface-visibility:hidden;transform:${eyePlaneCss(vol.eyePlanes[i])}">` +
       `<i style="position:absolute;inset:0;border-radius:999px;background:${ink}"></i>` +
       `<svg viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
       `<path d="${happyArc(e)}" fill="none" stroke="${ink}" stroke-width="${f(e.w * HAPPY_ARC.stroke)}" stroke-linecap="round"/></svg>` +
@@ -786,7 +809,7 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     );
   });
   return (
-    `<div data-avatar-scene="${sceneKey(p.id, options)}" style="position:relative;width:100%;height:100%;container-type:size">` +
+    `<div data-avatar-scene="${p.id}" style="position:relative;width:100%;height:100%;container-type:size">` +
     // Ribbons behind the body; they and the marks are written each frame they show.
     overlay('back') +
     // will-change pins the slices' raster scale: without it every hop and squash re-rasterizes each slice.
@@ -862,7 +885,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, r.gradient)).join('');
   let k = 0;
   return {
-    scene: sceneKey(p.id, options),
+    scene: p.id,
     motion: `translate(0,${u(pose.lift)}) rotate(${f(pose.roll)}deg) scale(${r4(pose.sx)},${r4(pose.sy)})`,
     view: (fx.body < 1 ? `scale(${r4(fx.body)}) ` : '') + `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
     body: fx.body,
@@ -871,9 +894,9 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
     stack,
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
     eyes: states.map((e, i) => ({
-      visible: eyeVisible(p.vol, v, i),
+      visible: eyeVisible(v, p.vol.eyePlanes[i]),
       happy: e.plain === 'arc',
-      transform: `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT)}) translate(${u(e.dx)},${u(e.dy)})`,
+      transform: `${eyePlaneCss(p.vol.eyePlanes[i])} translate(${u(e.dx)},${u(e.dy)})`,
       pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.h)})`,
       d: e.plain === null ? eyePath(e.look, eyeSpot(e, false)) : '',
     })),

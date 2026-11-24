@@ -126,9 +126,10 @@
       height: 156px;
     }
 
+    /* In the corner under the material toggle. */
     .stage-reset {
       position: absolute;
-      top: 8px;
+      top: 48px;
       right: 8px;
       width: 34px;
       height: 34px;
@@ -1488,13 +1489,27 @@
       }
     }
 
-    /* The mood: a toggle of eyes in the preview's corner. */
+    /*
+     * The toggles over the top of the preview, one in each corner: the mood as a pair of eyes, the
+     * material as a pair of faces.
+     */
 
-    .face-toggle {
+    .stage-bar {
       position: absolute;
       top: 8px;
       left: 8px;
+      right: 8px;
       z-index: 3;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 6px;
+      /* The preview drags through the gap. */
+      pointer-events: none;
+    }
+
+    .stage-bar > * {
+      pointer-events: auto;
       cursor: default;
     }
 
@@ -1525,7 +1540,8 @@
       background: var(--raised);
     }
 
-    .eyes-glyph {
+    .eyes-glyph,
+    .face-glyph {
       width: 18px;
       height: 18px;
     }

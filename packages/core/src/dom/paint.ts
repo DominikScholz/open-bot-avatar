@@ -11,14 +11,21 @@
  *
  * The canvas sits in a wrapper at the host's content box, as the scene does,
  * overhangs it by the avatar's reach and ignores the pointer.
+ *
+ * A fluffy avatar is painted the same way, except that its body and eyes come as one image from
+ * the fluffy renderer (see fluffy/renderer.ts) in place of the slices and eye marks.
  */
-import { avatarExtent } from '../render.ts';
-import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
+import { avatarExtent, preparedVolume } from '../render.ts';
+import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
+import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
+import type { Volume } from '../volume.ts';
 import { rampHexAt } from '../material.ts';
 import { softSprite } from '../softsprite.ts';
 import { parseHex } from '../color.ts';
 import type { Rgb } from '../color.ts';
-import type { AvatarDefinition } from '../types.ts';
+import { eyeBox, paintEye } from './eye.ts';
+import { paintFluffyMark } from './fluffy/marks.ts';
+import { renderFluffy } from './fluffy/renderer.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -39,6 +46,8 @@ export interface Bounds {
 export const FIT_SLACK = 8;
 /** Margin a frame keeps from the bitmap's edge for antialiasing, viewBox units. */
 export const FIT_PAD = 1;
+/** How far a fluffy coat's pile reaches past the frame's flat bounds, viewBox units. */
+const PILE_MARGIN = 3;
 
 /**
  * The square to lay the bitmap out over: `prev` while it still holds `b`, else `prev` grown to
@@ -69,6 +78,7 @@ export function fitSquare(prev: Square | null, b: Bounds, cap: Square): Square {
 }
 
 interface Section {
+  box: FramePath['box'];
   path: Path2D;
   rule: CanvasFillRule;
 }
@@ -116,46 +126,13 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
   return { matrices, bounds };
 }
 
-function eyeBox(mark: EyeMark): FramePath['box'] {
-  if (mark.shape === 'pill') return { x: mark.x, y: mark.y, w: mark.width, h: mark.height };
-  // Quadratics lie within their points' hull; an arc's stroke reaches half its width past it.
-  const reach = mark.shape === 'arc' ? mark.strokeWidth : 0;
-  const n = (mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-  const x = Math.min(...xs) - reach, y = Math.min(...ys) - reach;
-  return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
-}
-
-function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
-  if (mark.shape === 'path') {
-    ctx.fill(new Path2D(mark.d));
-    return;
-  }
-  if (mark.shape === 'arc') {
-    ctx.lineWidth = mark.strokeWidth;
-    ctx.stroke(new Path2D(mark.d));
-    return;
-  }
-  const { x, y, width: w, height: h, radius: r } = mark;
-  ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-  else {
-    // Safari before 16 and Firefox before 112.
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-  ctx.fill();
-}
-
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
 export interface CanvasSurface {
   key: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
+  /** The avatar's volume, for a fluffy coat: built when first asked for. Null at depth 0, which has no surface to coat. */
+  volume: (() => Volume) | null;
   cap: Square;
   fit: Square | null;
   layout: string;
@@ -173,8 +150,15 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   canvas.style.cssText = 'position:absolute';
   wrap.append(canvas);
   el.replaceChildren(wrap);
-  return { key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0 };
+  let volume: Volume | undefined;
+  return {
+    key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0,
+    volume: depth === 0 ? null : () => (volume ??= preparedVolume(definition, depth).vol),
+  };
 }
+
+/** The marks of `thinking` and `blocked`, which a frame lists as slices in place of the body. */
+const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
 
 /** Offscreen sprites of the soft body, one per outline + colour + material. */
 const spriteCanvases = new Map<string, HTMLCanvasElement>();
@@ -196,18 +180,29 @@ function softSpriteCanvas(body: NonNullable<AvatarFrame['softBody']>, color: str
   return canvas;
 }
 
-/** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink) {
+/**
+ * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
+ * canvas color. A `fluffy` body falls back to flat where fluffy can't be drawn.
+ */
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
   const scale = (size / 100) * dpr;
   const layout = `${size}|${dpr}`;
   if (sections.size > MAX_SECTIONS) sections.clear();
-  for (const { id, d, evenOdd } of frame.paths) {
-    if (!sections.has(id)) sections.set(id, { path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
+  for (const { id, d, evenOdd, box } of frame.paths) {
+    if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
+  const volume = material === 'fluffy' ? surface.volume : null;
+  const fluffy = volume !== null;
+  if (fluffy) {
+    bounds.x0 -= PILE_MARGIN;
+    bounds.y0 -= PILE_MARGIN;
+    bounds.x1 += PILE_MARGIN;
+    bounds.y1 += PILE_MARGIN;
+  }
   const fit = fitSquare(surface.layout === layout ? surface.fit : null, bounds, surface.cap);
   if (surface.layout === layout && fit === surface.fit) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -225,37 +220,55 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
   }
 
+  // The whole body and its eyes as one image, unless it has shrunk away into a mark.
+  const { view, scale: bodyScale, eyes } = frame.surface;
+  const coat = volume && bodyScale > 0.001 ? renderFluffy(volume(), view, { color: fill, ink, eyes }, scale) : null;
+  let coatPainted = false;
+  const soft = material === 'soft' && fill === frame.color && frame.softBody ? softSpriteCanvas(frame.softBody, frame.color) : null;
+  let softPainted = false;
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
-  const sprite = frame.softBody && fill === frame.color ? softSpriteCanvas(frame.softBody, frame.color) : null;
-  let bodyDrawn = false;
-  const [ra, rb, rc, rd, re, rf] = frame.root;
   // Shapes run in the thousands per second across a page: one setTransform each beats save/restore.
   for (let i = 0; i < frame.shapes.length; i++) {
     const shape = frame.shapes[i], m = matrices[i];
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
-      if (sprite && !shape.key.startsWith('mark-')) {
-        if (!bodyDrawn && frame.softBody) {
+      const section = sections.get(shape.path) as Section;
+      if (isMark(shape)) {
+        if (!fluffy || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+      } else if (soft) {
+        if (!softPainted && frame.softBody) {
+          // The soft sprite takes the place of the slice stack, under the root's motion.
+          softPainted = true;
           const b = frame.softBody.matrix;
+          const [ra, rb, rc, rd, re, rf] = frame.root;
           const m0 = ra * b[0] + rc * b[1], m1 = rb * b[0] + rd * b[1];
           const m2 = ra * b[2] + rc * b[3], m3 = rb * b[2] + rd * b[3];
           const m4 = ra * b[4] + rc * b[5] + re, m5 = rb * b[4] + rd * b[5] + rf;
           ctx.setTransform(scale * m0, scale * m1, scale * m2, scale * m3, scale * m4 - surface.left, scale * m5 - surface.top);
-          ctx.drawImage(sprite, 0, 0, 100, 100);
-          bodyDrawn = true;
+          ctx.drawImage(soft, 0, 0, 100, 100);
         }
-        continue;
+      } else if (!coat) {
+        if (material === 'soft' && frame.ramp) {
+          ctx.fillStyle = rampHexAt(frame.ramp, shape.tone);
+          ctx.fill(section.path, section.rule);
+          ctx.fillStyle = fill;
+        } else {
+          ctx.fill(section.path, section.rule);
+        }
+      } else if (!coatPainted) {
+        // The body's slices follow one another: the coat takes the place of the first, under the root's motion.
+        coatPainted = true;
+        const [a, b, c, d, e, f] = frame.root;
+        ctx.setTransform(scale * a, scale * b, scale * c, scale * d, scale * e - surface.left, scale * f - surface.top);
+        const radius = coat.radius * bodyScale;
+        ctx.drawImage(coat.canvas, coat.x, coat.y, coat.size, coat.size, coat.cx - radius, coat.cy - radius, 2 * radius, 2 * radius);
       }
-      const section = sections.get(shape.path) as Section;
-      // The soft ramp is keyed to the frame's own hex colour; a CSS fill override paints flat.
-      if (frame.ramp && fill === frame.color) ctx.fillStyle = rampHexAt(frame.ramp, shape.tone);
-      ctx.fill(section.path, section.rule);
-      if (frame.ramp && fill === frame.color) ctx.fillStyle = fill;
     } else if (shape.kind === 'eye') {
+      if (coat) continue;
       ctx.fillStyle = ink;
-      eye(ctx, shape.mark);
+      paintEye(ctx, shape.mark);
       ctx.fillStyle = fill;
     } else {
       const g = shape.gradient;

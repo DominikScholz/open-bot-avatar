@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { contourLoops, loopsToPath, simplifyLoop } from '../src/contour.ts';
 import { examples, getExample } from '../src/examples.ts';
+import { BASE_PITCH, BASE_YAW } from '../src/motion.ts';
 import { FLATNESS, filledArea, flattenPath, insideRow, isInside, parsePath, winding } from '../src/path.ts';
-import { activeStack, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
+import { activeStack, liveFrame, planeMatrix, projectPoint, renderAvatarScene, renderAvatarSvg, sceneFrame, sidePlaneMatrix, viewBasis } from '../src/render.ts';
 import { EYE_CLEARANCE, EYE_H, GAZE_X, GAZE_Y, analyzeBody, drawnEyesFit, gazeRange, validateAvatar } from '../src/validate.ts';
 import { EYE_BOOST, EYE_BOOST_PAD, FACE_ROOM_TARGET, type VolumePart, buildVolume, erosionAt, faceRoom, revolveAxis, surfaceZ } from '../src/volume.ts';
 import { SEAM_MAX, SEAM_MIN, silhouetteSeams } from '../src/seams.ts';
@@ -367,6 +368,9 @@ describe('face room', () => {
 });
 
 describe('eye visibility on curved hosts', () => {
+  const viewAt = (yaw: number, pitch = 0) => ({
+    yaw: yaw * Math.PI / 180 - BASE_YAW, pitch: pitch * Math.PI / 180 - BASE_PITCH,
+  });
   const eyesAt = (e: AvatarDefinition, yaw: number) =>
     (renderAvatarSvg(e, { reducedMotion: true, view: { yaw, pitch: 0 } }).match(/<rect /g) ?? []).length;
 
@@ -378,10 +382,32 @@ describe('eye visibility on curved hosts', () => {
     }
   });
 
-  it('keeps both eyes on flat faces until the whole front turns away', () => {
+  it('foreshortens a flat eye continuously until it is edge-on in either direction', () => {
     const c = getExample('controller')!;
-    expect(eyesAt(c, 0.8)).toBe(2);
-    expect(eyesAt(c, Math.PI)).toBe(0);
+    for (const [yaw, pitch] of [[0, 0], [77, 0], [78, 0], [-85, 0], [89, 0], [0, -85], [45, 75], [90, 0], [95, 0], [180, 0]]) {
+      const options = { reducedMotion: true, size: 128, view: viewAt(yaw, pitch) };
+      const frame = liveFrame(c, options);
+      const eyes = frame.shapes.filter(s => s.kind === 'eye');
+      const area = Math.cos(yaw * Math.PI / 180) * Math.cos(pitch * Math.PI / 180);
+      expect(eyes, `${yaw}, ${pitch}`).toHaveLength(area > 1e-6 ? 2 : 0);
+      for (const { matrix: [a,b,c,d] } of eyes) expect(a*d-b*c).toBeCloseTo(area, 5);
+      expect(sceneFrame(c, options).eyes.filter(e => e.visible)).toHaveLength(eyes.length);
+      // The surface maps stay in left/right order even after both flat marks have turned away.
+      expect(frame.surface.eyes).toHaveLength(2);
+    }
+  });
+
+  it('keeps the near eye on a curved cheek visible in profile', () => {
+    const mug = getExample('mug')!;
+    for (const yaw of [-90, 90]) {
+      const frame = liveFrame(mug, { reducedMotion: true, size: 128, view: viewAt(yaw) });
+      const eyes = frame.shapes.filter(s => s.kind === 'eye');
+      expect(eyes).toHaveLength(1);
+      expect(eyes[0].key).toBe(yaw > 0 ? 'eye-0' : 'eye-1');
+      const [a,b,c,d] = eyes[0].matrix;
+      expect(a*d-b*c).toBeGreaterThan(.1);
+      expect(frame.surface.eyes).toHaveLength(2);
+    }
   });
 });
 
@@ -420,6 +446,20 @@ describe('silhouette seams', () => {
     // The flush neck and base turn as one continuous round surface at their join.
     const [glass, base] = bulb.parts;
     expect(glass.height(50, 70)).toBeCloseTo(base.height(50, 70), 0);
+  });
+});
+
+describe('the body as one surface', () => {
+  it('keeps an eye mark where it rests and reports its gaze apart, whatever the eye looks like', () => {
+    const mug = getExample('mug')!;
+    for (const state of ['idle', 'waiting'] as const) {
+      const at = (x: number) => liveFrame(mug, { reducedMotion: true, size: 128, state, gaze: { x, y: 0.4 } }).surface;
+      const left = at(-1), right = at(1);
+      expect(left.eyes).toHaveLength(2);
+      expect(left.eyes.map((eye) => eye.mark)).toEqual(right.eyes.map((eye) => eye.mark));
+      expect(right.eyes[0].dx - left.eyes[0].dx).toBeGreaterThan(1);
+      expect(right.eyes[0].dy).toBeCloseTo(left.eyes[0].dy, 6);
+    }
   });
 });
 

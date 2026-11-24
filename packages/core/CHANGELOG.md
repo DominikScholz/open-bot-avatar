@@ -1,5 +1,17 @@
 # open-bot-avatar
 
+## 0.4.0
+
+### Minor Changes
+
+- ef1ecfc: `mountAvatar` takes a `material`: `"fluffy"` gives the body a coat of fur with the eyes set into it, and makes the thinking dots and the blocked exclamation mark fluffy too. `"flat"`, the default, is the solid fill. Fluffy draws with WebGL2 on the canvas renderer and falls back to flat without it.
+
+## 0.3.1
+
+### Patch Changes
+
+- 46b5c52: An avatar's first render is about four times faster. The one-time volume build behind it (cross-sections, part depths, eye placement) took 26 to 72 ms per avatar in Chrome and now takes 4 to 12 ms once the page has built a few; a page that shows many avatars at once is unblocked that much sooner. Stills, frames and scenes come out exactly as before.
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
-import { avatarExtent } from '../src/render.ts';
+import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
+import * as fluffy from '../src/dom/fluffy/renderer.ts';
+import { avatarExtent, liveFrame } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
 interface Recorder {
@@ -19,7 +21,7 @@ beforeAll(() => {
     const rec: Recorder = { calls: [] };
     recorders.set(this, rec);
     const ctx: Record<string, unknown> = { fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, lineCap: 'butt' };
-    for (const op of ['setTransform', 'clearRect', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath']) {
+    for (const op of ['setTransform', 'clearRect', 'drawImage', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath']) {
       ctx[op] = () => rec.calls.push({ op, fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
     }
     if (withRoundRect) ctx.roundRect = () => rec.calls.push({ op: 'roundRect', fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
@@ -95,6 +97,31 @@ describe('mountAvatar on a canvas', () => {
     expect(el.innerHTML).toBe('');
   });
 
+  it('paints a fluffy still once, and again when its color or material changes', async () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const el = host();
+    const avatar = mountAvatar(el, { definition: examples[0], material: 'fluffy', still: true, color: '#1f7cf2', eyeColor: '#151515' });
+    try {
+      await frame();
+      expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(1);
+      await frame();
+      expect(render).toHaveBeenCalledTimes(1);
+      avatar.update({ color: '#ec4899' });
+      await frame();
+      expect(render.mock.lastCall?.[2].color).toBe('#ec4899');
+      avatar.update({ material: 'flat' });
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      avatar.update({ material: 'fluffy' });
+      await frame();
+      expect(el.querySelector('canvas')).not.toBeNull();
+    } finally {
+      avatar.destroy();
+      render.mockRestore();
+    }
+  });
+
   it('takes any CSS color, like the scene', async () => {
     const el = host();
     const avatar = mountAvatar(el, { definition: examples[3], color: 'rgb(0 128 255)', eyeColor: 'red', reducedMotion: true });
@@ -104,6 +131,25 @@ describe('mountAvatar on a canvas', () => {
     expect(calls.find((c) => c.op === 'fill')?.fill).not.toBe('#ff6a1a');
     expect(calls.find((c) => c.op === 'roundRect')?.fill).toBe('red');
     avatar.destroy();
+  });
+
+  it('paints fluffy marks from one sprite through a hop, and fills them where fluffy is unavailable', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 0, cy: 0, radius: 24 });
+    try {
+      const def = examples[0], el = host();
+      const surface = mountCanvas(el, 'marks', def, 6);
+      const markFrame = (state: 'thinking' | 'blocked', time: number) => liveFrame(def, { state, time, size: 96 });
+      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'fluffy');
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(6);
+
+      render.mockReturnValue(null);
+      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'fluffy');
+      expect(painted(el).filter(call => call.op === 'fill')).toHaveLength(2);
+    } finally {
+      render.mockRestore();
+    }
   });
 
   it('draws pill eyes without roundRect', async () => {

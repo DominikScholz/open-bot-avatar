@@ -11,7 +11,7 @@ export interface BotAvatarProps extends AvatarOptions {
 /**
  * The site's React wrapper around mountAvatar: a live avatar (painted to a canvas; it idles, blinks,
  * changes state and mood smoothly and, with `followPointer`, looks toward the cursor), or with `still` a
- * single static SVG. The Docs page shows the same pattern for other apps to copy.
+ * single static image. The Docs page shows the same pattern for other apps to copy.
  */
 export function BotAvatar({ size, className, style, ...options }: BotAvatarProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -29,10 +29,10 @@ export function BotAvatar({ size, className, style, ...options }: BotAvatarProps
     };
   }, []);
 
-  const { definition, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label } = options;
+  const { definition, material, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label } = options;
   useEffect(() => {
     avatar.current?.update(latest.current);
-  }, [definition, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label]);
+  }, [definition, material, color, eyeColor, depth, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label]);
 
   return (
     <div

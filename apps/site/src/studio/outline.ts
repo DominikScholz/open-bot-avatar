@@ -11,6 +11,15 @@ const LINE = 2.2;
 export const THUMB_VIEW = { yaw: 0.5, pitch: 0.12 };
 export const THUMB_LOOK = { x: 0.7, y: -1 };
 
+/** Names a fluffy thumbnail in the baked atlas (see AvatarThumbnail): any change of geometry, color or pose is another key. */
+export function thumbnailKey(definition: AvatarDefinition, color: string): string {
+  const { x, y, spacing, scale } = definition.eyes;
+  const signature = JSON.stringify([definition.body.path, x, y, spacing, scale, color.toLowerCase(), THUMB_VIEW, THUMB_LOOK]);
+  let hash = 0;
+  for (let i = 0; i < signature.length; i++) hash = (Math.imul(31, hash) + signature.charCodeAt(i)) >>> 0;
+  return definition.id + "-" + hash.toString(36);
+}
+
 const cache = new Map<string, string>();
 
 /**

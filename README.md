@@ -1,4 +1,4 @@
-<p><img src="assets/banner.png" width="100%" alt="Open Bot Avatar: colorful object avatars with eyes, such as a ghost, a controller, a sprout, a cat and a mug"></p>
+<p><img src="assets/banner.png" width="100%" alt="Open Bot Avatar: colorful object avatars with eyes, a row of flat ones over two rows of fluffy ones, such as a ghost, a controller, a sprout, a cat and a mug"></p>
 
 A JSON spec and renderer for interactive agent avatars.
 
@@ -73,7 +73,8 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `still` | One static SVG, no animation. Default: `false`. |
+| `material` | `"flat"` (default) or `"fluffy"`, a coat of fur. |
+| `still` | One static image, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 
 ## SVG

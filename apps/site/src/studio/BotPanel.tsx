@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { AvatarDefinition } from "open-bot-avatar";
-import { BotAvatar } from "../BotAvatar";
+import { AvatarThumbnail } from "./AvatarThumbnail";
 import { PALETTE, colorOf, defaultColor, type LookState } from "./look";
-import { THUMB_LOOK, THUMB_VIEW, outlineSvg } from "./outline";
+import { outlineSvg } from "./outline";
 import { Icon } from "./ui";
 
 export interface LibraryEntry {
@@ -72,16 +72,7 @@ export function BotPanel({ entries, selected, look, color, onSelect, onColor, on
                   onPointerLeave={() => setHovered(null)}
                 >
                   <span className="bot-thumb">
-                    {/* Static stills, each in its own color: one SVG each, no animation loop. */}
-                    <BotAvatar
-                      className="avatar-view"
-                      definition={entry.definition}
-                      color={colorOf(look, entry.key, entry.definition.id)}
-                      still
-                      view={THUMB_VIEW}
-                      lookAt={THUMB_LOOK}
-                      label=""
-                    />
+                    <AvatarThumbnail definition={entry.definition} color={colorOf(look, entry.key, entry.definition.id)} material={look.material} />
                     {ring ? <span className="bot-ring" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ring }} /> : null}
                   </span>
                 </button>
