@@ -244,8 +244,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     lastStill = '';
   };
 
-  /** Whether the avatar is painted in fluffy: on a canvas, live or still. */
-  const fluffy = () => opts.material === 'fluffy' && opts.renderer !== 'scene' && canvasSupported();
+  /** Whether the avatar is painted with a WebGL2 material (fluffy or glass): on a canvas, live or still. */
+  const fluffy = () => (opts.material === 'fluffy' || opts.material === 'glass') && opts.renderer !== 'scene' && canvasSupported();
 
   const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();

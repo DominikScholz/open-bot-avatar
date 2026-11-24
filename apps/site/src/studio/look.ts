@@ -71,7 +71,7 @@ export function withColor(look: LookState, key: string, id: string, color: strin
 
 /** A material by name, from a stored look or a link. */
 export function readMaterial(value: unknown): AvatarMaterial | undefined {
-  return value === "flat" || value === "fluffy" ? value : undefined;
+  return value === "flat" || value === "fluffy" || value === "glass" ? value : undefined;
 }
 
 /** Revive a stored look; anything missing or invalid falls back to the default. */

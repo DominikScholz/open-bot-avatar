@@ -144,6 +144,13 @@ export function Stage({ definition, color, material, state, mood, followCursor, 
         reducedMotion={reducedMotion}
         label=""
       />
+      {material === "glass" && state !== "thinking" && state !== "blocked" ? (
+        <div
+          className="stage-glass-caustic"
+          aria-hidden="true"
+          style={{ "--glass-tint": color } as Record<string, string>}
+        />
+      ) : null}
       {/* Over the preview: keep its drag, double-click reset and arrow-key turning out of these. */}
       <div className="stage-bar" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <FaceToggle mood={mood} onMood={onMood} />

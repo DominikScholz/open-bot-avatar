@@ -22,6 +22,8 @@ import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
 import { paintFluffyMark } from './fluffy/marks.ts';
 import { renderFluffy } from './fluffy/renderer.ts';
+import { paintGlassMark } from './glass/marks.ts';
+import { renderGlass } from './glass/renderer.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -171,9 +173,10 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
-  const volume = material === 'fluffy' ? surface.volume : null;
-  const fluffy = volume !== null;
-  if (fluffy) {
+  const volume = material === 'fluffy' || material === 'glass' ? surface.volume : null;
+  const fluffy = material === 'fluffy' && volume !== null;
+  const glass = material === 'glass' && volume !== null;
+  if (fluffy || glass) {
     bounds.x0 -= PILE_MARGIN;
     bounds.y0 -= PILE_MARGIN;
     bounds.x1 += PILE_MARGIN;
@@ -198,7 +201,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
 
   // The whole body and its eyes as one image, unless it has shrunk away into a mark.
   const { view, scale: bodyScale, eyes } = frame.surface;
-  const coat = volume && bodyScale > 0.001 ? renderFluffy(volume(), view, { color: fill, ink, eyes }, scale) : null;
+  const coat = volume && bodyScale > 0.001
+    ? (glass ? renderGlass(volume(), view, { color: fill, ink, eyes }, scale) : renderFluffy(volume(), view, { color: fill, ink, eyes }, scale))
+    : null;
   let coatPainted = false;
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
@@ -210,7 +215,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
-        if (!fluffy || !paintFluffyMark(ctx, section.box, scale, fill)) ctx.fill(section.path, section.rule);
+        const painted = fluffy ? paintFluffyMark(ctx, section.box, scale, fill) : glass ? paintGlassMark(ctx, section.box, scale, fill) : false;
+        if (!painted) ctx.fill(section.path, section.rule);
       } else if (!coat) {
         ctx.fill(section.path, section.rule);
       } else if (!coatPainted) {

@@ -124,6 +124,7 @@ export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: 
 const MATERIALS: Choice<AvatarMaterial>[] = [
   { value: "flat", label: "Flat", hint: "Solid color" },
   { value: "fluffy", label: "Fluffy", hint: "Brushed fur" },
+  { value: "glass", label: "Glass", hint: "Glossy glass" },
 ];
 
 const SMOOTH_FACE = "M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0ZM8.9 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0ZM13.1 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0Z";
@@ -134,6 +135,16 @@ const FUR =
   "M17.8 11.6 21.2 11M17.7 13.3 20.8 14.1M17.1 14.8 19.7 16.8M16.1 16.1 18.1 18.5M14.7 17.1 16 19.3M13.3 17.6 14.9 20.4M11.9 17.8 11.1 20.5M10.3 17.5 9.6 19.8M8.8 16.9 6.9 19.3M7.9 16.1 4.9 17.8M7 15 4.5 15.9M6.4 13.6 4.2 14.6M6.2 12.1 3.7 11.4M6.4 10.5 3.6 8.9M6.8 9.4 4.6 8.2M7.9 7.9 5.6 6.3M9.4 6.8 8.2 4.9M10.4 6.4 10.3 3.3M12 6.2 11.9 3.8M13.3 6.4 13.8 3.7M14.8 6.9 16.4 4.4M16 7.8 18.3 5.2M17.2 9.3 20 8.2M17.6 10.5 20.5 10.1";
 
 function Face({ material }: { material: AvatarMaterial }) {
+  if (material === "glass") {
+    return (
+      <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M8.1 8.3a5.4 5.4 0 0 1 4.6-1.7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <rect x="9" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
+        <rect x="13.1" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
+      </svg>
+    );
+  }
   return (
     <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d={material === "fluffy" ? FURRY_FACE : SMOOTH_FACE} fill="currentColor" fillRule="evenodd" />
