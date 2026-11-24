@@ -73,7 +73,7 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `material` | `"flat"` (default) or `"fluffy"`, a coat of fur. |
+| `material` | `"flat"` (default), `"fluffy"` (a coat of fur), or `"soft"` (the soft-shape subsurface material, [docs](docs/material.md)). |
 | `still` | One static image, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 
