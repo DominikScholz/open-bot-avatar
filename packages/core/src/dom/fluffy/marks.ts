@@ -5,8 +5,9 @@
  * once per shape, color and size and kept as a sprite, since a mark only ever moves, squashes
  * and fades.
  */
-import { flattenPath, parsePath, serializePath, type Segment } from '../../path.ts';
+import { filledArea, flattenPath, parsePath, serializePath, type Segment } from '../../path.ts';
 import { viewBasis, type FramePath } from '../../render.ts';
+import { analyzeBody } from '../../validate.ts';
 import { buildVolume, type Volume } from '../../volume.ts';
 import type { Capsule } from './mesh.ts';
 import { renderFluffy } from './renderer.ts';
@@ -81,7 +82,8 @@ const MAX_OUTLINES = 64;
 /**
  * The model of an outline, or null for one no volume can be built from. Its stroke is made as
  * wide as a capsule's model (twice RADIUS), so the pile reads on it as it does on the built-in
- * marks: the width of the stroke is taken as twice the outline's area over its length round.
+ * marks: the width of the stroke is taken as twice the outline's filled area over the length of
+ * its contours.
  */
 export function outlineModel(d: string, box: FramePath['box']): OutlineModel | null {
   const known = outlines.get(d);
@@ -89,32 +91,33 @@ export function outlineModel(d: string, box: FramePath['box']): OutlineModel | n
   let model: OutlineModel | null = null;
   try {
     const segs = parsePath(d, false);
-    let area = 0, round = 0;
-    for (const poly of flattenPath(segs)) {
-      let twice = 0;
-      poly.forEach(([x, y], i) => {
-        const [nx, ny] = poly[(i + 1) % poly.length];
-        twice += x * ny - nx * y;
-        round += Math.hypot(nx - x, ny - y);
-      });
-      area += twice / 2;
-    }
-    const stroke = (2 * Math.abs(area)) / round;
-    const scale = Math.min((2 * RADIUS) / stroke, FIT / Math.max(box.w, box.h));
-    if (stroke > 0 && Number.isFinite(scale)) {
-      const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    const moved = (scale: number) => {
       const X = (x: number) => CENTRE + (x - cx) * scale, Y = (y: number) => CENTRE + (y - cy) * scale;
-      const key = serializePath(segs.map((s): Segment => {
+      return segs.map((s): Segment => {
         if (s.c === 'Z') return s;
         if (s.c === 'A') return { ...s, rx: s.rx * scale, ry: s.ry * scale, x: X(s.x), y: Y(s.y) };
         if (s.c === 'C') return { ...s, x1: X(s.x1), y1: Y(s.y1), x2: X(s.x2), y2: Y(s.y2), x: X(s.x), y: Y(s.y) };
         if (s.c === 'Q') return { ...s, x1: X(s.x1), y1: Y(s.y1), x: X(s.x), y: Y(s.y) };
         return { ...s, x: X(s.x), y: Y(s.y) };
-      }));
+      });
+    };
+    // Measured at the largest the model may be, whatever size the outline is drawn at: the area
+    // that is filled (contours wound opposite ways both count) and the length of its contours.
+    const fit = FIT / Math.max(box.w, box.h);
+    const polys = flattenPath(moved(fit));
+    let round = 0;
+    for (const poly of polys) poly.forEach(([x, y], i) => (round += Math.hypot(poly[(i + 1) % poly.length][0] - x, poly[(i + 1) % poly.length][1] - y)));
+    const stroke = (2 * filledArea(polys)) / round;
+    const scale = fit * Math.min(1, (2 * RADIUS) / stroke);
+    if (stroke > 0 && Number.isFinite(scale)) {
+      const key = serializePath(moved(scale));
       let volume = volumes.get(key);
       if (!volume) {
         // A mark has no eyes: the volume only needs somewhere to put them.
-        volume = buildVolume({ version: 1, id: 'mark', name: 'mark', body: { path: key }, eyes: { x: CENTRE, y: CENTRE, spacing: 10, scale: 1 } });
+        // The outline fits the box; a curve's control points may lie well outside it, as a body's may not.
+        const def = { version: 1 as const, id: 'mark', name: 'mark', body: { path: key }, eyes: { x: CENTRE, y: CENTRE, spacing: 10, scale: 1 } };
+        volume = buildVolume(def, 1, analyzeBody(key, false));
         if (volumes.size >= MAX_OUTLINES) volumes.delete(volumes.keys().next().value!);
         volumes.set(key, volume);
       }

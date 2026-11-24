@@ -373,6 +373,10 @@ export function ribbonPieces(
 // ---------------------------------------------------------------------------
 // Marks
 
+/** A mark starts to grow at this weight, just before the body is gone, so something is always on screen. */
+const MARK_FROM = 0.45;
+const grown = (weight: number) => smooth((clamp(weight, 0, 1) - MARK_FROM) / (1 - MARK_FROM));
+
 /** The unit every mark is sized in: a share of the body's smaller side, within limits that read at any size. */
 function markUnit(b: Bounds): number {
   return clamp(Math.min(b.maxX - b.minX, b.maxY - b.minY), 34, 78);
@@ -386,8 +390,6 @@ function markUnit(b: Bounds): number {
 export function markParts(b: Bounds, marks: readonly PoseMark[], seed: number, time: number, still: boolean): MarkPart[] {
   const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   const ctx = { unit: markUnit(b), time: still ? 0 : time + noise(seed, 9) * 10, still };
-  // A mark starts to grow just before the body is gone, so something is always on screen.
-  const grown = (weight: number) => smooth((clamp(weight, 0, 1) - 0.45) / 0.55);
   return marks.flatMap(({ mark, weight }) => {
     const g = grown(weight);
     if (!(g > 0)) return [];
@@ -395,7 +397,14 @@ export function markParts(b: Bounds, marks: readonly PoseMark[], seed: number, t
   });
 }
 
-/** How much of its size the body keeps while it gives way to its marks: gone a little past half way. */
+/**
+ * How much of its size the body keeps while it gives way to its marks: gone a little past half
+ * way. Several marks that each weigh too little to show (three at a third each, when a change
+ * between two is interrupted by a third) would leave nothing on screen: until one of them shows,
+ * the body stays as small as it is when a mark first does.
+ */
 export function bodyScale(marks: readonly PoseMark[]): number {
-  return 1 - smooth(clamp(marks.reduce((sum, m) => sum + m.weight, 0), 0, 1) / 0.55);
+  const left = (weight: number) => 1 - smooth(clamp(weight, 0, 1) / 0.55);
+  const scale = left(marks.reduce((sum, m) => sum + m.weight, 0));
+  return marks.some((m) => grown(m.weight) > 0) ? scale : Math.max(scale, left(MARK_FROM));
 }

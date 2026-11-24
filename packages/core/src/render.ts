@@ -581,6 +581,16 @@ interface Effects {
   marks: { id: string; d: string; box: Box; matrix: M; round: boolean }[];
 }
 
+/**
+ * A mark's part in a path id, after the avatar's own prefix. A body's slices are numbered, so a
+ * part's name must not be a number, and it goes into markup, so it must be plain: a name of
+ * letters and digits that starts with a letter is kept (the built-in parts' are), and any other
+ * is replaced by a hash of it, set apart by a hyphen no kept name has.
+ */
+function markId(shape: string): string {
+  return /^[A-Za-z][A-Za-z0-9]*$/.test(shape) ? shape : `m-${hashString(String(shape)).toString(36)}`;
+}
+
 function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   const b = p.vol.bounds;
   const time = Number.isFinite(options.time) ? (options.time as number) : 0;
@@ -604,7 +614,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
     marks: markParts(b, pose.marks, p.seed, time, still).map((part) => {
       const turn: M = [Math.cos(part.turn), Math.sin(part.turn), -Math.sin(part.turn), Math.cos(part.turn), 0, 0];
       return {
-        id: `${p.id}-${part.shape}`,
+        id: `${p.id}-${markId(part.shape)}`,
         d: part.d,
         box: part.box,
         round: part.round === true,
@@ -710,7 +720,8 @@ function ribbonSvg(d: string, g: RibbonGradient): string {
 /** Render a definition to a standalone SVG string. Throws if the definition is invalid. */
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
   const frame = avatarFrame(definition, options);
-  const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
+  // A mark's outline is the host's own text: it is escaped. Every other path is serialized from numbers.
+  const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${esc(d.d)}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) =>
       s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
@@ -868,7 +879,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
     view: (fx.body < 1 ? `scale(${r4(fx.body)}) ` : '') + `rotateX(${r4(pose.pitch)}rad) rotateY(${r4(pose.yaw)}rad)`,
     body: fx.body,
     back: piece(false),
-    front: piece(true) + fx.marks.map((mark) => `<path d="${mark.d}" transform="${mat(mark.matrix)}"/>`).join(''),
+    front: piece(true) + fx.marks.map((mark) => `<path d="${esc(mark.d)}" transform="${mat(mark.matrix)}"/>`).join(''),
     stack,
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
     eyes: states.map((e, i) => ({

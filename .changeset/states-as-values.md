@@ -8,4 +8,4 @@ A definition is an `id` and a `pose` function that returns what differs from the
 
 In the fluffy material a mark of your own is furry too: each part gets a coat in the shape of its outline. A part can set `round` to say it is a circle or an upright capsule, which fluffy draws from a ready ball of fur as it does the built-in marks. A frame's `paths` carry the flag for the parts of marks.
 
-The six names draw exactly as before. `isState` and `resolveLook` still read names only.
+The six names draw exactly as before, with one fix: when a change from one mark to another is interrupted (blocked on its way from thinking, then left), the marks could each weigh too little to show while the body had already gone. The body now stays, small, until a mark shows. `isState` and `resolveLook` still read names only.

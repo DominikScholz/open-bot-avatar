@@ -56,6 +56,8 @@ export function createAnimator(): Animator {
       // A new state or mood eases in from the pose on screen (a change under way included); reduced motion switches at once.
       const { state, mood } = lookOf(given);
       const same = shown !== null && stateId(state) === stateId(shown.state);
+      // The same state given again may be a newer definition of it: that one is on screen from now on.
+      if (shown && same) shown.state = state;
       if (shown && (!same || mood !== shown.mood)) {
         const before: MoodState = {
           state: shown.state,

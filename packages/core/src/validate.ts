@@ -156,8 +156,8 @@ export function gazeRange(polys: Point[][], eyes: AvatarEyes): GazeRange {
   return { left: reach(-1, 0), right: reach(1, 0), up: reach(0, -1), down: reach(0, 1) };
 }
 
-export function analyzeBody(path: string): BodyAnalysis {
-  const segs = parsePath(path);
+export function analyzeBody(path: string, bounded = true): BodyAnalysis {
+  const segs = parsePath(path, bounded);
   const polys = flattenPath(segs);
   const b = bounds(polys);
   const whole = edgeBands(polys);
