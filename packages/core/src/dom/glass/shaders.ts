@@ -1,16 +1,10 @@
 /**
- * Physical Multi-Bounce Dielectric Glass Shader over Exact 3D Volume SDF (`sampler3D`).
- *
- * Preserves EVERY avatar's exact 3D shape (identical to `fluffy`: turned pots/mugs/barbells,
- * hollow handles, crisp books/cameras, sculpted ghosts/bunnies/cats/stars) while delivering
- * optical-grade smooth glass optics from every rotation angle:
- * - Hardware-trilinear R16F 3D SDF (mirror-symmetric across z = 0)
- * - Exact 3-bounce dielectric raytracing (IOR = 1.50) with 5-step bisection at every crossing
- * - Exact Maxwell/Schlick Fresnel for glass->air using transmitted cosine (zero TIR cliff)
- * - Smooth optical thickness compression + color-accurate Beer-Lambert absorption
- * - Dual-roughness studio environment + transparent interior & curved edges + 2x2 RGSS AA
+ * Ray-marched glass over a sampled 3D distance field. Refraction uses IOR 1.50;
+ * reflections use Schlick Fresnel and procedural studio lighting, with adjusted
+ * Beer-Lambert absorption, alpha compositing and extra edge samples for the final look.
+ * The environment is synthetic: this does not sample or refract the DOM behind the canvas.
  */
-import { SOCKET_PAD } from '../fluffy/socket.ts';
+import { SOCKET_PAD } from '../materials/socket.ts';
 
 const float = (n: number) => (Number.isInteger(n) ? `${n}.` : `${n}`);
 

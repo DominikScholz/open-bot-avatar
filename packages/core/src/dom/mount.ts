@@ -30,8 +30,9 @@ export interface AvatarOptions {
   /** Eye color: #rgb or #rrggbb, or any CSS color. Defaults to a near-black ink. */
   eyeColor?: string;
   /**
-   * The body's finish: 'flat' (default), or 'fluffy' for a coat of fur with the eyes set into it.
-   * Fluffy needs the canvas renderer and WebGL2; without them the avatar draws flat.
+   * The body's finish: 'flat' (default), or an imported material object.
+   * Materials need canvas; the built-in fluffy and glass finishes also need WebGL2.
+   * Import from open-bot-avatar/materials/fluffy or open-bot-avatar/materials/glass.
    */
   material?: AvatarMaterial;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
@@ -53,7 +54,7 @@ export interface AvatarOptions {
   view?: { yaw: number; pitch: number };
   /** true or false to force; 'system' (default) follows prefers-reduced-motion. */
   reducedMotion?: boolean | 'system';
-  /** Render one fixed pose and never animate (thumbnails, lists): a static SVG, or for fluffy one painted canvas. */
+  /** Render one fixed pose and never animate (thumbnails, lists): a static SVG, or for a material one painted canvas. */
   still?: boolean;
   /**
    * How a live avatar draws. 'canvas' (default) paints each frame to one canvas: one compositor layer
@@ -172,10 +173,10 @@ const VIEW_MARGIN = 100;
 const FRAME_SLACK = 0.004;
 
 /**
- * The frame that last painted a fluffy still. They take turns, one a frame: the first paint of a
- * shape builds its mesh, and a gallery that changes finish asks for all of its stills at once.
+ * The frame that last painted a material still. They take turns, one a frame: the first paint of a
+ * shape prepares its geometry, and a gallery that changes finish asks for all of its stills at once.
  */
-let fluffyStillAt = -1;
+let materialStillAt = -1;
 
 export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedAvatar {
   let opts: AvatarOptions = { ...initial };
@@ -244,8 +245,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     lastStill = '';
   };
 
-  /** Whether the avatar is painted with a WebGL2 material (fluffy or glass): on a canvas, live or still. */
-  const fluffy = () => (opts.material === 'fluffy' || opts.material === 'glass') && opts.renderer !== 'scene' && canvasSupported();
+  /** Imported materials use a painted canvas even for stills. */
+  const canvasMaterial = () => typeof opts.material === 'object' && opts.material !== null && opts.renderer !== 'scene' && canvasSupported();
 
   const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();
@@ -278,7 +279,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           gaze: p.lookAt ?? undefined,
           reducedMotion: true,
         };
-        if (fluffy()) {
+        if (canvasMaterial()) {
           // Nothing to paint until the host has a size; the resize that gives it one redraws.
           if (size > 0) paint(p, { ...options, size });
           failed = false;
@@ -346,9 +347,9 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
       // frame they ask for. A change still draws offscreen, so the content is current when printed.
       if ((opts.still || !visible) && !dirty) return false;
-      if (opts.still && size > 0 && fluffy()) {
-        if (fluffyStillAt === time) return true;
-        fluffyStillAt = time;
+      if (opts.still && size > 0 && canvasMaterial()) {
+        if (materialStillAt === time) return true;
+        materialStillAt = time;
       }
       dirty = false;
       const more = draw(time, pointer);

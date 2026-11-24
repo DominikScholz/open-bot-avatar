@@ -1,5 +1,6 @@
+import type { MaterialName } from "./look";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState } from "open-bot-avatar";
+import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
 import { FaceToggle, MaterialToggle, MOODS, STATES, StatePills } from "./pickers";
@@ -9,7 +10,7 @@ export type ViewAngle = { yaw: number; pitch: number };
 interface StageProps {
   definition: AvatarDefinition;
   color: string;
-  material: AvatarMaterial;
+  material: MaterialName;
   state: AvatarState;
   mood: AvatarMood;
   followCursor: boolean;
@@ -21,7 +22,7 @@ interface StageProps {
   onView: (view: ViewAngle) => void;
   onState: (state: AvatarState) => void;
   onMood: (mood: AvatarMood) => void;
-  onMaterial: (material: AvatarMaterial) => void;
+  onMaterial: (material: MaterialName) => void;
   /** Shown under the state and mood (the avatar's actions). */
   children?: ReactNode;
 }

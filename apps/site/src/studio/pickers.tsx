@@ -1,10 +1,11 @@
+import type { MaterialName } from "./look";
 /*
  * How the editor picks the avatar's state, mood and material: the state as a row of pills under
  * the preview, the mood as a toggle of eyes in one corner of the preview, the material as a
  * toggle of faces in the other.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { AvatarMaterial, AvatarMood, AvatarState } from "open-bot-avatar";
+import type { AvatarMood, AvatarState } from "open-bot-avatar";
 import type { Choice } from "./ui";
 
 export const STATES: Choice<AvatarState>[] = [
@@ -121,7 +122,7 @@ export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: 
 
 /* The material as a toggle of two faces: one smooth, one with fur standing off its edge. */
 
-const MATERIALS: Choice<AvatarMaterial>[] = [
+const MATERIALS: Choice<MaterialName>[] = [
   { value: "flat", label: "Flat", hint: "Solid color" },
   { value: "fluffy", label: "Fluffy", hint: "Brushed fur" },
   { value: "glass", label: "Glass", hint: "Glossy glass" },
@@ -134,7 +135,7 @@ const FURRY_FACE = "M5.7 12a6.3 6.3 0 1 0 12.6 0a6.3 6.3 0 1 0-12.6 0ZM9.1 10.3a
 const FUR =
   "M17.8 11.6 21.2 11M17.7 13.3 20.8 14.1M17.1 14.8 19.7 16.8M16.1 16.1 18.1 18.5M14.7 17.1 16 19.3M13.3 17.6 14.9 20.4M11.9 17.8 11.1 20.5M10.3 17.5 9.6 19.8M8.8 16.9 6.9 19.3M7.9 16.1 4.9 17.8M7 15 4.5 15.9M6.4 13.6 4.2 14.6M6.2 12.1 3.7 11.4M6.4 10.5 3.6 8.9M6.8 9.4 4.6 8.2M7.9 7.9 5.6 6.3M9.4 6.8 8.2 4.9M10.4 6.4 10.3 3.3M12 6.2 11.9 3.8M13.3 6.4 13.8 3.7M14.8 6.9 16.4 4.4M16 7.8 18.3 5.2M17.2 9.3 20 8.2M17.6 10.5 20.5 10.1";
 
-function Face({ material }: { material: AvatarMaterial }) {
+function Face({ material }: { material: MaterialName }) {
   if (material === "glass") {
     return (
       <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -153,6 +154,6 @@ function Face({ material }: { material: AvatarMaterial }) {
   );
 }
 
-export function MaterialToggle({ material, onMaterial }: { material: AvatarMaterial; onMaterial: (material: AvatarMaterial) => void }) {
+export function MaterialToggle({ material, onMaterial }: { material: MaterialName; onMaterial: (material: MaterialName) => void }) {
   return <RadioGroup label="Material" value={material} options={MATERIALS} onChange={onMaterial} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Face material={o.value} />} />;
 }

@@ -1,8 +1,9 @@
+import type { MaterialName } from "./studio/look";
 import { parse, render } from "sugar-high/core";
 import * as typescript from "sugar-high/lang/typescript";
 import * as shell from "sugar-high/lang/shell";
 import * as json from "sugar-high/lang/json";
-import { examples, type AvatarMaterial } from "open-bot-avatar";
+import { examples } from "open-bot-avatar";
 import { GALLERY } from "./gallery";
 import { defaultColor } from "./studio/look";
 import { BotAvatar } from "./BotAvatar";
@@ -12,11 +13,13 @@ const INSTALL = `pnpm add open-bot-avatar`;
 
 const USAGE = `import { getExample } from "open-bot-avatar";
 import { mountAvatar } from "open-bot-avatar/dom";
+import { glass } from "open-bot-avatar/materials/glass";
 
 const avatar = mountAvatar(document.querySelector("#bot")!, {
   definition: getExample("mug")!,
   color: "#ff6a1a",
   followPointer: true,
+  material: glass, // Omit for flat; import fluffy from its own entry for fur.
 });
 
 avatar.update({ state: "working", mood: "happy" });
@@ -81,8 +84,8 @@ const PROPS: [string, string][] = [
   ["view", "Extra rotation, { yaw, pitch } in radians."],
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
   ["reducedMotion", 'true, false or "system" (default).'],
-  ["material", '"flat" (default) or "fluffy", a coat of fur. Fluffy needs the canvas renderer and WebGL2.'],
-  ["still", "One fixed pose, no animation: an SVG, or one painted canvas for fluffy. Default: false."],
+  ["material", '"flat" (default), or an imported fluffy / glass object. Materials need canvas and WebGL2; unavailable materials fall back to flat. Replace the old "fluffy" string with an explicit import.'],
+  ["still", "One fixed pose, no animation: an SVG, or one painted canvas for an imported material. Default: false."],
   ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],
   ["label", 'Accessible name. Default: the definition\'s name; "" for decorative.'],
 ];
@@ -91,7 +94,7 @@ const PROPS: [string, string][] = [
 const ALL = [...examples, ...GALLERY];
 const PICK = ALL[Math.floor(Math.random() * ALL.length)];
 
-export function Docs({ material }: { material: AvatarMaterial }) {
+export function Docs({ material }: { material: MaterialName }) {
   return (
     <main className="page docs">
       <section className="page-head">

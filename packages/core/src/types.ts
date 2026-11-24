@@ -64,8 +64,8 @@ export interface AvatarMotionBlend {
   t: number;
 }
 
-/** A body's finish: a flat fill, a coat of fluffy fur, or sculpted glossy glass (live avatars on a canvas, see AvatarOptions). */
-export type AvatarMaterial = 'flat' | 'fluffy' | 'glass';
+/** A flat fill (default), or an explicitly imported canvas material (see AvatarOptions). */
+export type AvatarMaterial = 'flat' | import('./dom/materials/material.ts').CanvasMaterial;
 
 export interface RenderOptions {
   /** Body color as #rgb or #rrggbb. Invalid values fall back to the default. */

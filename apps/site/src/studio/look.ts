@@ -1,13 +1,15 @@
-import { resolveLook, type AvatarMaterial, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import { resolveLook, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
+
+export type MaterialName = 'flat' | 'fluffy' | 'glass';
 
 export interface LookState {
   /** Colors picked for avatars, by library key; an avatar not in here shows its default color. */
   colors: Record<string, string>;
   /** The finish of every avatar on the site. */
-  material: AvatarMaterial;
+  material: MaterialName;
   /** What the bot is doing, and how it feels. */
   state: AvatarState;
   mood: AvatarMood;
@@ -70,7 +72,7 @@ export function withColor(look: LookState, key: string, id: string, color: strin
 }
 
 /** A material by name, from a stored look or a link. */
-export function readMaterial(value: unknown): AvatarMaterial | undefined {
+export function readMaterial(value: unknown): MaterialName | undefined {
   return value === "flat" || value === "fluffy" || value === "glass" ? value : undefined;
 }
 

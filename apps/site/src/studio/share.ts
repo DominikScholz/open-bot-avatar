@@ -1,4 +1,5 @@
-import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMaterial, type AvatarMood, type AvatarState } from "open-bot-avatar";
+import type { MaterialName } from "./look";
+import { isMood, isState, resolveLook, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from "open-bot-avatar";
 import { DEFAULT_LOOK, PALETTE, defaultColor, readMaterial, type LookState } from "./look";
 
 /**
@@ -9,7 +10,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, readMaterial, type LookState } fro
  *   &state=working           idle, thinking, working, waiting, blocked or done
  *   &mood=happy              neutral or happy; an older link's mood=thinking
  *                            still opens the thinking state
- *   &material=flat           flat or fluffy
+ *   &material=flat           flat, fluffy or glass
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */
@@ -17,7 +18,7 @@ export interface SharedLook {
   avatar?: string;
   definition?: AvatarDefinition;
   color?: string;
-  material?: AvatarMaterial;
+  material?: MaterialName;
   state?: AvatarState;
   mood?: AvatarMood;
   /** Why `def` was left out, if it didn't decode or validate. */
@@ -93,7 +94,7 @@ export function readShare(search: string): SharedLook {
 export function shareLink(
   base: string,
   entry: { source: "starter" | "gallery" | "yours"; definition: AvatarDefinition },
-  look: { color: string; material?: AvatarMaterial; state: LookState["state"]; mood: LookState["mood"] },
+  look: { color: string; material?: MaterialName; state: LookState["state"]; mood: LookState["mood"] },
 ): string {
   const params = new URLSearchParams();
   if (entry.source !== "yours") params.set("avatar", entry.definition.id);

@@ -1,22 +1,17 @@
 /**
- * The glossy glass renderer: builds the EXACT same 3D volume as `fluffy` (respecting every part's
- * `inflate`, `revolve-y`, and `revolve-x` shape, depth, fillet radii, and holes) into a mirror-
- * symmetric 3D R16F signed-distance texture (`sampler3D`), then renders it with real 3-bounce
- * physical dielectric glass raytracing (see shaders.ts).
- *
- * Every avatar (Ghost, Bunny, Mug, Book, Plant, Barbell, Camera, Star, ...) keeps its exact
- * iconic 3D shape — never bloated into a generic balloon — while maintaining optical-grade
- * smooth normals and crystal transparency from every angle.
+ * Glass rendering over a sampled 3D distance field built from the existing Volume parts.
+ * Inflate parts receive a smoothed interior bevel; revolved parts retain their axes and depth.
+ * The field is stored as a mirror-symmetric R16F texture and shaded by ray marching.
  */
 import { EdgeIndex } from '../../distance.ts';
 import { edgeBands } from '../../path.ts';
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import type { Volume, VolumePart } from '../../volume.ts';
-import { halfDepth, type Capsule, type FluffyShape } from '../fluffy/mesh.ts';
-import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../fluffy/socket.ts';
+import { halfDepth, type Capsule, type MaterialShape } from '../materials/shape.ts';
+import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 import { fragmentShader, vertexShader } from './shaders.ts';
 
-export type GlassShape = FluffyShape;
+export type GlassShape = MaterialShape;
 
 export interface GlassLook {
   color: string;
@@ -213,7 +208,7 @@ function addGlassPart(
     }
   }
 
-  // 16 Gauss-Seidel SOR passes (diagonally dominant; converges tightly in <0.25ms)
+  // Smooth the interior bevel with 16 Gauss-Seidel SOR passes.
   const omega = 1.25;
   for (let iter = 0; iter < 16; iter++) {
     for (let j = jMin; j <= jMax; j++) {

@@ -21,7 +21,17 @@
       "types": "./dist/dom/index.d.ts",
       "default": "./dist/dom/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./materials/fluffy": {
+      "open-bot-avatar/source": "./src/dom/materials/fluffy.ts",
+      "types": "./dist/dom/materials/fluffy.d.ts",
+      "default": "./dist/dom/materials/fluffy.js"
+    },
+    "./materials/glass": {
+      "open-bot-avatar/source": "./src/dom/materials/glass.ts",
+      "types": "./dist/dom/materials/glass.d.ts",
+      "default": "./dist/dom/materials/glass.js"
+    }
   },
   "files": ["dist", "src"],
   "scripts": {

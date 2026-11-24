@@ -3,7 +3,7 @@
  * rendered once per shape, color and size and kept as a sprite.
  */
 import { viewBasis, type FramePath } from '../../render.ts';
-import type { Capsule } from '../fluffy/mesh.ts';
+import type { Capsule } from '../materials/shape.ts';
 import { renderGlass } from './renderer.ts';
 
 const RADIUS = 12;
