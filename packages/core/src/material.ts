@@ -26,6 +26,8 @@ export interface SoftMaterial {
   ambient?: number;
   /** Optical travel across the full depth. Higher = stronger falloff. Default 2.4. */
   spread?: number;
+  /** Key-light cone width in degrees (source shader u_softness). Default 14. */
+  softness?: number;
   /** Night-floor lift 0..1: screen a floor colour over the result so dark bodies read. Default 0. */
   lift?: number;
   /** Floor colour for `lift`, #rgb or #rrggbb. Default #5B698D (a night-sky stop). */

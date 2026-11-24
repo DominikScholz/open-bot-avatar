@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { luminance, parseHex, toOklch } from '../src/color.ts';
 import type { Rgb } from '../src/color.ts';
 import { DEFAULT_SOFT, rampAt, rampHexAt, sliceTone, softRamp } from '../src/material.ts';
+import { softSprite } from '../src/softsprite.ts';
 import { HARK, HARK_ROSTER, HARK_SKY, harkBot, harkSky } from '../src/presets/hark.ts';
 import { avatarFrame, renderAvatarScene, renderAvatarSvg, sceneFrame } from '../src/render.ts';
 import { getExample } from '../src/examples.ts';
@@ -66,6 +67,35 @@ describe('sliceTone', () => {
   });
 });
 
+describe('softSprite (per-pixel soft-shape port)', () => {
+  const ghost = HARK_ROSTER[0];
+
+  it('is transparent outside the silhouette and opaque inside', () => {
+    const s = softSprite(ghost.definition.body.path, parseHex(ghost.color) as Rgb, ghost.soft, 100);
+    const at = (x: number, y: number) => s.data[(y * s.size + x) * 4 + 3];
+    expect(at(1, 1)).toBe(0);
+    expect(at(50, 45)).toBeGreaterThan(200);
+  });
+
+  it('lights the edge facing the key and sinks the far side', () => {
+    const s = softSprite(ghost.definition.body.path, parseHex(ghost.color) as Rgb, ghost.soft, 100);
+    const lum = (x: number, y: number) => {
+      const o = (y * s.size + x) * 4;
+      return 0.2126 * s.data[o] + 0.7152 * s.data[o + 1] + 0.0722 * s.data[o + 2];
+    };
+    expect(lum(50, 20)).toBeGreaterThan(lum(50, 75));
+  });
+
+  it('caches per outline + colour + material and stays deterministic', () => {
+    const a = softSprite(ghost.definition.body.path, parseHex(ghost.color) as Rgb, ghost.soft, 100);
+    const b = softSprite(ghost.definition.body.path, parseHex(ghost.color) as Rgb, ghost.soft, 100);
+    expect(a).toBe(b);
+    const c = softSprite(ghost.definition.body.path, parseHex('#FF4D00') as Rgb, ghost.soft, 100);
+    expect(c).not.toBe(a);
+    expect(c.data[50 * 100 * 4 + 50 * 4]).not.toBe(a.data[50 * 100 * 4 + 50 * 4]);
+  });
+});
+
 describe('soft material in the renderers', () => {
   const ghost = getExample('ghost') ?? HARK_ROSTER[0].definition;
 
@@ -73,6 +103,15 @@ describe('soft material in the renderers', () => {
     expect(avatarFrame(ghost).ramp).toBeUndefined();
     expect(avatarFrame(ghost, { material: 'soft', color: 'var(--brand)' }).ramp).toBeUndefined();
     expect(avatarFrame(ghost, { material: 'soft', color: '#65A3DD' }).ramp?.length).toBeGreaterThan(1);
+  });
+
+  it('carries a front-facing soft body for the canvas renderer', () => {
+    const opts = { material: 'soft' as const, color: '#65A3DD' };
+    const frame = avatarFrame(ghost, opts);
+    expect(frame.softBody?.d).toBe(ghost.body.path);
+    const turned = avatarFrame(ghost, { ...opts, view: { yaw: 1.2, pitch: 0.5 } });
+    expect(turned.softBody?.matrix).toEqual(frame.softBody?.matrix);
+    expect(avatarFrame(ghost, { color: '#65A3DD' }).softBody).toBeUndefined();
   });
 
   it('tones every slice within 0..1 and marks at the surface', () => {

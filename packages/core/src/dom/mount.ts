@@ -291,7 +291,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         view: p.view,
         reducedMotion,
       };
-      if (p.renderer !== 'scene' && canvasSupported()) {
+      if ((p.renderer !== 'scene' || p.material === 'soft') && canvasSupported()) {
         if (scene) clear();
         const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
         const key = `${geometryKey(p.definition)}|${p.depth}`;

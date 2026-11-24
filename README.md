@@ -34,7 +34,7 @@ One SVG path in a `0 0 100 100` box, and the eyes.
 
 The volume is inferred from the outline as stacked cross-sections. Live avatars project them and paint each frame to one canvas; stills are projected into one SVG. A CSS 3D scene with one SVG per cross-section is available as `renderer: "scene"`.
 
-With `material: "soft"` each cross-section is coloured by its depth in that volume — a subsurface ramp of the body colour, ported from the soft-shape shader of the Hark design study — instead of one flat fill. States, moods and gaze work unchanged. `HARK_ROSTER` ships eight bots tuned for the Hark design system; see [docs/material.md](docs/material.md).
+With `material: "soft"` the body is painted with the soft-shape look of the Hark design study: per-pixel subsurface scattering in the canvas renderer (a cached sprite port of the source shader), and a depth ramp of the body colour in vector renderers. States, moods and gaze work unchanged. `HARK_ROSTER` ships eight bots tuned for the Hark design system; see [docs/material.md](docs/material.md).
 
 ## Install
 

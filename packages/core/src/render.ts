@@ -22,6 +22,7 @@
 import { mix, oklch, parseHex, toHex, toOklch } from './color.ts';
 import type { Rgb } from './color.ts';
 import { rampAt, rampHexAt, sliceTone, softRamp } from './material.ts';
+import type { SoftMaterial } from './material.ts';
 import { bodyScale, markParts, ribbonPieces, ribbonReach, rimOf } from './effects.ts';
 import type { Rim } from './effects.ts';
 import type { Box } from './effects.ts';
@@ -446,6 +447,15 @@ export interface AvatarFrame {
    */
   ramp?: string[];
   /**
+   * The soft material's per-pixel body: the outline to shade with the soft-shape
+   * subsurface integral (see softsprite.ts), its material, and the matrix to draw
+   * it under (the body's shrink about its pivot, before the frame root). Present
+   * only for `material: 'soft'` with a hex colour. The canvas renderer paints one
+   * cached sprite instead of the slice stack; vector renderers keep the ramp.
+   * The body faces front in this mode — gaze, 2D motion, states and moods stay live.
+   */
+  softBody?: { d: string; evenOdd: boolean; material: SoftMaterial; matrix: Matrix };
+  /**
    * Distinct cross-section paths this frame uses; ids are stable for equal geometry and depth.
    * `box` bounds `d` in its own coordinates, before a shape's matrix.
    */
@@ -602,7 +612,12 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const { vol } = p;
   const b = vol.bounds;
   const { color, ink } = colors(options);
+  const soft = options.material === 'soft' && !!parseHex(options.color);
   const pose = poseOf(p, options);
+  if (soft) {
+    pose.yaw = 0;
+    pose.pitch = 0;
+  }
   const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
   const stack = activeStack(v);
@@ -651,8 +666,11 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix), tone: 0 };
   });
   const ramp = options.material === 'soft' && parseHex(options.color) ? softRamp(parseHex(color) as Rgb, options.soft).map(toHex) : undefined;
+  const softBody = soft
+    ? { d: p.def.body.path, evenOdd: false, material: options.soft ?? {}, matrix: shrink([1, 0, 0, 1, 0, 0]) as Matrix }
+    : undefined;
   return {
-    name: p.def.name, color, ink, paths: [...paths.values()], root, ramp,
+    name: p.def.name, color, ink, paths: [...paths.values()], root, ramp, softBody,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
   };
 }
