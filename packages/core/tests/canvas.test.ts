@@ -255,6 +255,36 @@ describe('mountAvatar on a canvas', () => {
     }
   });
 
+  it('reuses the retained canvas bitmap across idle root motion via CSS transform and repaints when view, eyes or color change', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.fn().mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const material: CanvasMaterial = { id: 'cached', render };
+    const el = host(160);
+    const surface = mountCanvas(el, 'cached', examples[0], 6);
+
+    // Two frames 10ms apart in idle: 3D view barely moves, 2D root motion delegates to wrap.style.transform.
+    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(1);
+    const t0 = surface.wrap.style.transform;
+    expect(t0).toMatch(/^matrix\(/);
+
+    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#ff6a1a', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(surface.wrap.style.transform).not.toBe(t0);
+
+    // Changing color or rotating the view invalidates immediately and repaints.
+    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(2);
+
+    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.01, view: { yaw: 0.4, pitch: 0 }, size: 160 }), 160, '#1f7cf2', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(3);
+
+    // Overlays (marks/ribbons) clear the wrapper transform and paint directly.
+    paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material);
+    expect(surface.wrap.style.transform).toBe('');
+    el.remove();
+  });
+
   it('draws pill eyes without roundRect', async () => {
     withRoundRect = false;
     const el = host();

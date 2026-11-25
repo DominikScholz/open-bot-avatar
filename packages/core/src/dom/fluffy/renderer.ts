@@ -183,7 +183,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const canvas = document.createElement('canvas');
   // Square, and only ever grown (see below).
   canvas.width = canvas.height = MIN_PIXELS;
-  const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: true });
+  const gl = canvas.getContext('webgl2', { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false });
   if (!gl) return null;
   // A lost context returns no image until the browser restores it; the avatar draws flat meanwhile.
   canvas.addEventListener('webglcontextlost', (event) => event.preventDefault());
@@ -330,6 +330,15 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     regions: new Float32Array(8), contours: ['', ''],
   };
   let dye = '';
+  let resetQueued = false;
+  const invalidateAfterTurn = () => {
+    if (resetQueued) return;
+    resetQueued = true;
+    queueMicrotask(() => {
+      resetQueued = false;
+      shown.view = null;
+    });
+  };
 
   return (shape, view, look, scale) => {
     if (gl.isContextLost()) return null;
@@ -413,6 +422,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.uniform1i(u.pass, PASS.strand);
     gl.uniform1f(u.strandWidth, ROOT_PASSES / strandPasses);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 8, rootsIn(geometry.strandCount, strandPasses));
+    invalidateAfterTurn();
     return image;
   };
 }

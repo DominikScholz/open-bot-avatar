@@ -291,16 +291,30 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
  * viewer, minus z-slices hidden behind the core (they add nothing to the
  * silhouette or the paint). Their union is the silhouette on screen.
  */
+/** Minimum projected screen shift (CSS px) between adjacent drawn z-slices on a live canvas. */
+const SLICE_SCREEN_GAP_PX = 0.55;
+
 function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
   const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, size);
+  // Skip intermediate z-slices whose projected screen shift from the previous drawn slice is sub-pixel.
+  const px = Number.isFinite(size) && (size as number) > 0 ? (size as number) : 0;
+  const sweep = stack === 'z' ? Math.hypot(v.sY, v.cY * v.sP) : 0;
+  const minShift = px && stack === 'z' ? (sweep > 1e-4 ? (SLICE_SCREEN_GAP_PX * 100) / (px * sweep) : Infinity) : 0;
   let k = 0;
   vol.parts.forEach((part, i) => {
-    (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
+    const slices = stack === 'z' ? part.zSlices : part.xSlices;
+    let lastAt = -Infinity;
+    slices.forEach((s, j) => {
       if (!kept[k++] || !drawn(s)) return;
+      if (minShift > 0) {
+        const essential = (s.at === 0 && s.inset === 0) || j === 0 || j === slices.length - 1;
+        if (!essential && s.at - lastAt < minShift) return;
+        lastAt = s.at;
+      }
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
@@ -471,6 +485,13 @@ export interface SurfaceEye {
   dy: number;
 }
 
+const ribbonPoints = new WeakMap<FrameShape, readonly [number, number][]>();
+
+/** Numeric vertices of a live ribbon shape, so the canvas painter avoids SVG path parsing. */
+export function ribbonPointsOf(shape: FrameShape): readonly [number, number][] | undefined {
+  return ribbonPoints.get(shape);
+}
+
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
 export function avatarFrame(definition: AvatarDefinition, options: RenderOptions = {}): AvatarFrame {
   return flatFrame(definition, options, undefined);
@@ -577,7 +598,7 @@ function ribbonPalette(color: string | undefined, seed: number): Rgb[][] {
 interface Effects {
   /** How much of its size the body keeps while it gives way to a mark (0 = gone). */
   body: number;
-  ribbons: { d: string; box: Box; front: boolean; fill: string; gradient: RibbonGradient }[];
+  ribbons: { d: string; points: [number, number][]; box: Box; front: boolean; fill: string; gradient: RibbonGradient }[];
   marks: { id: string; d: string; box: Box; matrix: M; round: boolean }[];
 }
 
@@ -591,7 +612,7 @@ function markId(shape: string): string {
   return /^[A-Za-z][A-Za-z0-9]*$/.test(shape) ? shape : `m-${hashString(String(shape)).toString(36)}`;
 }
 
-function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
+function effectsOf(p: Prepared, pose: Pose, options: RenderOptions, needRibbonPath = true): Effects {
   const b = p.vol.bounds;
   const time = Number.isFinite(options.time) ? (options.time as number) : 0;
   const still = options.reducedMotion === true;
@@ -599,7 +620,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   return {
     body: bodyScale(pose.marks),
     // No ribbons are out below a presence of 0.01 (see ribbonPieces), so their rims are not measured for it.
-    ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
+    ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b), needRibbonPath).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
       // The piece's stretch of its ribbon's colour run, front and back alike.
       const [s0, s1] = r.along;
@@ -607,7 +628,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
       // A gradient needs some length; a piece too short to have one takes its middle colour.
       const long = Math.hypot(r.to[0] - r.from[0], r.to[1] - r.from[1]) > 0.01;
       return {
-        d: r.d, box: r.box, front: r.front, fill: stops[1],
+        d: r.d, points: r.points, box: r.box, front: r.front, fill: stops[1],
         gradient: long ? { x1: r.from[0], y1: r.from[1], x2: r.to[0], y2: r.to[1], stops } : { x1: r.from[0], y1: r.from[1], x2: r.from[0] + 0.01, y2: r.from[1], stops: [stops[1], stops[1], stops[1]] },
       };
     }),
@@ -634,7 +655,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const v = viewBasis(pose.yaw, pose.pitch);
   const stack = activeStack(v);
   const eyes: SurfaceEye[] = [];
-  const fx = effectsOf(p, pose, options);
+  const fx = effectsOf(p, pose, options, size === undefined);
   const root = rootMatrix(pose, b);
   // The body shrinks toward its center as it gives way to a mark.
   const shrink = (m: M): M => (fx.body < 1 ? mul(about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]), m) : m);
@@ -677,9 +698,12 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
   const fixed = fx.ribbons.length || fx.marks.length ? invert(root) : null;
   const ribbon = (front: boolean): FrameShape[] =>
-    fx.ribbons.flatMap((r, i) =>
-      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient }] : [],
-    );
+    fx.ribbons.flatMap((r, i) => {
+      if (r.front !== front) return [];
+      const shape: FrameShape = { kind: 'ribbon', key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient };
+      ribbonPoints.set(shape, r.points);
+      return [shape];
+    });
   const marks = fx.marks.map((mark, i): FrameShape => {
     // Two parts of one name share a path; given different outlines, the later one gets a path of its own.
     const taken = paths.get(mark.id);

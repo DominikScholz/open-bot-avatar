@@ -386,7 +386,7 @@ type Renderer = (shape: GlassShape, view: ViewBasis, look: GlassLook, scale: num
 function createRenderer(onContextRestored: () => void): Renderer | null {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = MIN_PIXELS;
-  const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: true });
+  const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true, preserveDrawingBuffer: false });
   if (!gl) return null;
   canvas.addEventListener('webglcontextlost', (e) => e.preventDefault());
   canvas.addEventListener('webglcontextrestored', onContextRestored);
@@ -543,6 +543,15 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     regions: new Float32Array(8),
     contours: ['', ''],
   };
+  let resetQueued = false;
+  const invalidateAfterTurn = () => {
+    if (resetQueued) return;
+    resetQueued = true;
+    queueMicrotask(() => {
+      resetQueued = false;
+      shown.view = null;
+    });
+  };
 
   return (shape, view, look, scale) => {
     if (gl.isContextLost()) return null;
@@ -615,6 +624,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    invalidateAfterTurn();
     return image;
   };
 }

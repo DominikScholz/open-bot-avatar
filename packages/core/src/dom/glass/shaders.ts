@@ -215,7 +215,7 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
   float tPrev = tMin;
   bool hit = false;
 
-  for (int i = 0; i < 96; i++) {
+  for (int i = 0; i < 64; i++) {
     float d = mapSDF(ro + rd * t);
     if (d <= 0.004) {
       if (d <= 0.0) {
@@ -232,7 +232,7 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
       }
     }
     tPrev = t;
-    t += max(d * 0.78, 0.06);
+    t += max(d * 0.82, 0.08);
     if (t > tMax) break;
   }
   if (!hit) return vec4(0.0);
@@ -310,7 +310,7 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
       float maxDist = max(halfDepth * 4.5, radius * 2.4);
       bool exited = false;
 
-      for (int stepIdx = 0; stepIdx < 96; stepIdx++) {
+      for (int stepIdx = 0; stepIdx < 64; stepIdx++) {
         vec3 q = pStart + rayDir * s;
         float d = mapSDF(q);
         if (d > 0.0) {
@@ -318,7 +318,7 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
           break;
         }
         sPrev = s;
-        s += max(-d * 0.78, 0.10);
+        s += max(-d * 0.82, 0.12);
         if (s > maxDist) break;
       }
 
@@ -425,7 +425,7 @@ void main() {
   vec3 probePos = pivot + invView * vec3(screenXY, 0.0);
   float edgeDist = abs(mapSDF(probePos));
 
-  if (pixelSize < 0.85 && edgeDist < max(3.5, pixelSize * 3.5)) {
+  if (pixelSize < 0.85 && edgeDist < max(2.2, pixelSize * 3.0)) {
     vec2 o1 = vec2( 0.375,  0.125) * pixelSize;
     vec2 o2 = vec2(-0.125,  0.375) * pixelSize;
     vec2 o3 = vec2(-0.375, -0.125) * pixelSize;

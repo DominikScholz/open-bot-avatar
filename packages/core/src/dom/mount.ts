@@ -18,7 +18,7 @@ import { pointerGaze } from '../follow.ts';
 import { lookOf, type AvatarStateDefinition } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
-import { requestFrame, subscribeFrames } from './clock.ts';
+import { currentPointer, requestFrame, subscribeFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -169,9 +169,11 @@ function eyesOrigin(definition: AvatarDefinition): { x: number; y: number } {
   return { x: at(x), y: at(y) };
 }
 
-/** Avatars smaller than this (CSS px) redraw at SMALL_FPS: the difference doesn't show, and pages often hold many. */
+/** Avatars smaller than this (CSS px), or in calm idle motion, redraw at CALM_FPS. */
 const SMALL_SIZE = 128;
 const SMALL_FPS = 30;
+/** Cap live redraws at 60 fps so 120 Hz+ ProMotion displays don't do 2x redundant work. */
+const MAX_FPS = 60;
 /** How far outside the viewport (CSS px) avatars keep animating, so they are already moving as they scroll in. */
 const VIEW_MARGIN = 100;
 /** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
@@ -253,6 +255,9 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   /** Imported materials use a painted canvas even for stills. */
   const canvasMaterial = () => canvasMaterialOf(opts.material) !== null && opts.renderer !== 'scene' && canvasSupported();
 
+  let lastEyeSig = '';
+  let calmFrame = false;
+
   const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();
     const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
@@ -264,6 +269,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
     const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
     paintCanvas(surface, flat, size, fill, ink, p.material);
+    return flat;
   };
 
   const draw = (time: number, pointer: { x: number; y: number } | null): boolean => {
@@ -320,8 +326,18 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         view: p.view,
         reducedMotion,
       };
+      const isCalmState = !step.moving && look.mood !== 'happy' && (look.state === 'idle' || look.state === 'waiting' || look.state === 'done');
       if (p.renderer !== 'scene' && canvasSupported()) {
-        paint(p, options);
+        const flat = paint(p, options);
+        const eyes = flat.surface.eyes;
+        let eyeSig = '';
+        for (let i = 0; i < eyes.length; i++) {
+          const m = eyes[i].mark;
+          eyeSig += m.shape === 'pill' ? `${Math.round(m.height * 10)}|` : `${m.shape}:${m.d}|`;
+        }
+        const hasRibbons = flat.shapes.some((s) => s.kind === 'ribbon');
+        calmFrame = isCalmState && !hasRibbons && eyeSig === lastEyeSig;
+        lastEyeSig = eyeSig;
         failed = false;
         return !reducedMotion || step.moving;
       }
@@ -331,6 +347,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         scene = mountScene(host, p.definition, p.depth);
       }
       apply(scene, frame);
+      calmFrame = isCalmState && frame.back === '' && frame.front === '';
       failed = false;
       return !reducedMotion || step.moving;
     } catch (error) {
@@ -346,7 +363,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   syncHost();
   const unsubscribe = subscribeFrames({
     measure: () => {
-      rect = visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
+      rect = currentPointer() && visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
     },
     draw: (time, pointer) => {
       // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
@@ -357,9 +374,11 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         materialStillAt = time;
       }
       dirty = false;
+      calmFrame = false;
       const more = draw(time, pointer);
-      if (!visible) return false;
-      return more && size > 0 && size < SMALL_SIZE ? 1 / SMALL_FPS - FRAME_SLACK : more;
+      if (!visible || !more) return false;
+      const fps = (size > 0 && size < SMALL_SIZE) || calmFrame ? SMALL_FPS : MAX_FPS;
+      return 1 / fps - FRAME_SLACK;
     },
   });
 
