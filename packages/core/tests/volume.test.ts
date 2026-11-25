@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { contourLoops, loopsToPath, simplifyLoop } from '../src/contour.ts';
 import { examples, getExample } from '../src/examples.ts';
@@ -111,6 +112,77 @@ describe('buildVolume', () => {
     expect(plate.depth).toBeGreaterThan(bar.depth * 1.5); // discs much wider than the grip cylinder
     expect(revolveAxis(analyzeBody(getExample('watering-can')!.body.path))).toBeNull();
     expect(revolveAxis(analyzeBody(getExample('controller')!.body.path))).toBeNull();
+  });
+
+  it('reads a flat elliptical ring around another part as a tilted disc: front half before it, back half behind', () => {
+    const ringed = def(
+      'M28 47A22 22 0 1 1 72 47A22 22 0 1 1 28 47ZM10 51A40 13 0 1 1 90 51A40 13 0 1 1 10 51ZM18 51A32 8 0 1 0 82 51A32 8 0 1 0 18 51Z',
+      { x: 50, y: 39, spacing: 15, scale: 1 },
+    );
+    const vol = buildVolume(ringed);
+    const [ball, ring] = vol.parts;
+    expect(ball.kind).toBe('revolve-y');
+    expect(ring.kind).toBe('orbit');
+    expect(vol.eyePart).toBe(0);
+    const front = ring.height(50, 62), back = ring.height(50, 40);
+    expect(front).toBeGreaterThan(ball.height(50, 62));
+    expect(back).toBe(0);
+    expect(ring.height(50, 51)).toBe(0);
+    const zs = ring.zSlices.map((s) => s.at);
+    expect(Math.max(...zs)).toBeGreaterThan(ball.depth / 2);
+    expect(Math.min(...zs)).toBeLessThan(-ball.depth / 2);
+    expect([...zs].sort((a, b) => a - b)).toEqual(zs);
+    for (const s of [...ring.zSlices, ...ring.xSlices]) {
+      expect(numbers(s.d).every(Number.isFinite)).toBe(true);
+      expect(s.d).toMatch(/Z$/);
+    }
+    const mid = ring.zSlices.reduce((m, s) => (Math.abs(s.at) < Math.abs(m.at) ? s : m));
+    expect(isInside(mid.loops, 50, 51)).toBe(false);
+    expect(isInside(mid.loops, 12, 51)).toBe(true);
+    expect(buildVolume(ringed, 0).parts[1].kind).not.toBe('orbit');
+    const disc = def('M10 51A40 13 0 1 1 90 51A40 13 0 1 1 10 51Z');
+    expect(buildVolume(disc).parts[0].kind).toBe('inflate');
+  });
+
+  it('paints accent groups apart: each part knows its paint, and the SVG fills it with the accent color', () => {
+    const hat = validateAvatar({
+      version: 1, id: 'hat', name: 'Hat', eyes: { x: 50, y: 41, spacing: 15, scale: 1 },
+      body: { path: 'M28 47A22 22 0 1 1 72 47A22 22 0 1 1 28 47ZM10 51A40 13 0 1 1 90 51A40 13 0 1 1 10 51ZM18 51A32 8 0 1 0 82 51A32 8 0 1 0 18 51ZM38 30L50 12L62 30ZM34 30A16 4 0 1 1 66 30A16 4 0 1 1 34 30ZM47 12A3 3 0 1 1 53 12A3 3 0 1 1 47 12Z', accents: [[3], [4, 5]] },
+    });
+    if (!hat.ok) throw new Error(hat.errors.join('; '));
+    expect(buildVolume(hat.value).parts.map((p) => p.paint)).toEqual([0, 0, 1, 2, 2]);
+    const svg = renderAvatarSvg(hat.value, { color: '#f8a01c', accentColors: ['#cc0000', '#ffffff'] });
+    expect(svg).toContain('fill="#cc0000"');
+    expect(svg).toContain('fill="#ffffff"');
+    expect(renderAvatarSvg(hat.value)).toContain('fill="#d93025"');
+    const scene = renderAvatarScene(hat.value);
+    expect(scene).toContain('var(--avatar-accent-1,#d93025)');
+    expect(scene).toContain('var(--avatar-accent-2,#f4f1ea)');
+    expect(renderAvatarSvg(getExample('mug')!)).not.toMatch(/<use [^>]*fill=/);
+    const gold = validateAvatar({ ...hat.value, body: { ...hat.value.body, accents: [{ parts: [3], color: '#e8b923' }, { parts: [4, 5] }] } });
+    if (!gold.ok) throw new Error(gold.errors.join('; '));
+    expect(renderAvatarSvg(gold.value)).toContain('fill="#e8b923"');
+    expect(renderAvatarSvg(gold.value, { accentColors: ['#123456'] })).toContain('fill="#123456"');
+    expect(renderAvatarScene(gold.value)).toContain('var(--avatar-accent-1,#e8b923)');
+  });
+
+  it('lifts an accent piece resting on the face, with the touching parts above it riding along', () => {
+    const glasses = JSON.parse(readFileSync('packages/core/tests/fixtures/new-year-bunny.json', 'utf8'));
+    const ok = validateAvatar(glasses);
+    if (!ok.ok) throw new Error(ok.errors.join('; '));
+    const vol = buildVolume(ok.value);
+    const lifted = vol.parts.filter((p) => p.paint);
+    expect(lifted.length).toBeGreaterThan(2);
+    expect(new Set(lifted.map((p) => p.lift)).size).toBe(1);
+    expect(lifted[0].lift).toBeGreaterThan(vol.parts[0].depth / 2 - 5);
+    expect(vol.parts.filter((p) => !p.paint).every((p) => p.lift === 0)).toBe(true);
+    const egg = validateAvatar(JSON.parse(readFileSync('packages/core/tests/fixtures/new-year-egg.json', 'utf8')));
+    if (!egg.ok) throw new Error(egg.errors.join('; '));
+    expect(renderAvatarSvg(egg.value)).toContain('fill="#14b3a5"');
+    expect(renderAvatarSvg(egg.value, { color: '#ff0000' })).toContain('fill="#ff0000"');
+    const xmas = validateAvatar(JSON.parse(readFileSync('packages/core/tests/fixtures/christmas-ghost.json', 'utf8')));
+    if (!xmas.ok) throw new Error(xmas.errors.join('; '));
+    expect(buildVolume(xmas.value).parts.every((p) => p.lift === 0)).toBe(true);
   });
 
   it('scales with the volume amount and goes flat at 0', () => {

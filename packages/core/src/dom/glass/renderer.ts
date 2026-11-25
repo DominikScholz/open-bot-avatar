@@ -6,7 +6,7 @@
 import { EdgeIndex } from '../../distance.ts';
 import { edgeBands } from '../../path.ts';
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
-import type { Volume, VolumePart } from '../../volume.ts';
+import { orbitDepth, type Volume, type VolumePart } from '../../volume.ts';
 import { halfDepth, type Capsule, type MaterialShape } from '../materials/shape.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 import { fragmentShader, vertexShader } from './shaders.ts';
@@ -16,6 +16,7 @@ export type GlassShape = MaterialShape;
 export interface GlassLook {
   color: string;
   ink: string;
+  accents?: string[];
   eyes: SurfaceEye[];
 }
 
@@ -34,8 +35,10 @@ const isCapsule = (shape: GlassShape): shape is Capsule => 'radius' in shape;
 const MAX_PIXELS = 1024;
 const MIN_PIXELS = 32;
 /** 3D SDF grid dimensions (Z stores z >= 0 with 1 ghost slice at -stepZ for exact C1 equator symmetry). */
-const GRID_HI = { xy: 104, z: 36 };
-const GRID_LO = { xy: 48, z: 18 };
+const GRID_HI = { xy: 136, z: 97 };
+const GRID_LO = { xy: 48, z: 33 };
+const FINE = 6;
+const ACCENTS = 3;
 const VOL_PAD = 4.5;
 const GLASS_REACH = 4;
 const SOCKET_RISE = 0.8;
@@ -90,6 +93,8 @@ interface BakedShape {
  */
 function addGlassPart(
   field: Float32Array,
+  owner: Uint8Array,
+  fine: Uint8Array,
   part: VolumePart,
   x0: number,
   y0: number,
@@ -135,6 +140,33 @@ function addGlassPart(
 
   // Smooth union radius where separate parts meet (clean blown-glass fillet, preserves exact shape)
   const joinK = 1.1;
+  const thin = part.paint > 0 && !part.orbit && part.thickness < FINE;
+  const grow = thin ? (FINE - part.thickness) / 4 : 0;
+  const put = (at: number, raw: number) => {
+    const d = raw + grow;
+    if (firstPart || d > field[at]) {
+      owner[at] = part.paint;
+      if (thin && d > -1) fine[at] = 1;
+    }
+    field[at] = firstPart ? d : smax(field[at], d, joinK);
+  };
+
+  if (part.orbit) {
+    const o = part.orbit;
+    const halfSheet = Math.max(2, o.sheet / 2);
+    const across = 1 / Math.hypot(1, o.k);
+    for (let j = 0; j < nxy; j++) {
+      const y = y0 + j * stepXY;
+      const off = j * nxy;
+      for (let i = 0; i < nxy; i++) {
+        const x = x0 + i * stepXY;
+        const sd = sd2d[off + i];
+        const mid = orbitDepth(o, x, y);
+        for (let k = 0; k < nz; k++) put(off + i + k * plane, Math.min(sd, halfSheet - Math.abs(z0 + k * stepZ - mid) * across));
+      }
+    }
+    return;
+  }
 
   if (part.kind === 'revolve-y' && part.axis !== undefined) {
     const axis = part.axis;
@@ -146,11 +178,9 @@ function addGlassPart(
       for (let i = 0; i < nxy; i++) {
         const dx = x0 + i * stepXY - axis;
         for (let k = 0; k < nz; k++) {
-          const z = Math.abs(z0 + k * stepZ) * invZ;
+          const z = Math.abs(z0 + k * stepZ - part.lift) * invZ;
           const rho = Math.hypot(dx, z);
-          const d = sampleSD2D(axis + rho, y) * Math.min(1, zScale);
-          const at = off + i + k * plane;
-          field[at] = firstPart ? d : smax(field[at], d, joinK);
+          put(off + i + k * plane, sampleSD2D(axis + rho, y) * Math.min(1, zScale));
         }
       }
     }
@@ -167,11 +197,9 @@ function addGlassPart(
       for (let i = 0; i < nxy; i++) {
         const x = x0 + i * stepXY;
         for (let k = 0; k < nz; k++) {
-          const z = Math.abs(z0 + k * stepZ) * invZ;
+          const z = Math.abs(z0 + k * stepZ - part.lift) * invZ;
           const rho = Math.hypot(dy, z);
-          const d = sampleSD2D(x, axis + rho) * Math.min(1, zScale);
-          const at = off + i + k * plane;
-          field[at] = firstPart ? d : smax(field[at], d, joinK);
+          put(off + i + k * plane, sampleSD2D(x, axis + rho) * Math.min(1, zScale));
         }
       }
     }
@@ -256,11 +284,9 @@ function addGlassPart(
       const crown = sd > 0 ? 0.055 * sdEff : 0;
       const side = smax((rxy - sdEff) / rxy, 0, 0.28);
       for (let k = 0; k < nz; k++) {
-        const z = Math.abs(z0 + k * stepZ);
+        const z = Math.abs(z0 + k * stepZ - part.lift);
         const top = Math.max(0, (z - (flatZ + crown)) / rz);
-        const d = (1 - Math.hypot(side, top)) * scale;
-        const at = off + i + k * plane;
-        field[at] = firstPart ? d : smax(field[at], d, joinK);
+        put(off + i + k * plane, (1 - Math.hypot(side, top)) * scale);
       }
     }
   }
@@ -269,7 +295,7 @@ function addGlassPart(
 /** Bake a Volume into a mirror-symmetric 3D R16F signed-distance texture (positive inside). */
 function bakeVolume3D(vol: Volume, nxy: number, nz: number) {
   const b = vol.bounds;
-  const maxHalfZ = Math.max(2, ...vol.parts.map((p) => p.depth / 2)) + 1.0;
+  const maxHalfZ = Math.max(2, ...vol.parts.map((p) => p.depth / 2 + Math.abs(p.lift))) + 1.0;
   const spanX = b.maxX - b.minX + 2 * VOL_PAD;
   const spanY = b.maxY - b.minY + 2 * VOL_PAD;
   const spanXY = Math.max(spanX, spanY);
@@ -281,16 +307,19 @@ function bakeVolume3D(vol: Volume, nxy: number, nz: number) {
 
   // Place z = 0 at k = 1, z = -stepZ at k = 0 (mirror of k = 2), so trilinear interpolation across z = 0 is exact!
   const zMax = maxHalfZ + VOL_PAD;
-  const stepZ = zMax / (nz - 2);
-  const z0 = -stepZ;
-  const spanZ = stepZ * (nz - 1);
+  const stepZ = (2 * zMax) / (nz - 1);
+  const z0 = -zMax;
+  const spanZ = 2 * zMax;
 
   const plane = nxy * nxy;
   const field = new Float32Array(plane * nz).fill(-1000);
+  const owner = new Uint8Array(plane * nz);
+  const fine = new Uint8Array(plane * nz);
 
   vol.parts.forEach((part, idx) => {
-    addGlassPart(field, part, x0, y0, z0, stepXY, stepZ, nxy, nz, idx === 0);
+    addGlassPart(field, owner, fine, part, x0, y0, z0, stepXY, stepZ, nxy, nz, idx === 0);
   });
+  const sharp = field.slice();
 
   // Three gentle separable 3D Gaussian passes suppress trilinear grid ripples while keeping silhouettes crisp!
   const tmp = new Float32Array(field.length);
@@ -320,20 +349,23 @@ function bakeVolume3D(vol: Volume, nxy: number, nz: number) {
       }
     }
     // Z pass (respecting symmetry at k = 1 -> k = 0 mirrors k = 2)
-    for (let k = 1; k < nz; k++) {
-      const km = (k === 1 ? 2 : k - 1) * plane;
+    for (let k = 0; k < nz; k++) {
+      const km = (k > 0 ? k - 1 : 0) * plane;
       const k0 = k * plane;
       const kp = (k < nz - 1 ? k + 1 : nz - 1) * plane;
       for (let p = 0; p < plane; p++) {
         tmp[k0 + p] = 0.13 * field[km + p] + 0.74 * field[k0 + p] + 0.13 * field[kp + p];
       }
     }
-    for (let p = 0; p < plane; p++) tmp[p] = tmp[2 * plane + p];
     field.set(tmp);
   }
+  for (let i = 0; i < field.length; i++) if (fine[i]) field[i] = Math.max(field[i], sharp[i]);
 
-  const data = new Uint16Array(field.length);
-  for (let i = 0; i < field.length; i++) data[i] = toHalf(field[i]);
+  const data = new Uint16Array(2 * field.length);
+  for (let i = 0; i < field.length; i++) {
+    data[2 * i] = toHalf(field[i]);
+    data[2 * i + 1] = toHalf(owner[i]);
+  }
 
   return {
     data,
@@ -409,6 +441,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     capsuleDims: uniform('capsuleDims'),
     view: uniform('view'),
     color: uniform('color'),
+    accentColors: uniform('accentColors[0]'),
     ink: uniform('ink'),
     eyeRegion: uniform('eyeRegion[0]'),
     eyeSize: uniform('eyeSize[0]'),
@@ -433,7 +466,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const dummyTex = gl.createTexture();
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_3D, dummyTex);
-  gl.texImage3D(gl.TEXTURE_3D, 0, gl.R16F, 1, 1, 1, 0, gl.RED, gl.HALF_FLOAT, new Uint16Array([0]));
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.RG16F, 1, 1, 1, 0, gl.RG, gl.HALF_FLOAT, new Uint16Array([0, 0]));
 
   const shapes = new Map<GlassShape, BakedShape>();
   let sweepPending = false;
@@ -467,7 +500,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     const tex = gl.createTexture()!;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_3D, tex);
-    gl.texImage3D(gl.TEXTURE_3D, 0, gl.R16F, grid.xy, grid.xy, grid.z, 0, gl.RED, gl.HALF_FLOAT, baked.data);
+    gl.texImage3D(gl.TEXTURE_3D, 0, gl.RG16F, grid.xy, grid.xy, grid.z, 0, gl.RG, gl.HALF_FLOAT, baked.data);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -546,6 +579,8 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 
   return (shape, view, look, scale) => {
     if (gl.isContextLost()) return null;
+    const accentColors = Array.from({ length: ACCENTS }, (_, k) => look.accents?.[k] ?? look.color);
+    const tint = [look.color, ...accentColors].join('|');
     const baked = shapeOf(shape, scale >= 1.4);
     const { cx, cy, radius } = baked;
     const pixels = Math.min(MAX_PIXELS, Math.max(MIN_PIXELS, Math.ceil(2 * radius * scale)));
@@ -566,7 +601,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
       ? Math.abs(view.cY - shown.view.cY) + Math.abs(view.sY - shown.view.sY) + Math.abs(view.sP - shown.view.sP) + Math.abs(view.cP - shown.view.cP)
       : Infinity;
     if (
-      shown.baked === baked && shown.pixels === pixels && shown.color === look.color && shown.ink === look.ink &&
+      shown.baked === baked && shown.pixels === pixels && shown.color === tint && shown.ink === look.ink &&
       contours.every((k, slot) => k === shown.contours[slot]) && regions.every((v, i) => v === shown.regions[i]) &&
       turn < SAME_VIEW / (radius * scale)
     ) {
@@ -576,7 +611,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     shown.baked = baked;
     shown.view = view;
     shown.pixels = pixels;
-    shown.color = look.color;
+    shown.color = tint;
     shown.ink = look.ink;
     shown.regions.set(regions);
 
@@ -606,6 +641,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 
     const [r, g, b] = readColor(look.color);
     gl.uniform3f(u.color, r / 255, g / 255, b / 255);
+    gl.uniform3fv(u.accentColors, accentColors.flatMap((c) => readColor(c).map((v) => v / 255)));
     const [inkR, inkG, inkB] = readColor(look.ink);
     gl.uniform3f(u.ink, inkR / 255, inkG / 255, inkB / 255);
     gl.uniformMatrix3fv(u.view, false, [view.cY, view.sY * view.sP, -view.sY * view.cP, 0, view.cP, view.sP, view.sY, -view.cY * view.sP, view.facing]);

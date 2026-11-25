@@ -203,7 +203,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   // The whole body and its eyes as one image, unless it has shrunk away into a mark.
   const { view, scale: bodyScale, eyes } = frame.surface;
   const coat = finish && volume && bodyScale > 0.001
-    ? finish.render(volume(), view, { color: fill, ink, eyes }, scale)
+    ? finish.render(volume(), view, { color: fill, ink, eyes, accents: frame.accents }, scale)
     : null;
   let coatPainted = false;
   ctx.lineCap = 'round';
@@ -219,7 +219,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
         // In the material where it can draw the part, else as a plain fill.
         if (!finish || !paintMark(finish, ctx, section, scale, fill)) ctx.fill(section.path, section.rule);
       } else if (!coat) {
+        if (shape.paint) ctx.fillStyle = frame.accents[shape.paint - 1];
         ctx.fill(section.path, section.rule);
+        if (shape.paint) ctx.fillStyle = fill;
       } else if (!coatPainted) {
         // The body's slices follow one another: the coat takes the place of the first, under the root's motion.
         coatPainted = true;

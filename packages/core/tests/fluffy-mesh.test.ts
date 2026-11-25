@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ROOT_PASSES, buildMesh, rootsIn, type Capsule } from '../src/dom/fluffy/mesh.ts';
+import { ROOT_PASSES, TAPER_WIDTH, buildMesh, pileOf, rootsIn, type Capsule } from '../src/dom/fluffy/mesh.ts';
 import { fluffyDetail } from '../src/dom/fluffy/renderer.ts';
 import { getExample } from '../src/examples.ts';
 import { preparedVolume } from '../src/render.ts';
@@ -78,6 +79,54 @@ describe('fluffy mesh', () => {
       return Object.values(b);
     };
     reach(quarter).forEach((edge, i) => expect(edge).toBeCloseTo(reach(total)[i], 0));
+  });
+
+  it('gives every vertex and root the paint of the part it grows from', () => {
+    expect(mesh.paints.length).toBe(mesh.vertices.length / 6);
+    expect(mesh.rootPaints.length).toBe(mesh.roots.length / 8);
+    expect(new Set(mesh.paints)).toEqual(new Set([0.5]));
+    const hat = { ...getExample('mug')!, body: { ...getExample('mug')!.body, accents: [{ parts: [1] }] } };
+    const painted = buildMesh(preparedVolume(hat).vol);
+    const handle = painted.paints.filter((p) => Math.floor(p) === 1).length;
+    expect(handle).toBeGreaterThan(0);
+    expect(handle).toBeLessThan(painted.paints.length / 2);
+    expect(painted.rootPaints.some((p) => Math.floor(p) === 1)).toBe(true);
+  });
+
+  it('grows a shorter pile on thin accents and keeps lifted pieces in front instead of through the body', () => {
+    const glasses = JSON.parse(readFileSync('packages/core/tests/fixtures/new-year-egg.json', 'utf8'));
+    const { vol } = preparedVolume(glasses);
+    expect(vol.parts.filter((p) => !p.paint).every((p) => pileOf(p) === 1)).toBe(true);
+    const stems = vol.parts.filter((p) => p.paint === 3 && p.thickness < 2);
+    expect(stems.length).toBe(2);
+    for (const p of stems) expect(pileOf(p)).toBe(0.25);
+    const built = buildMesh(vol);
+    const stemZ: number[] = [];
+    for (let v = 0; v < built.paints.length; v++) if (built.paints[v] === 3.125) stemZ.push(built.vertices[6 * v + 2]);
+    expect(stemZ.length).toBeGreaterThan(0);
+    expect(Math.min(...stemZ)).toBeGreaterThan(stems[0].lift - 3);
+  });
+
+  it('tapers a wide accent where it narrows: a hat tip is thin and short-piled, its base full', () => {
+    const hat = JSON.parse(readFileSync('packages/core/tests/fixtures/christmas-ghost.json', 'utf8'));
+    const { vol } = preparedVolume(hat);
+    const tail = vol.parts.find((p) => p.paint === 1 && p.kind === 'inflate')!;
+    expect(tail.thickness).toBeGreaterThanOrEqual(TAPER_WIDTH);
+    const built = buildMesh(vol);
+    const red = (lo: number, hi: number) => {
+      const piles: number[] = [], zs: number[] = [];
+      for (let v = 0; v < built.paints.length; v++) {
+        const x = built.vertices[6 * v], y = built.vertices[6 * v + 1];
+        if (Math.floor(built.paints[v]) !== 1 || x < lo || x > hi || y > 24) continue;
+        piles.push((built.paints[v] % 1) * 2);
+        zs.push(Math.abs(built.vertices[6 * v + 2]));
+      }
+      return { pile: Math.max(...piles), depth: Math.max(...zs) };
+    };
+    const tip = red(70, 75), base = red(52, 60);
+    expect(tip.pile).toBeLessThan(0.75);
+    expect(base.pile).toBe(1);
+    expect(tip.depth).toBeLessThan(base.depth / 2);
   });
 
   it('shapes a state mark as a capsule', () => {

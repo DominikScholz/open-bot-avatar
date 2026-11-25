@@ -1,6 +1,6 @@
 import { BotAvatar } from "./BotAvatar";
-import { CONTRIBUTORS, Contributors, pictureAt } from "./Contributors";
-import { topOthers } from "./contributors";
+import { CONTRIBUTORS, Contributors, pictureAt } from "./Contributors.tsx";
+import { topOthers } from "./contributors.ts";
 import { Docs } from "./Docs";
 import { REPO, href, useRoute, type Route } from "./route";
 import { useStoredState } from "./studio/hooks";

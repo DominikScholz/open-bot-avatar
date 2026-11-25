@@ -37,6 +37,11 @@ import type { AvatarDefinition, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
 export const DEFAULT_EYE_COLOR = '#151515';
+export const DEFAULT_ACCENT_COLORS = ['#d93025', '#f4f1ea', '#e8b923'] as const;
+
+export function accentColor(definition: AvatarDefinition, override: string[] | undefined, k: number): string {
+  return override?.[k] ?? definition.body.accents?.[k]?.color ?? DEFAULT_ACCENT_COLORS[k];
+}
 /** `depth` option value that maps to the natural inferred volume. */
 export const DEFAULT_DEPTH = 6;
 const MAX_DEPTH = 14;
@@ -59,6 +64,7 @@ interface Prepared {
   ids: Map<string, string>;
   /** Slices kept at a rendered size, per stack, keyed by stack and rounded size. */
   detail: Map<string, boolean[]>;
+  mixed: boolean[];
   /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRims). */
   rims: () => { work: Rim; cage: Rim };
 }
@@ -119,7 +125,7 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
 }
 
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
-  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth]);
+  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.body?.accents, definition?.eyes, depth]);
   const hit = cache.get(key);
   if (hit) return hit;
   const res = validateAvatar(definition);
@@ -138,6 +144,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     id,
     ids,
     detail: new Map(),
+    mixed: mixedParts(vol),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
   };
   if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
@@ -273,7 +280,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
   const { vol } = p;
   const b = vol.bounds;
   const [cx, cy] = pivotOf(b);
-  const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth)) + 2 * CSS_EYE_LIFT) / 2;
+  const radius = Math.hypot(b.maxX - b.minX, b.maxY - b.minY, Math.max(...vol.parts.map((part) => part.depth + 2 * Math.abs(part.lift))) + 2 * CSS_EYE_LIFT) / 2;
   // Ribbons reach their hoop plus their band from the middle of the body's box, and keep the
   // canvas's antialiasing margin (FIT_PAD) inside.
   const { work, cage } = p.rims();
@@ -295,23 +302,29 @@ function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit:
   const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
-  const drawn = sliceCull(v);
+  const drawn = sliceCull(v, p.mixed);
   const kept = sliceDetail(p, stack, size);
   let k = 0;
   vol.parts.forEach((part, i) => {
     (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
-      if (!kept[k++] || !drawn(s)) return;
+      if (!kept[k++] || !drawn(s, i)) return;
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
 }
 
 /** Whether a slice of the active stack shows: z-slices hidden behind the core are skipped. */
-function sliceCull(v: ViewBasis): (s: VolumeSlice) => boolean {
+function sliceCull(v: ViewBasis, mixed: boolean[]): (s: VolumeSlice, part: number) => boolean {
   // Screen shift per unit of depth, and the smallest on-screen size of an in-plane inset.
   const sweep = Math.hypot(v.sY, v.cY * v.sP);
   const inset = Math.min(Math.abs(v.cY), Math.abs(v.cP));
-  return (s) => s.axis !== 'z' || s.inset <= 0 || Math.abs(s.at) * sweep > s.inset * inset;
+  return (s, part) => s.axis !== 'z' || s.inset <= 0 || mixed[part] || Math.abs(s.at) * sweep > s.inset * inset;
+}
+
+function mixedParts(vol: Volume): boolean[] {
+  const meets = (a: Bounds, b: Bounds) => a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+  return vol.parts.map((part, i) =>
+    part.paint > 0 && vol.parts.some((other, j) => j !== i && other.paint > 0 && other.paint !== part.paint && meets(part.bounds, other.bounds)));
 }
 
 // ---------------------------------------------------------------------------
@@ -367,10 +380,11 @@ function eyeMark(e: EyeState): EyeMark {
   return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
 }
 
-function colors(options: RenderOptions): { color: string; ink: string } {
+function colors(options: RenderOptions, def: AvatarDefinition): { color: string; ink: string; accents: string[] } {
   return {
-    color: toHex(parseHex(options.color) ?? (parseHex(DEFAULT_COLOR) as Rgb)),
+    color: toHex(parseHex(options.color) ?? parseHex(def.body.color) ?? (parseHex(DEFAULT_COLOR) as Rgb)),
     ink: toHex(parseHex(options.eyeColor) ?? (parseHex(DEFAULT_EYE_COLOR) as Rgb)),
+    accents: DEFAULT_ACCENT_COLORS.map((fallback, k) => toHex(parseHex(accentColor(def, options.accentColors, k)) ?? (parseHex(fallback) as Rgb))),
   };
 }
 
@@ -398,6 +412,7 @@ export type FrameShape =
       /** Id of an entry in AvatarFrame.paths. */
       path: string;
       matrix: Matrix;
+      paint?: number;
     }
   | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
   | {
@@ -444,6 +459,7 @@ export interface AvatarFrame {
   name: string;
   color: string;
   ink: string;
+  accents: string[];
   /**
    * Distinct cross-section paths this frame uses; ids are stable for equal geometry and depth.
    * `box` bounds `d` in its own coordinates, before a shape's matrix.
@@ -600,7 +616,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
     body: bodyScale(pose.marks),
     // No ribbons are out below a presence of 0.01 (see ribbonPieces), so their rims are not measured for it.
     ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
-      const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
+      const hue = ribbonPalette(options.color ?? p.def.body.color, p.seed)[r.ribbon];
       // The piece's stretch of its ribbon's colour run, front and back alike.
       const [s0, s1] = r.along;
       const stops = [s0, (s0 + s1) / 2, s1].map((t) => runAt(hue, t));
@@ -628,7 +644,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
   const b = vol.bounds;
-  const { color, ink } = colors(options);
+  const { color, ink, accents } = colors(options, p.def);
   const pose = poseOf(p, options);
   const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
@@ -651,7 +667,8 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       }
       // Parallel slices have the same order along every viewing ray.
       const depth = stack === 'z' ? v.facing * s.at : -v.sY * v.cP * s.at;
-      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
+      const paint = vol.parts[i].paint;
+      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m), ...(paint ? { paint } : {}) } });
     });
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
@@ -688,7 +705,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     return { kind: 'slice', key: `mark-${i}`, path: id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {
-    name: p.def.name, color, ink, paths: [...paths.values()], root,
+    name: p.def.name, color, ink, accents, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
     surface: { view: v, scale: fx.body, eyes },
   };
@@ -727,7 +744,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${esc(d.d)}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) =>
-      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${s.paint ? ` fill="${frame.accents[s.paint - 1]}"` : ''}/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
@@ -755,7 +772,10 @@ const eyePlaneCss = ({ z, dzdx, dzdy }: EyePlane) =>
   `translateZ(${u(z + CSS_EYE_LIFT)}) matrix3d(1,0,${r4(dzdx)},0,0,1,${r4(dzdy)},0,0,0,1,0,0,0,0,1)`;
 const FILL = 'position:absolute;left:0;top:0;width:100%;height:100%;';
 
-function sliceMarkup(s: VolumeSlice): string {
+const sliceFill = (def: AvatarDefinition, paint: number) =>
+  paint ? `var(--avatar-accent-${paint},${accentColor(def, undefined, paint - 1)})` : 'currentColor';
+
+function sliceMarkup(s: VolumeSlice, fill: string): string {
   const pad = 0.3;
   const x = s.box.x - pad, y = s.box.y - pad, w = s.box.w + 2 * pad, h = s.box.h + 2 * pad;
   const rule = s.evenOdd ? ' fill-rule="evenodd"' : '';
@@ -765,7 +785,7 @@ function sliceMarkup(s: VolumeSlice): string {
       `left:${u(s.at + x)};top:${u(y)};transform-origin:${u(-x)} 50%;transform:rotateY(90deg)`;
   return (
     `<svg viewBox="${f(x)} ${f(y)} ${f(w)} ${f(h)}" style="position:absolute;width:${u(w)};height:${u(h)};overflow:visible;${place}" aria-hidden="true">` +
-    `<path d="${s.d}"${rule} fill="currentColor"/></svg>`
+    `<path d="${s.d}"${rule} fill="${fill}"/></svg>`
   );
 }
 
@@ -785,7 +805,7 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
   const ink = `var(--avatar-ink,${DEFAULT_EYE_COLOR})`;
   const stack = (axis: 'z' | 'x') =>
     `<div data-stack="${axis}" style="${FILL}transform-style:preserve-3d">` +
-    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
+    vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map((s) => sliceMarkup(s, sliceFill(p.def, part.paint))).join('')).join('') +
     `</div>`;
   const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
     const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
@@ -871,7 +891,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
   const v = viewBasis(pose.yaw, pose.pitch);
   const states = eyeStates(p, pose);
   const stack = activeStack(v);
-  const drawn = sliceCull(v);
+  const drawn = sliceCull(v, p.mixed);
   const kept = sliceDetail(p, stack, options.size);
   const fx = effectsOf(p, pose, options);
   const piece = (front: boolean) => fx.ribbons.filter((r) => r.front === front).map((r) => ribbonSvg(r.d, r.gradient)).join('');
@@ -884,7 +904,7 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
     back: piece(false),
     front: piece(true) + fx.marks.map((mark) => `<path d="${esc(mark.d)}" transform="${mat(mark.matrix)}"/>`).join(''),
     stack,
-    slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
+    slices: p.vol.parts.flatMap((part, i) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s, i))),
     eyes: states.map((e, i) => ({
       visible: eyeVisible(v, p.vol.eyePlanes[i]),
       happy: e.plain === 'arc',

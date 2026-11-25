@@ -1,4 +1,4 @@
-export type { AvatarDefinition, AvatarEyes, AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState, RenderOptions, ValidationResult } from './types.ts';
+export type { AvatarAccent, AvatarDefinition, AvatarEyes, AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState, RenderOptions, ValidationResult } from './types.ts';
 export { validateAvatar } from './validate.ts';
 export {
   avatarFrame,

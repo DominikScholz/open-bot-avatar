@@ -16,7 +16,7 @@
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { lookOf, type AvatarStateDefinition } from '../motion.ts';
-import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
+import { DEFAULT_ACCENT_COLORS, DEFAULT_COLOR, DEFAULT_EYE_COLOR, accentColor, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
@@ -30,6 +30,7 @@ export interface AvatarOptions {
   color?: string;
   /** Eye color: #rgb or #rrggbb, or any CSS color. Defaults to a near-black ink. */
   eyeColor?: string;
+  accentColors?: string[];
   /**
    * The body's finish: 'flat' (default), or an imported material object.
    * Materials need canvas; the built-in fluffy and glass finishes also need WebGL2.
@@ -156,7 +157,7 @@ const keys = new WeakMap<object, string>();
 function geometryKey(definition: AvatarDefinition): string {
   let key = keys.get(definition);
   if (key === undefined) {
-    key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes]);
+    key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.body?.accents, definition?.eyes]);
     keys.set(definition, key);
   }
   return key;
@@ -223,8 +224,9 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
   const syncHost = () => {
-    host.style.color = opts.color ?? DEFAULT_COLOR;
+    host.style.color = opts.color ?? opts.definition?.body?.color ?? DEFAULT_COLOR;
     host.style.setProperty('--avatar-ink', opts.eyeColor ?? DEFAULT_EYE_COLOR);
+    DEFAULT_ACCENT_COLORS.forEach((_, k) => host.style.setProperty(`--avatar-accent-${k + 1}`, accentColor(opts.definition, opts.accentColors, k)));
     const decorative = opts.label === '';
     if (decorative) {
       host.removeAttribute('role');
@@ -255,7 +257,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
 
   const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();
-    const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+    const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor, accentColors: p.accentColors });
     const key = `${geometryKey(p.definition)}|${p.depth}`;
     if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
     // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
@@ -277,6 +279,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const options: RenderOptions = {
           color: p.color,
           eyeColor: p.eyeColor,
+          accentColors: p.accentColors,
           depth: p.depth,
           state: look.state,
           mood: look.mood,

@@ -1,6 +1,6 @@
-import { bounds, edgeBands, filledArea, flattenPath, parsePath, PathError, serializePath, splitSubpaths } from './path.ts';
+import { bounds, edgeBands, filledArea, flattenPath, isInside, parsePath, PathError, serializePath, splitSubpaths } from './path.ts';
 import type { Bounds, Point } from './path.ts';
-import type { AvatarEyes, ValidationResult } from './types.ts';
+import type { AvatarAccent, AvatarEyes, ValidationResult } from './types.ts';
 
 /** Neutral eye size at scale 1, viewBox units. */
 export const EYE_W = 4;
@@ -27,6 +27,19 @@ export const EYE_CLEARANCE = 1.5;
 
 const TOP_KEYS = ['version', 'id', 'name', 'body', 'eyes'];
 const EYE_KEYS = ['x', 'y', 'spacing', 'scale'];
+const BODY_KEYS = ['path', 'color', 'accents'];
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+export const MAX_ACCENTS = 3;
+
+function accentGroup(g: unknown): AvatarAccent | null {
+  const parts = Array.isArray(g) ? g : isRecord(g) ? g.parts : null;
+  if (!Array.isArray(parts) || !parts.length || !parts.every((i) => Number.isInteger(i) && i >= 0)) return null;
+  if (!isRecord(g)) return { parts: [...parts] };
+  if (Object.keys(g).some((k) => k !== 'parts' && k !== 'color')) return null;
+  if (g.color === undefined) return { parts: [...parts] };
+  if (typeof g.color !== 'string' || !HEX.test(g.color)) return null;
+  return { parts: [...parts], color: g.color.toLowerCase() };
+}
 
 export interface BodyHole {
   /** The hole's own subpath, serialized. */
@@ -44,6 +57,7 @@ export interface BodySubpath {
   hole: boolean;
   /** A point inside the subpath's own fill (for holes: inside the cut-out). */
   probe: Point | null;
+  index: number;
 }
 
 export interface BodyAnalysis {
@@ -156,6 +170,20 @@ export function gazeRange(polys: Point[][], eyes: AvatarEyes): GazeRange {
   return { left: reach(-1, 0), right: reach(1, 0), up: reach(0, -1), down: reach(0, 1) };
 }
 
+function signedArea2(polys: Point[][]): number {
+  let s = 0;
+  for (const poly of polys) {
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) s += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
+  }
+  return s;
+}
+
+function woundHole(own: Point[][], others: { polys: Point[][]; area2: number }[]): boolean {
+  if (signedArea2(own) >= 0) return false;
+  const pts = own.flatMap((poly) => poly.filter((_, k) => k % 4 === 0));
+  return others.some((o) => o.area2 > 0 && o.polys !== own && pts.every(([x, y]) => isInside(o.polys, x, y)));
+}
+
 export function analyzeBody(path: string, bounded = true): BodyAnalysis {
   const segs = parsePath(path, bounded);
   const polys = flattenPath(segs);
@@ -163,9 +191,9 @@ export function analyzeBody(path: string, bounded = true): BodyAnalysis {
   const whole = edgeBands(polys);
   const holes: BodyHole[] = [];
   const subpaths: BodySubpath[] = [];
-  for (const sub of splitSubpaths(segs)) {
-    const own = flattenPath(sub);
-    if (!own.length) continue;
+  const subs = splitSubpaths(segs).map((sub, index) => ({ sub, index, own: flattenPath(sub) })).filter((s) => s.own.length);
+  const wound = subs.map((s) => ({ polys: s.own, area2: signedArea2(s.own) }));
+  for (const { sub, index, own } of subs) {
     const ob = bounds(own);
     let inside = 0, cut = 0;
     let probe: Point | null = null, cutProbe: Point | null = null;
@@ -190,9 +218,9 @@ export function analyzeBody(path: string, bounded = true): BodyAnalysis {
     inside *= step * step * 4;
     const d = serializePath(sub);
     // A subpath that is mostly empty under the full fill rule is a cut-out.
-    const hole = inside > 0 && cut / inside > 0.6;
+    const hole = inside > 0 && (cut / inside > 0.6 || woundHole(own, wound));
     if (hole) holes.push({ d, area: Math.round(cut / 4) });
-    subpaths.push({ d, polys: own, hole, probe: hole ? cutProbe : probe });
+    subpaths.push({ d, polys: own, hole, probe: hole ? cutProbe ?? probe : probe, index });
   }
   return { polys, bounds: b, area: filledArea(polys, b), holes, subpaths };
 }
@@ -216,11 +244,31 @@ export function validateAvatar(input: unknown): ValidationResult {
   }
 
   let path: string | null = null;
+  let accents: AvatarAccent[] | null = null;
+  let bodyColor: string | null = null;
   if (!isRecord(input.body)) errors.push('body must be an object { "path": "..." }');
   else {
-    for (const k of Object.keys(input.body)) if (k !== 'path') errors.push(`unknown field "body.${k}" (only "path" is allowed)`);
+    for (const k of Object.keys(input.body)) if (!BODY_KEYS.includes(k)) errors.push(`unknown field "body.${k}" (allowed: ${BODY_KEYS.join(', ')})`);
     if (typeof input.body.path !== 'string') errors.push('body.path must be a string');
     else path = input.body.path;
+    if (input.body.color !== undefined) {
+      if (typeof input.body.color === 'string' && HEX.test(input.body.color)) bodyColor = input.body.color.toLowerCase();
+      else errors.push('body.color must be #rgb or #rrggbb');
+    }
+    if (input.body.accents !== undefined) {
+      const a = input.body.accents;
+      const groups = Array.isArray(a) ? a.map(accentGroup) : null;
+      if (!groups || groups.length < 1 || groups.length > MAX_ACCENTS || groups.some((g) => g === null)) {
+        errors.push(
+          `body.accents must be 1-${MAX_ACCENTS} groups, each { "parts": [subpath indexes from 0], "color": "#rrggbb" } ` +
+          '(color optional; a plain list of indexes also works)',
+        );
+      } else {
+        const flat = (groups as AvatarAccent[]).flatMap((g) => g.parts);
+        if (new Set(flat).size !== flat.length) errors.push('body.accents lists a subpath more than once');
+        else accents = groups as AvatarAccent[];
+      }
+    }
   }
 
   let eyes: AvatarEyes | null = null;
@@ -267,6 +315,12 @@ export function validateAvatar(input: unknown): ValidationResult {
     }
     if (body.area < 600) errors.push(`body fill area ${body.area} is too thin to carry eyes; must be at least 600 units²`);
 
+    if (accents) {
+      const fills = new Set(body.subpaths.filter((sp) => !sp.hole).map((sp) => sp.index));
+      const bad = accents.flatMap((g) => g.parts).filter((i) => !fills.has(i));
+      if (bad.length) errors.push(`body.accents: subpath ${bad.join(', ')} is not a filled outline of body.path`);
+    }
+
     if (eyes) {
       const miss = eyesFit(body.polys, eyes, 0, 0, EYE_MARGIN);
       if (miss) {
@@ -281,6 +335,10 @@ export function validateAvatar(input: unknown): ValidationResult {
   if (errors.length || !eyes) return { ok: false, errors };
   return {
     ok: true,
-    value: { version: 1, id: id as string, name, body: { path: normalized }, eyes: { ...eyes } },
+    value: {
+      version: 1, id: id as string, name,
+      body: { path: normalized, ...(bodyColor ? { color: bodyColor } : {}), ...(accents ? { accents } : {}) },
+      eyes: { ...eyes },
+    },
   };
 }

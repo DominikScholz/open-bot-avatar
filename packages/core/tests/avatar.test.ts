@@ -72,6 +72,18 @@ describe('path geometry', () => {
     expect(hole.probe && isInside(mug.polys, hole.probe[0], hole.probe[1])).toBe(false);
   });
 
+  it('keeps a counter-clockwise subpath a hole when another part covers most of it', () => {
+    const ringed = analyzeBody('M28 47A22 22 0 1 1 72 47A22 22 0 1 1 28 47ZM10 51A40 13 0 1 1 90 51A40 13 0 1 1 10 51ZM18 51A32 8 0 1 0 82 51A32 8 0 1 0 18 51Z');
+    expect(ringed.subpaths.map((s) => s.hole)).toEqual([false, false, true]);
+    const probe = ringed.subpaths[2].probe!;
+    expect(isInside(ringed.polys, probe[0], probe[1])).toBe(false);
+    const lens = analyzeBody('M10 10H90V90H10ZM30 30V70H70V30ZM20 20H80V80H20Z');
+    expect(lens.subpaths.map((s) => s.hole)).toEqual([false, true, false]);
+    expect(lens.subpaths[1].probe).not.toBeNull();
+    const loose = analyzeBody('M10 10H90V90H10ZM30 30H70V70H30Z');
+    expect(loose.subpaths.map((s) => s.hole)).toEqual([false, false]);
+  });
+
   it('expands relative and shorthand commands to absolute geometry', () => {
     const a = flattenPath(parsePath('M20 20h60v60h-60z'));
     const b = flattenPath(parsePath('M20 20L80 20L80 80L20 80Z'));
@@ -81,6 +93,32 @@ describe('path geometry', () => {
 });
 
 describe('validateAvatar', () => {
+  const hat = (accents: unknown) => ({
+    version: 1, id: 'hat', name: 'Hat', eyes: { x: 50, y: 41, spacing: 15, scale: 1 },
+    body: { path: 'M28 47A22 22 0 1 1 72 47A22 22 0 1 1 28 47ZM10 51A40 13 0 1 1 90 51A40 13 0 1 1 10 51ZM18 51A32 8 0 1 0 82 51A32 8 0 1 0 18 51ZM38 30L50 12L62 30ZM34 30A16 4 0 1 1 66 30A16 4 0 1 1 34 30ZM47 12A3 3 0 1 1 53 12A3 3 0 1 1 47 12Z', accents },
+  });
+
+  it('keeps accent groups of filled outlines and rejects anything else', () => {
+    const ok = validateAvatar(hat([[3], [4, 5]]));
+    expect(ok.ok && ok.value.body.accents).toEqual([{ parts: [3] }, { parts: [4, 5] }]);
+    const colored = validateAvatar(hat([{ parts: [3], color: '#D93025' }, { parts: [4, 5] }]));
+    expect(colored.ok && colored.value.body.accents).toEqual([{ parts: [3], color: '#d93025' }, { parts: [4, 5] }]);
+    for (const bad of [[{ parts: [3], color: 'red' }], [{ parts: [3], tint: '#fff' }], [{ color: '#fff' }]]) {
+      expect(validateAvatar(hat(bad)).ok, JSON.stringify(bad)).toBe(false);
+    }
+    const plain = validateAvatar({ ...hat(undefined), body: { path: hat(undefined).body.path } });
+    expect(plain.ok && 'accents' in plain.value.body).toBe(false);
+    for (const bad of [[], [[]], [[0], [1], [3], [4]], [[1.5]], [[-1]], '3', [[3, 3]], [[3], [3]]]) {
+      expect(validateAvatar(hat(bad)).ok, JSON.stringify(bad)).toBe(false);
+    }
+    const blue = validateAvatar({ ...hat(undefined), body: { path: hat(undefined).body.path, color: '#7CC4F2' } });
+    expect(blue.ok && blue.value.body.color).toBe('#7cc4f2');
+    expect(validateAvatar({ ...hat(undefined), body: { path: hat(undefined).body.path, color: 'blue' } }).ok).toBe(false);
+    const hole = validateAvatar(hat([[2]]));
+    expect(!hole.ok && hole.errors.join()).toMatch(/subpath 2 is not a filled outline/);
+    expect(validateAvatar(hat([[9]])).ok).toBe(false);
+  });
+
   it('rejects markup, styling and unknown fields', () => {
     const withScript = clone(controller);
     withScript.body.path = 'M10 10L90 10L90 90Z"/><script>alert(1)</script>';

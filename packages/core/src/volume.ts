@@ -26,7 +26,20 @@ import { EYE_H, EYE_W, GAZE_X, GAZE_Y, analyzeBody, drawnEyesFit, eyeCenters, ey
 import type { BodyAnalysis, GazeRange } from './validate.ts';
 import type { AvatarDefinition, AvatarEyes } from './types.ts';
 
-export type PartKind = 'inflate' | 'revolve-x' | 'revolve-y';
+export type PartKind = 'inflate' | 'revolve-x' | 'revolve-y' | 'orbit';
+
+export interface Orbit {
+  cx: number;
+  cy: number;
+  mx: number;
+  my: number;
+  k: number;
+  sheet: number;
+}
+
+export function orbitDepth(o: Orbit, x: number, y: number): number {
+  return o.k * ((x - o.cx) * o.mx + (y - o.cy) * o.my);
+}
 
 export interface VolumeSlice {
   /** 'z': the plane z = at, path in (x, y). 'x': the plane x = at, path in (u = -z, y). */
@@ -59,6 +72,9 @@ export interface VolumePart {
   rz: number;
   /** Revolved parts: the axis (y for revolve-x, x for revolve-y). */
   axis?: number;
+  orbit?: Orbit;
+  paint: number;
+  lift: number;
   zSlices: VolumeSlice[];
   xSlices: VolumeSlice[];
   /** Front surface height at a point, 0 outside the part. */
@@ -530,6 +546,168 @@ function levels(flat: number, round: number, steps: number): number[] {
   return out;
 }
 
+interface EllipseFit { cx: number; cy: number; a: number; b: number; ux: number; uy: number }
+
+export function ellipseFit(polys: Point[][]): EllipseFit | null {
+  let A = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (const poly of polys) {
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [px, py] = poly[j], [qx, qy] = poly[i];
+      const c = px * qy - qx * py;
+      A += c;
+      sx += (px + qx) * c;
+      sy += (py + qy) * c;
+      sxx += (px * px + px * qx + qx * qx) * c;
+      syy += (py * py + py * qy + qy * qy) * c;
+      sxy += (px * qy + 2 * px * py + 2 * qx * qy + qx * py) * c;
+    }
+  }
+  A /= 2;
+  if (Math.abs(A) < 1) return null;
+  const cx = sx / (6 * A), cy = sy / (6 * A);
+  const vxx = sxx / (12 * A) - cx * cx, vyy = syy / (12 * A) - cy * cy, vxy = sxy / (24 * A) - cx * cy;
+  const mid = (vxx + vyy) / 2, spread = Math.sqrt(Math.max(0, ((vxx - vyy) / 2) ** 2 + vxy * vxy));
+  if (mid - spread <= 0) return null;
+  const a = 2 * Math.sqrt(mid + spread), b = 2 * Math.sqrt(mid - spread);
+  const angle = 0.5 * Math.atan2(2 * vxy, vxx - vyy);
+  const ux = Math.cos(angle), uy = Math.sin(angle);
+  if (Math.abs(Math.abs(A) - Math.PI * a * b) > 0.03 * Math.PI * a * b) return null;
+  for (const poly of polys) {
+    for (const [x, y] of poly) {
+      const u = (x - cx) * ux + (y - cy) * uy, w = (y - cy) * ux - (x - cx) * uy;
+      if (Math.abs(Math.hypot(u / a, w / b) - 1) > 0.06) return null;
+    }
+  }
+  return { cx, cy, a, b, ux, uy };
+}
+
+const ORBIT_ASPECT = 1.6;
+
+export function orbitOf(outline: Point[][], cut: Point[][] | null, others: Point[][][], volume: number): Orbit | null {
+  if (!cut || volume <= 0) return null;
+  const outer = ellipseFit(outline), inner = ellipseFit(cut);
+  if (!outer || !inner || outer.a < ORBIT_ASPECT * outer.b) return null;
+  if (Math.hypot(outer.cx - inner.cx, outer.cy - inner.cy) > 0.06 * outer.a) return null;
+  if (Math.abs(outer.ux * inner.uy - outer.uy * inner.ux) > 0.15) return null;
+  const holds = others.some((polys) => {
+    const ob = bounds(polys);
+    const dx = (ob.minX + ob.maxX) / 2 - inner.cx, dy = (ob.minY + ob.maxY) / 2 - inner.cy;
+    return Math.hypot((dx * inner.ux + dy * inner.uy) / inner.a, (dy * inner.ux - dx * inner.uy) / inner.b) < 1;
+  });
+  if (!holds) return null;
+  const down = outer.ux >= 0 ? 1 : -1;
+  const sheet = Math.min(4, Math.max(1.5, 0.4 * (outer.a - inner.a))) * Math.min(1, volume);
+  return {
+    cx: outer.cx, cy: outer.cy, mx: -outer.uy * down, my: outer.ux * down,
+    k: (volume * Math.sqrt(outer.a ** 2 - outer.b ** 2)) / outer.b, sheet,
+  };
+}
+
+function clipBand(poly: Point[], o: Orbit, lo: number, hi: number): Point[] {
+  const w = (p: Point) => (p[0] - o.cx) * o.mx + (p[1] - o.cy) * o.my;
+  let pts = poly;
+  for (const [edge, keep] of [[lo, 1], [hi, -1]] as const) {
+    const out: Point[] = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], q = pts[(i + 1) % pts.length];
+      const dp = keep * (w(p) - edge), dq = keep * (w(q) - edge);
+      if (dp >= 0) out.push(p);
+      if ((dp >= 0) !== (dq >= 0)) {
+        const t = dp / (dp - dq);
+        out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+      }
+    }
+    pts = out;
+    if (pts.length < 3) return [];
+  }
+  return pts;
+}
+
+function bandLoops(uw: Point[][], o: Orbit, lo: number, hi: number): Point[][] | null {
+  const rows = 5;
+  const runs: number[][] = [];
+  for (let r = 0; r < rows; r++) {
+    const us = crossings(uw, true, lo + ((hi - lo) * r) / (rows - 1));
+    if (us.length % 2 || (runs.length && us.length !== runs[0].length)) return null;
+    runs.push(us);
+  }
+  if (!runs[0].length) return [];
+  const ex = o.my, ey = -o.mx;
+  const at = (u: number, w: number): Point => [o.cx + u * ex + w * o.mx, o.cy + u * ey + w * o.my];
+  const loops: Point[][] = [];
+  for (let k = 0; k < runs[0].length; k += 2) {
+    const left = runs.map((us, r) => at(us[k], lo + ((hi - lo) * r) / (rows - 1)));
+    const right = runs.map((us, r) => at(us[k + 1], lo + ((hi - lo) * r) / (rows - 1)));
+    loops.push([...left, ...right.reverse()]);
+  }
+  return loops;
+}
+
+function orbitPart(polys: Point[][], d: string, b: Bounds, o: Orbit, paint: number): VolumePart {
+  const uw = polys.map((p) => p.map(([x, y]): Point => [(x - o.cx) * o.my - (y - o.cy) * o.mx, (x - o.cx) * o.mx + (y - o.cy) * o.my]));
+  const half = Math.max(Math.abs(orbitDepth(o, b.minX, b.minY)), Math.abs(orbitDepth(o, b.maxX, b.maxY)),
+    Math.abs(orbitDepth(o, b.minX, b.maxY)), Math.abs(orbitDepth(o, b.maxX, b.minY)));
+  const reach = half / Math.max(o.k, 1e-6);
+  const n = Math.max(8, Math.min(120, Math.round((2 * reach) / 0.35)));
+  const step = (2 * reach) / n;
+  const zSlices: VolumeSlice[] = [];
+  for (let i = 0; i < n; i++) {
+    const mid = -reach + (i + 0.5) * step;
+    const lo = mid - 0.8 * step, hi = mid + 0.8 * step;
+    const loops = bandLoops(uw, o, lo, hi) ?? polys.map((p) => clipBand(p, o, lo, hi)).filter((l) => l.length >= 3);
+    if (!loops.length) continue;
+    zSlices.push({ axis: 'z', at: o.k * mid, d: loopsToPath(loops), loops, evenOdd: true, box: loopBox(loops), inset: 0 });
+  }
+
+  const xSlices: VolumeSlice[] = [];
+  const width = b.maxX - b.minX;
+  const every = Math.max(1.1, width / MAX_X_SLICES);
+  for (let x = b.minX + every / 2; x < b.maxX; x += every) {
+    const ys = crossings(polys, false, x);
+    const loops: Point[][] = [];
+    for (let k = 0; k + 1 < ys.length; k += 2) {
+      const front: Point[] = [], back: Point[] = [];
+      const m = Math.max(1, Math.ceil((ys[k + 1] - ys[k]) / 0.5));
+      for (let q = 0; q <= m; q++) {
+        const y = ys[k] + ((ys[k + 1] - ys[k]) * q) / m, z = orbitDepth(o, x, y);
+        front.push([-z - o.sheet / 2, y]);
+        back.push([-z + o.sheet / 2, y]);
+      }
+      loops.push([...front, ...back.reverse()]);
+    }
+    if (loops.length) xSlices.push({ axis: 'x', at: x, d: loopsToPath(loops), loops, evenOdd: true, box: loopBox(loops), inset: 0 });
+  }
+
+  const filled = edgeBands(polys);
+  return {
+    kind: 'orbit', d, polys, bounds: b, center: [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2],
+    thickness: o.sheet, depth: 2 * (half + o.sheet / 2), rxy: 0, rz: 0, orbit: o, paint, lift: 0,
+    zSlices, xSlices,
+    height: (x, y) => (filled.winding(x, y) !== 0 ? Math.max(0, orbitDepth(o, x, y) + o.sheet / 2) : 0),
+  };
+}
+
+const RESTING_SHARE = 0.8;
+const LIFT_GAP = 3;
+
+function liftPart(part: VolumePart, lift: number): void {
+  const height = part.height;
+  part.lift += lift;
+  part.height = (x, y) => {
+    const h = height(x, y);
+    return h > 0 ? h + lift : 0;
+  };
+  for (const s of part.zSlices) {
+    s.at += lift;
+    s.inset = 0;
+  }
+  for (const s of part.xSlices) {
+    s.loops = s.loops.map((loop) => loop.map(([u, y]): Point => [u - lift, y]));
+    s.d = loopsToPath(s.loops);
+    s.box = loopBox(s.loops);
+  }
+}
+
 /** Build the implied volume. `volume` scales every depth (0 = flat). Pass `body` to reuse an analysis. */
 export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysis = analyzeBody(def.body.path)): Volume {
   const outlines = body.subpaths.filter((s) => !s.hole);
@@ -537,13 +715,30 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
   const v = Number.isFinite(volume) ? Math.max(0, volume) : 1;
   const xAxis = revolveAxis(body);
 
+  const area = (polys: Point[][]) => {
+    const ob = bounds(polys);
+    return (ob.maxX - ob.minX) * (ob.maxY - ob.minY);
+  };
+  const ownerOf = (h: (typeof holes)[number]) => {
+    const around = h.probe ? outlines.filter((o) => isInside(o.polys, h.probe![0], h.probe![1])) : [];
+    const rim = h.polys.flatMap((poly) => poly.filter((_, k) => k % 4 === 0));
+    const whole = around.filter((o) => rim.every(([x, y]) => isInside(o.polys, x, y)));
+    const pool = whole.length ? whole : around;
+    return pool.length ? pool.reduce((m, o) => (area(o.polys) < area(m.polys) ? o : m)) : null;
+  };
+  const owners = new Map(holes.map((h) => [h, ownerOf(h)]));
+
   const parts: VolumePart[] = outlines.map((o) => {
-    const cuts = holes.filter((h) => h.probe && isInside(o.polys, h.probe[0], h.probe[1]));
+    const cuts = holes.filter((h) => owners.get(h) === o);
     const polys = [...o.polys, ...cuts.flatMap((h) => h.polys)];
     const b = bounds(o.polys);
     const center: Point = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
     const minDim = Math.min(b.maxX - b.minX, b.maxY - b.minY);
     const step = Math.max(0.25, Math.min(0.45, minDim / 24));
+    const others = outlines.filter((x) => x !== o).map((x) => x.polys);
+    const orbit = cuts.length === 1 ? orbitOf(o.polys, cuts[0].polys, others, v) : null;
+    const paint = 1 + (def.body.accents ?? []).findIndex((g) => g.parts.includes(o.index));
+    if (orbit) return orbitPart(polys, o.d + cuts[0].d, b, orbit, paint);
 
     // Classify: shared horizontal axis, own vertical axis (multi-part bodies only), or inflated.
     let kind: PartKind = 'inflate';
@@ -586,7 +781,9 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       sampleHeights(g, surface);
       const steps = kind === 'inflate'
         ? Math.max(4, Math.min(14, Math.round(rz / 0.8)))
-        : Math.max(5, Math.min(18, Math.round(half / 1.1)));
+        : paint
+          ? Math.max(10, Math.min(36, Math.round(half / 0.55)))
+          : Math.max(5, Math.min(18, Math.round(half / 1.1)));
       // Inflated parts keep a straight wall up to half - rz; one slice at its end carries it.
       const ls = kind === 'inflate' ? [half - rz, ...levels(half - rz, rz, steps)] : levels(0, half, steps);
       const cut = kind === 'inflate' ? insetCuts(g, surface.fillet) : revolveCuts(g, surface);
@@ -624,11 +821,42 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
     }
 
     return {
-      kind, d: core.d, polys, bounds: b, center, thickness, depth, rxy, rz,
+      kind, d: core.d, polys, bounds: b, center, thickness, depth, rxy, rz, paint, lift: 0,
       axis: kind === 'revolve-x' ? (xAxis as number) : kind === 'revolve-y' ? center[0] : undefined,
       zSlices, xSlices, height,
     };
   });
+
+  const sample = (i: number) => outlines[i].polys.flatMap((poly) => poly.filter((_, k) => k % 4 === 0));
+  const accents = parts.map((_, i) => i).filter((i) => parts[i].paint && parts[i].kind !== 'orbit');
+  const every = (i: number) => outlines[i].polys.flat();
+  const touch = (i: number, j: number) =>
+    every(i).some(([x, y]) => isInside(outlines[j].polys, x, y)) || every(j).some(([x, y]) => isInside(outlines[i].polys, x, y));
+  const piece = new Map<number, number>();
+  for (const i of accents) {
+    if (piece.has(i)) continue;
+    const stack = [i];
+    piece.set(i, i);
+    while (stack.length) {
+      const k = stack.pop()!;
+      for (const j of accents) if (!piece.has(j) && (parts[j].paint === parts[k].paint || touch(k, j))) { piece.set(j, i); stack.push(j); }
+    }
+  }
+  const lifts = new Map<number, number>();
+  for (const i of accents) {
+    const pts = sample(i);
+    const hosts = outlines.filter((h, j) => !parts[j].paint && pts.filter(([x, y]) => isInside(h.polys, x, y)).length >= RESTING_SHARE * pts.length);
+    if (!hosts.length) continue;
+    const host = parts[outlines.indexOf(hosts.reduce((m, h) => (area(h.polys) < area(m.polys) ? h : m)))];
+    const lift = host.height(parts[i].center[0], parts[i].center[1]) - parts[i].depth / 2 + LIFT_GAP;
+    const root = piece.get(i)!;
+    lifts.set(root, Math.max(lifts.get(root) ?? 0, lift));
+  }
+  const floating = Math.max(0, ...lifts.values());
+  for (const i of accents) {
+    const lift = lifts.get(piece.get(i)!) ?? floating;
+    if (lift > 0) liftPart(parts[i], lift);
+  }
 
   const eyeScale = boostedEyeScale(body, def.eyes);
   // The eyes ride on whichever part is highest under their centers.
