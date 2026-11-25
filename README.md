@@ -61,8 +61,8 @@ avatar.destroy();
 | Option | |
 | --- | --- |
 | `definition` | The avatar. Required. |
-| `color`, `eyeColor` | `#rgb` or `#rrggbb`. Default: `#ff6a1a`, `#151515`. |
-| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`, or a [state of your own](packages/core/README.md#custom-states). |
+| `color`, `eyeColor` | `#rgb`, `#rrggbb` or any CSS color. Default: `#ff6a1a`, `#151515`. |
+| `state` | What the bot is doing: `"idle"` (default), `"thinking"`, `"working"`, `"waiting"`, `"blocked"` or `"done"`, or a [state of your own](#custom-states). |
 | `mood` | How it feels: `"neutral"` (default) or `"happy"`. It shapes the eyes on any state. |
 | `followPointer` | Look at the mouse or finger. Default: `false`. |
 | `lookAt` | A fixed look direction, `{ x, y }` from -1 to 1. Wins over the pointer. |
@@ -70,13 +70,22 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `material` | `"flat"` (default), or an imported `fluffy` / `glass` material. |
-| `still` | One static image, no animation. Default: `false`. |
+| `material` | The body's finish: `"flat"` (default), or an imported material, `fluffy` or `glass`. See [Materials](#materials). |
+| `still` | One fixed pose, no animation: an SVG, or one painted canvas for an imported material. Default: `false`. |
+| `renderer` | `"canvas"` (default) or `"scene"`, a CSS 3D scene: more CPU, less video memory for one large avatar. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 
-## Optional materials
+## Materials
 
-DOM mounting ships the flat renderer. Import a material explicitly to include its renderer:
+A material is the body's finish. There are three. The [docs](https://dominikscholz.github.io/open-bot-avatar/#/docs) show them live.
+
+| Material | Import | Look |
+| --- | --- | --- |
+| `"flat"` | Built in. Nothing to import. | Solid color. The default. |
+| `fluffy` | `import { fluffy } from "open-bot-avatar/materials/fluffy"` | A coat of fur with the eyes set into it. |
+| `glass` | `import { glass } from "open-bot-avatar/materials/glass"` | Tinted glass with reflections and refraction inside the body. It does not refract the page behind the avatar. |
+
+Mounting ships the flat renderer only. A material is a value you import and pass as `material`, so a bundler leaves out the ones you don't use:
 
 ```ts
 import { mountAvatar } from "open-bot-avatar/dom";
@@ -86,29 +95,31 @@ const avatar = mountAvatar(element, { definition, material: glass });
 avatar.update({ material: "flat" });
 ```
 
-For fur, import `{ fluffy }` from `open-bot-avatar/materials/fluffy` and pass `material: fluffy`.
-There is no global registration. Each entry imports only its own renderer and shared helpers;
-a production bundler can discard unused materials. The Studio includes both because its picker
-uses both. Importing a material does not create a WebGL context; its first draw does.
+- Fluffy and glass need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` and `renderAvatarSvg` always draw flat.
+- A material is a value, not a name. `material: "fluffy"`, as it was written before, draws flat and logs one warning that names the import. Keep names in storage and links, and map them to the imported values where you render.
+- Writing a material of your own (the `CanvasMaterial` type) is experimental and may change in a minor release.
 
-Both materials need the canvas renderer and WebGL2. They fall back to flat paths when WebGL2 is
-unavailable, and `renderer: "scene"` continues to draw flat. A material with `still: true` paints
-one canvas instead of an SVG. Glass uses a sampled 3D distance field and a ray-marching shader
-with approximate studio reflections, refraction and absorption. It does not refract the DOM
-behind the avatar.
+More in the [package README](packages/core/README.md#materials).
 
-**Migration:** `material: "fluffy"` is replaced by an explicit import and `material: fluffy`.
-The old string now draws flat and logs one warning that names the import. The default and
-`material: "flat"` are unchanged. Stored material names should be resolved to material objects
-in the application's rendering layer, as in the Studio; do not store the objects themselves in
-JSON. The `AvatarMaterial` type is exported by `open-bot-avatar/dom` and no longer by
-`open-bot-avatar`, which has no DOM types in it.
+## Custom states
 
-**Materials of your own are experimental.** A material is a `CanvasMaterial` (exported by
-`open-bot-avatar/dom`): `render` returns a canvas image, or `null` for the flat fallback, and
-`margin` reserves space outside the projected body. `render` is given the renderer's own model
-of the body and the view, which are not public yet, so this interface may change in a minor
-release. Pass the same material object on every update, and return from `render` synchronously.
+> **Experimental.** States and marks of your own are written against the renderer's own model of a pose. Its fields may be renamed or removed in a minor release. The six names are stable.
+
+If your bot has a status the six states don't cover, pass a definition instead of a name: an `id` and a `pose` function that returns what differs from the resting pose.
+
+```ts
+import type { AvatarStateDefinition } from "open-bot-avatar";
+
+// The body stays: calm as in idle, leaning, with narrowed eyes.
+const listening: AvatarStateDefinition = {
+  id: "listening",
+  pose: (ctx) => ({ ...ctx.rest(), roll: 6 + ctx.wave(4), squintL: 0.3, squintR: 0.3 }),
+};
+
+avatar.update({ state: listening });
+```
+
+A pose can also name a mark the body gives way to, as `thinking` and `blocked` do. Every material draws a mark in its own shape. The [package README](packages/core/README.md#custom-states) has a question mark as an example, and the details.
 
 ## SVG
 

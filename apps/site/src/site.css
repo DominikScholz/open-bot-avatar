@@ -278,6 +278,102 @@
       outline-offset: 2px;
     }
 
+    /* Notes under an example: short points, in the text's own color. */
+    .docs .notes {
+      max-width: 68ch;
+      margin: 12px 0 0;
+      padding-left: 1.2em;
+      color: var(--muted);
+    }
+
+    .docs .notes li + li {
+      margin-top: 6px;
+    }
+
+    /* One avatar in each material, side by side: flat, fluffy, glass. */
+    .finishes {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .finish {
+      margin: 0;
+      padding: 20px 12px 12px;
+      border-radius: 14px;
+      background: #171717;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .finish-avatar {
+      width: min(100%, 168px);
+    }
+
+    .finish figcaption {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-align: center;
+    }
+
+    .finish strong {
+      font-weight: 600;
+    }
+
+    .finish-text {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* The import line, on the page's ground so it reads as code inside the card. */
+    .docs .finish pre.code {
+      margin: 8px 0 0;
+      padding: 9px 10px;
+      border-radius: 10px;
+      background: var(--bg);
+      font-size: 12px;
+      text-align: left;
+    }
+
+    /* The entry's path stays whole: the line breaks before it, not at one of its hyphens. */
+    .docs .finish pre.code .sh__token--string {
+      white-space: nowrap;
+    }
+
+    /* A custom state in each material: smaller, with the state to pick under the row. */
+    .state-demo {
+      margin: 16px 0;
+      padding: 16px 14px 12px;
+      border-radius: 14px;
+      background: #171717;
+    }
+
+    .finishes-small {
+      max-width: 480px;
+      margin: 0 auto 8px;
+    }
+
+    .finishes-small .finish {
+      padding: 0;
+      gap: 4px;
+      background: none;
+    }
+
+    .finishes-small .finish-avatar {
+      width: min(100%, 112px);
+    }
+
+    .finishes-small .finish strong {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+
     .docs .props caption {
       text-align: left;
       margin-bottom: 8px;
@@ -374,6 +470,19 @@
 
       .props th {
         white-space: normal;
+      }
+
+      /* The cards stack, each with its avatar beside its text; a custom state keeps its row of three. */
+      .finishes-large {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .finishes-large .finish {
+        padding: 14px;
+      }
+
+      .finishes-large .finish-avatar {
+        width: 132px;
       }
 
     }

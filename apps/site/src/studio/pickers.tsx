@@ -39,7 +39,7 @@ interface RadioGroupProps<T extends string> {
   tips?: boolean;
 }
 
-function RadioGroup<T extends string>({ label, value, options, onChange, className, itemClassName, render, iconOnly, tips }: RadioGroupProps<T>) {
+export function RadioGroup<T extends string>({ label, value, options, onChange, className, itemClassName, render, iconOnly, tips }: RadioGroupProps<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const [hovered, setHovered] = useState<T | null>(null);
   const [focused, setFocused] = useState<T | null>(null);

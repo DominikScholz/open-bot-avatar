@@ -43,7 +43,7 @@ avatar.destroy();
 | `view` | Extra `{ yaw, pitch }` rotation in radians, relative to the resting view. |
 | `depth` | Volume amount from 0 to 14. Default: 6; 0 is flat. |
 | `reducedMotion` | `true`, `false` or `"system"` (default), which follows `prefers-reduced-motion`. |
-| `material` | The body's finish: `"flat"` (default), or an imported material: `fluffy`, a coat of fur with the eyes set into it, or `glass`. See [Materials](#materials). |
+| `material` | The body's finish: `"flat"` (default), or an imported material, `fluffy` or `glass`. See [Materials](#materials). |
 | `still` | Render one fixed pose without animation: a static SVG, or for a material one painted canvas. Default: `false`. |
 | `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
 | `label` | Accessible name. Defaults to the definition's name; `""` marks it decorative. |
@@ -76,16 +76,44 @@ import type { AvatarMark, AvatarStateDefinition } from "open-bot-avatar";
 // This one is a question mark: a hook over a dot, sized in `unit`.
 const question: AvatarMark = {
   id: "question",
-  parts: ({ unit: u }) => {
-    const arc = (r: number, large: 0 | 1, sweep: 0 | 1, x: number, y: number) => `A${r * u} ${r * u} 0 ${large} ${sweep} ${x * u} ${y * u}`;
-    const hook =
-      `M${-0.26 * u} ${-0.062 * u}` + arc(0.26, 1, 1, 0.13, 0.163) + arc(0.08, 0, 0, 0.09, 0.232) + arc(0.09, 0, 1, -0.09, 0.232) +
-      arc(0.26, 0, 1, 0.04, 0.007) + arc(0.08, 1, 0, -0.08, -0.062) + arc(0.09, 0, 1, -0.26, -0.062) + "Z";
+  parts: ({ unit: u, time }) => {
+    const arc = (r: number, large: 0 | 1, sweep: 0 | 1, x: number, y: number) =>
+      `A${r * u} ${r * u} 0 ${large} ${sweep} ${x * u} ${y * u}`;
+    const hook = [
+      `M${-0.26 * u} ${-0.062 * u}`,
+      arc(0.26, 1, 1, 0.13, 0.163),
+      arc(0.08, 0, 0, 0.09, 0.232),
+      arc(0.09, 0, 1, -0.09, 0.232),
+      arc(0.26, 0, 1, 0.04, 0.007),
+      arc(0.08, 1, 0, -0.08, -0.062),
+      arc(0.09, 0, 1, -0.26, -0.062),
+      "Z",
+    ].join("");
     const w = 0.52 * u, h = 0.645 * u, r = 0.115 * u, gap = 0.1 * u;
+    const dot = `M${r} 0A${r} ${r} 0 1 1 ${-r} 0A${r} ${r} 0 1 1 ${r} 0Z`;
     const top = -(h + gap + 2 * r) / 2;
+    // The mark tilts from side to side. `time` is 0 under reduced motion, so it holds still.
+    const turn = 0.12 * Math.sin(2.4 * time);
     return [
-      { shape: "question-hook", d: hook, box: { x: -w / 2, y: -h / 2, w, h }, x: 0, y: top + h / 2, turn: 0, scale: 1 },
-      { shape: "question-dot", d: `M${r} 0A${r} ${r} 0 1 1 ${-r} 0A${r} ${r} 0 1 1 ${r} 0Z`, box: { x: -r, y: -r, w: 2 * r, h: 2 * r }, x: 0, y: -top - r, turn: 0, scale: 1 },
+      {
+        shape: "question-hook",
+        d: hook,
+        box: { x: -w / 2, y: -h / 2, w, h },
+        x: 0,
+        y: top + h / 2,
+        turn,
+        scale: 1,
+      },
+      {
+        shape: "question-dot",
+        d: dot,
+        box: { x: -r, y: -r, w: 2 * r, h: 2 * r },
+        x: 0,
+        y: -top - r,
+        turn,
+        scale: 1,
+        round: true, // A circle that fills its box: a material draws it from a ready ball.
+      },
     ];
   },
 };
@@ -111,6 +139,7 @@ A definition works wherever a state does: `mountAvatar`, `update`, the render fu
 - `pose` receives a context with the clock (`t`, `wave`), the state's age (`stateAge`), the mood, `reducedMotion`, the resting pose (`base`) and the calm idle pose (`rest`). It must be a pure function of the context. Under `reducedMotion`, `t` is 0 and `wave` returns 0; a pose that uses neither holds still.
 - `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
 - A mark's `parts` are sized in `unit`, a share of the body's smaller side. Keep each outline the same from frame to frame, and animate a part with `x`, `y`, `turn` and `scale`: a live renderer keeps what it builds per outline.
+- `parts` also receives the clock (`time`, in seconds) and `still`, which is true under reduced motion. `time` is 0 then, so a mark that moves with `time` alone holds still.
 - A [material](#materials) draws every part in the shape of its outline: fur in `fluffy`, glass in `glass`. A part that is a circle or an upright capsule filling `box` can set `round: true` to be drawn from a ready ball, which is cheaper the first time.
 - Your code is held to what can be drawn. A pose field that is left out or is not a finite number keeps the resting pose's. A part without a `shape`, an outline `d` or a `box` with a size is left out, and a part's `x`, `y`, `turn` or `scale` that is not a finite number counts as 0, 0, 0 and 1. A `pose` or `parts` function that throws is not caught.
 - `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
@@ -133,7 +162,15 @@ const states: Record<string, AvatarOptions["state"]> = {
 
 ### Materials
 
-Mounting ships the flat renderer only. A material is a value you import, so a bundler leaves out the ones you don't use:
+A material is the body's finish. There are three. The [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) shows them live.
+
+| Material | Import | Look |
+| --- | --- | --- |
+| `"flat"` | Built in. Nothing to import. | Solid color. The default. |
+| `fluffy` | `import { fluffy } from "open-bot-avatar/materials/fluffy"` | A coat of fur with the eyes set into it. |
+| `glass` | `import { glass } from "open-bot-avatar/materials/glass"` | Tinted glass with reflections and refraction inside the body. It does not refract the page behind the avatar. |
+
+Mounting ships the flat renderer only. A material is a value you import and pass as `material`, so a bundler leaves out the ones you don't use:
 
 ```ts
 import { mountAvatar } from "open-bot-avatar/dom";
@@ -143,11 +180,13 @@ const avatar = mountAvatar(element, { definition, material: glass });
 avatar.update({ material: "flat" });
 ```
 
-- `fluffy`, from `open-bot-avatar/materials/fluffy`, is a coat of fur with the eyes set into it.
-- `glass`, from `open-bot-avatar/materials/glass`, is tinted glass with reflections and refraction inside the body. It does not refract the page behind the avatar.
-- Both need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` always draws flat. Importing a material does not create a WebGL context; its first draw does.
+- Fluffy and glass need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` and `renderAvatarSvg` always draw flat.
+- Importing a material does not create a WebGL context; its first draw does.
+- With `still: true`, a material paints one canvas instead of an SVG.
 - A material is a value, not a name. `material: "fluffy"`, as it was written before, draws flat and logs one warning that names the import. Keep names in storage and links, and map them to the imported values where you render.
-- The `AvatarMaterial` type is exported by `open-bot-avatar/dom`. Writing a material of your own (the `CanvasMaterial` type) is experimental and may change in a minor release.
+- The `AvatarMaterial` type is exported by `open-bot-avatar/dom`, not by `open-bot-avatar`.
+
+> **Experimental.** Writing a material of your own is not settled. A material is a `CanvasMaterial` (exported by `open-bot-avatar/dom`): `render` draws one shape, the body or one part of a mark, to a canvas image, or returns `null` to have it drawn flat, and `margin` reserves room outside the projected body. `render` is given the renderer's own model of the shape and the view, which are not public yet, so this interface may change in a minor release. Pass the same material object on every update, and return from `render` synchronously. `fluffy` and `glass` as values to pass are stable.
 
 ## React
 
@@ -197,7 +236,7 @@ Both functions accept `RenderOptions`:
 - `reducedMotion` is a boolean, defaulting to `false`. It freezes body motion, blinking and marks and leaves out ribbons; gaze still applies. It does not read system preferences.
 - `motionBlend` lets a custom animation host blend from what was shown before: `{ from, t }`, with `t` from 0 to 1. `from` is `{ state, mood, age?, blend? }`, where `age` is that state's `stateAge` when the change began and `blend` an interrupted transition.
 
-A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the marks of `thinking` and `blocked` are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled with a linear `gradient` along their ribbon (`fill` is its middle colour): each ribbon is a shade of the body's own color, a step lighter or darker and turned a little warmer or cooler with it, and runs further from the body's lightness towards its head; on a white, gray or black body the ribbons are grays. `front` says whether the piece is drawn in front of the body. The ribbons ride hoops centred on the body that stand just outside its outline, so they pass behind it only off its edge.
+A frame from `avatarFrame` lists three kinds of shapes. Slices are filled in the body color; the parts of a mark (the dots of `thinking`, the exclamation mark of `blocked`, a mark of your own) are slices too. Eyes are a pill, the happy arc, or a filled `path` for every other look (a waiting bot's slits, and the shapes on the way from one look to the next). Ribbon pieces are filled with a linear `gradient` along their ribbon (`fill` is its middle colour): each ribbon is a shade of the body's own color, a step lighter or darker and turned a little warmer or cooler with it, and runs further from the body's lightness towards its head; on a white, gray or black body the ribbons are grays. `front` says whether the piece is drawn in front of the body. The ribbons ride hoops centred on the body that stand just outside its outline, so they pass behind it only off its edge.
 
 ## Definitions and validation
 
