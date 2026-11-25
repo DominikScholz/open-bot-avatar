@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { examples } from '../src/examples.ts';
 import { flattenPath, parsePath } from '../src/path.ts';
-import { avatarFrame, liveFrame, renderAvatarSvg } from '../src/render.ts';
+import { avatarFrame, liveFrame, preparedVolume, renderAvatarSvg } from '../src/render.ts';
 
 const poses = [
   { time: 0, reducedMotion: true },
@@ -74,6 +75,28 @@ describe('avatarFrame', () => {
         }
       }
     }
+  });
+});
+
+describe('slices skipped inside their own part', () => {
+  const hat = JSON.parse(readFileSync(new URL('./fixtures/christmas-ghost.json', import.meta.url), 'utf8'));
+  const { vol } = preparedVolume(hat);
+  const drawn = (i: number, view: { yaw: number; pitch: number }) =>
+    avatarFrame(hat, { reducedMotion: true, view }).shapes.filter((s) => s.kind === 'slice' && s.key.startsWith(`${i}z`)).length;
+  const brim = vol.parts.findIndex((p) => p.paint === 2 && p.kind === 'revolve-y' && p.depth > 30);
+  const cone = vol.parts.findIndex((p) => p.paint === 1 && p.kind === 'revolve-y');
+
+  it('are all drawn on accents another accent color overlaps: the red cone stays inside the white brim', () => {
+    expect(brim).toBeGreaterThan(0);
+    expect(cone).toBeGreaterThan(0);
+    for (const view of [{ yaw: 0, pitch: -0.1 }, { yaw: 0.3, pitch: -0.3 }]) {
+      expect(drawn(brim, view)).toBe(vol.parts[brim].zSlices.length);
+      expect(drawn(cone, view)).toBe(vol.parts[cone].zSlices.length);
+    }
+  });
+
+  it('are still skipped on the body, so a brim sunk into the head is not cut by its steps', () => {
+    expect(drawn(0, { yaw: 0, pitch: -0.1 })).toBeLessThan(vol.parts[0].zSlices.length);
   });
 });
 

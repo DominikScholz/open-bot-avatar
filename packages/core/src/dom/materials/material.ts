@@ -15,6 +15,7 @@ export interface MaterialImage {
 export interface MaterialLook {
   color: string;
   ink: string;
+  accents?: string[];
   eyes: SurfaceEye[];
 }
 
