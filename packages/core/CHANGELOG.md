@@ -1,5 +1,11 @@
 # open-bot-avatar
 
+## 0.5.1
+
+### Patch Changes
+
+- 5efe3f1: README: the materials are listed with the import each one needs, and the custom state example is shorter to read and shows a mark that moves. No code changes.
+
 ## 0.5.0
 
 ### Minor Changes
