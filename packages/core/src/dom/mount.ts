@@ -17,8 +17,9 @@ import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
-import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
+import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { requestFrame, subscribeFrames } from './clock.ts';
+import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
@@ -33,6 +34,7 @@ export interface AvatarOptions {
    * The body's finish: 'flat' (default), or an imported material object.
    * Materials need canvas; the built-in fluffy and glass finishes also need WebGL2.
    * Import from open-bot-avatar/materials/fluffy or open-bot-avatar/materials/glass.
+   * A material is a value, not a name: `material: "fluffy"` draws flat and warns once.
    */
   material?: AvatarMaterial;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
@@ -246,7 +248,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   };
 
   /** Imported materials use a painted canvas even for stills. */
-  const canvasMaterial = () => typeof opts.material === 'object' && opts.material !== null && opts.renderer !== 'scene' && canvasSupported();
+  const canvasMaterial = () => canvasMaterialOf(opts.material) !== null && opts.renderer !== 'scene' && canvasSupported();
 
   const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();

@@ -43,8 +43,8 @@ avatar.destroy();
 | `view` | Extra `{ yaw, pitch }` rotation in radians, relative to the resting view. |
 | `depth` | Volume amount from 0 to 14. Default: 6; 0 is flat. |
 | `reducedMotion` | `true`, `false` or `"system"` (default), which follows `prefers-reduced-motion`. |
-| `material` | The body's finish: `"flat"` (default) or `"fluffy"`, a coat of fur with the eyes set into it. Fluffy needs the canvas renderer and WebGL2; without them the avatar draws flat. |
-| `still` | Render one fixed pose without animation: a static SVG, or for fluffy one painted canvas. Default: `false`. |
+| `material` | The body's finish: `"flat"` (default), or an imported material: `fluffy`, a coat of fur with the eyes set into it, or `glass`. See [Materials](#materials). |
+| `still` | Render one fixed pose without animation: a static SVG, or for a material one painted canvas. Default: `false`. |
 | `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
 | `label` | Accessible name. Defaults to the definition's name; `""` marks it decorative. |
 
@@ -62,6 +62,24 @@ The six states are the ones an agent moves through. Each is motion on the same a
 | `done` | Celebrates: a few turns inside a cage of nine ribbons on three crossing hoops, then a rest, and after a while again. |
 
 A mood combines with any state: a bot can be working and happy. A happy bot keeps its arcs while it waits. The marks of `thinking` and `blocked` have no eyes, so a mood shows again when the body returns. Under reduced motion the ribbons are left out, the marks hold still and `done` does not turn.
+
+### Materials
+
+Mounting ships the flat renderer only. A material is a value you import, so a bundler leaves out the ones you don't use:
+
+```ts
+import { mountAvatar } from "open-bot-avatar/dom";
+import { glass } from "open-bot-avatar/materials/glass";
+
+const avatar = mountAvatar(element, { definition, material: glass });
+avatar.update({ material: "flat" });
+```
+
+- `fluffy`, from `open-bot-avatar/materials/fluffy`, is a coat of fur with the eyes set into it.
+- `glass`, from `open-bot-avatar/materials/glass`, is tinted glass with reflections and refraction inside the body. It does not refract the page behind the avatar.
+- Both need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` always draws flat. Importing a material does not create a WebGL context; its first draw does.
+- A material is a value, not a name. `material: "fluffy"`, as it was written before, draws flat and logs one warning that names the import. Keep names in storage and links, and map them to the imported values where you render.
+- The `AvatarMaterial` type is exported by `open-bot-avatar/dom`. Writing a material of your own (the `CanvasMaterial` type) is experimental and may change in a minor release.
 
 ## React
 

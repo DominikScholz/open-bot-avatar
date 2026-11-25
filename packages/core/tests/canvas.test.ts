@@ -172,6 +172,32 @@ describe('mountAvatar on a canvas', () => {
     el.remove();
   });
 
+  it('draws flat and warns once for a material given by name', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const el = host();
+    // What a host wrote before materials were values, and what an untyped caller may still pass.
+    const avatar = mountAvatar(el, { definition: examples[0], material: 'fluffy' as never, still: true });
+    try {
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      expect(el.querySelector('canvas')).toBeNull();
+      avatar.update({ still: false });
+      await frame();
+      await frame();
+      expect(painted(el).some((call) => call.op === 'fill')).toBe(true);
+      expect(painted(el).some((call) => call.op === 'drawImage')).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('Import { fluffy } from "open-bot-avatar/materials/fluffy"');
+      avatar.update({ material: 'flat' });
+      avatar.update({ material: undefined });
+      await frame();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      avatar.destroy();
+      warn.mockRestore();
+    }
+  });
+
   it('takes any CSS color, like the scene', async () => {
     const el = host();
     const avatar = mountAvatar(el, { definition: examples[3], color: 'rgb(0 128 255)', eyeColor: 'red', reducedMotion: true });

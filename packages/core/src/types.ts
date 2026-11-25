@@ -64,9 +64,6 @@ export interface AvatarMotionBlend {
   t: number;
 }
 
-/** A flat fill (default), or an explicitly imported canvas material (see AvatarOptions). */
-export type AvatarMaterial = 'flat' | import('./dom/materials/material.ts').CanvasMaterial;
-
 export interface RenderOptions {
   /** Body color as #rgb or #rrggbb. Invalid values fall back to the default. */
   color?: string;

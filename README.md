@@ -98,15 +98,17 @@ with approximate studio reflections, refraction and absorption. It does not refr
 behind the avatar.
 
 **Migration:** `material: "fluffy"` is replaced by an explicit import and `material: fluffy`.
-The default and `material: "flat"` are unchanged. Stored material names should be resolved to
-material objects in the application's rendering layer, as in the Studio; do not store the
-objects themselves in JSON. This is an API change for callers using the old fluffy string.
+The old string now draws flat and logs one warning that names the import. The default and
+`material: "flat"` are unchanged. Stored material names should be resolved to material objects
+in the application's rendering layer, as in the Studio; do not store the objects themselves in
+JSON. The `AvatarMaterial` type is exported by `open-bot-avatar/dom` and no longer by
+`open-bot-avatar`, which has no DOM types in it.
 
-Custom materials can implement the `CanvasMaterial` type exported by `open-bot-avatar/dom`.
-`render` returns a canvas image or `null` for flat fallback; optional `paintMark` handles thinking
-and blocked marks. `margin` reserves space outside the projected body. Material objects should
-be reused across updates, and rendering must return synchronously. No renderer is imported by
-the interface itself.
+**Materials of your own are experimental.** A material is a `CanvasMaterial` (exported by
+`open-bot-avatar/dom`): `render` returns a canvas image, or `null` for the flat fallback, and
+`margin` reserves space outside the projected body. `render` is given the renderer's own model
+of the body and the view, which are not public yet, so this interface may change in a minor
+release. Pass the same material object on every update, and return from `render` synchronously.
 
 ## SVG
 

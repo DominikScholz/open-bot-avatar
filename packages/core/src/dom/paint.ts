@@ -17,9 +17,10 @@
  */
 import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
-import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
+import type { AvatarDefinition } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
+import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -167,7 +168,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!sections.has(id)) sections.set(id, { box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
   }
   const { matrices, bounds } = framePlacement(frame);
-  const finish = typeof material === 'object' && material !== null ? material : null;
+  const finish = canvasMaterialOf(material);
   const volume = finish ? surface.volume : null;
   if (finish) {
     const margin = finish.margin ?? 0;
