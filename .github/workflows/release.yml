@@ -10,7 +10,7 @@ permissions:
   contents: write
   pull-requests: write
   # npm trusted publishing (OIDC): no npm token, and the package gets provenance. The trusted
-  # publisher may publish, so a release goes live when its "Version packages" pull request merges.
+  # publisher may publish, so a release goes live when its "chore: version packages" pull request merges.
   id-token: write
 
 jobs:
@@ -27,13 +27,13 @@ jobs:
       # Trusted publishing needs a recent npm.
       - run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
-      # With changesets waiting: opens or updates a "Version packages" pull request. Without: publishes
+      # With changesets waiting: opens or updates a "chore: version packages" pull request. Without: publishes
       # the package to npm if its version isn't there yet (merging that pull request does).
       - uses: changesets/action@v1
         with:
           version: pnpm changeset version
           publish: pnpm release
-          title: Version packages
-          commit: Version packages
+          title: "chore: version packages"
+          commit: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Publish packages/core to npm when its version isn't on npm yet (the merged "Version packages" pull
+ * Publish packages/core to npm when its version isn't on npm yet (the merged "chore: version packages" pull
  * request, or any later push while that version is still missing); otherwise do nothing. CI runs this
  * (via `pnpm release`) on every push to main. In CI npm authenticates with trusted publishing (OIDC),
  * so no token is stored anywhere and the package gets provenance. The trusted publisher for

@@ -12,7 +12,7 @@ Open source, MIT licensed. [Docs](https://dominikscholz.github.io/open-bot-avata
 
 In the [editor](https://dominikscholz.github.io/open-bot-avatar/), describe it under Generate, send the prompt to any chat model or agent, and paste the JSON it returns into Import. The prompt is [system-prompt.md](skills/generate-avatar/references/system-prompt.md); agents with skills can use the [generate-avatar skill](skills/generate-avatar/SKILL.md).
 
-To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery).
+To add one to the gallery, open a pull request with its JSON in [`gallery/`](gallery). [CONTRIBUTING.md](CONTRIBUTING.md) has the rules for pull requests.
 
 ## Definition
 
@@ -179,7 +179,7 @@ pnpm check        # typecheck, tests and build, in sequence
 node packages/core/scripts/avatar-validate.ts --strict my-avatar.json --svg my-avatar.svg
 ```
 
-Needs Node 22.18+ and pnpm.
+Needs Node 22.18+ and pnpm. Before you open a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
