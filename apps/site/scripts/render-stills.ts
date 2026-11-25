@@ -5,6 +5,7 @@ import { liveFrame } from '../../../packages/core/src/render.ts';
 import { mountCanvas, paintCanvas } from '../../../packages/core/src/dom/paint.ts';
 import { fluffy } from '../../../packages/core/src/dom/materials/fluffy.ts';
 import { glass } from '../../../packages/core/src/dom/materials/glass.ts';
+import { metal } from '../../../packages/core/src/dom/materials/metal.ts';
 import { GALLERY } from '../src/gallery';
 
 export interface StillSpec extends RenderOptions {
@@ -16,7 +17,7 @@ export interface StillSpec extends RenderOptions {
   material: keyof typeof MATERIALS;
 }
 
-const MATERIALS = { flat: 'flat', fluffy, glass } as const;
+const MATERIALS = { flat: 'flat', fluffy, glass, metal } as const;
 
 /** A still and where its canvas sits against the avatar's box, in the still's own CSS pixels. */
 export interface Still { png: string; left: number; top: number; width: number; height: number }

@@ -1,11 +1,12 @@
 import { fluffy } from 'open-bot-avatar/materials/fluffy';
 import { glass } from 'open-bot-avatar/materials/glass';
+import { metal } from 'open-bot-avatar/materials/metal';
 import type { MaterialName } from './studio/look';
 
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { mountAvatar, type AvatarOptions, type MountedAvatar } from 'open-bot-avatar/dom';
 
-const materials = { flat: 'flat', fluffy, glass } as const;
+const materials = { flat: 'flat', fluffy, glass, metal } as const;
 
 export interface BotAvatarProps extends Omit<AvatarOptions, 'material'> {
   material?: MaterialName;

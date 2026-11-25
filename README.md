@@ -70,20 +70,21 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `material` | The body's finish: `"flat"` (default), or an imported material, `fluffy` or `glass`. See [Materials](#materials). |
+| `material` | The body's finish: `"flat"` (default), or an imported material, `fluffy`, `glass` or `metal`. See [Materials](#materials). |
 | `still` | One fixed pose, no animation: an SVG, or one painted canvas for an imported material. Default: `false`. |
 | `renderer` | `"canvas"` (default) or `"scene"`, a CSS 3D scene: more CPU, less video memory for one large avatar. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
 
 ## Materials
 
-A material is the body's finish. There are three. The [docs](https://dominikscholz.github.io/open-bot-avatar/#/docs) show them live.
+A material is the body's finish. There are four. The [docs](https://dominikscholz.github.io/open-bot-avatar/#/docs) show them live.
 
 | Material | Import | Look |
 | --- | --- | --- |
 | `"flat"` | Built in. Nothing to import. | Solid color. The default. |
 | `fluffy` | `import { fluffy } from "open-bot-avatar/materials/fluffy"` | A coat of fur with the eyes set into it. |
 | `glass` | `import { glass } from "open-bot-avatar/materials/glass"` | Tinted glass with reflections and refraction inside the body. It does not refract the page behind the avatar. |
+| `metal` | `import { metal } from "open-bot-avatar/materials/metal"` | Brushed and anodized metal with studio reflections and countersunk eyes. |
 
 Mounting ships the flat renderer only. A material is a value you import and pass as `material`, so a bundler leaves out the ones you don't use:
 
@@ -95,7 +96,7 @@ const avatar = mountAvatar(element, { definition, material: glass });
 avatar.update({ material: "flat" });
 ```
 
-- Fluffy and glass need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` and `renderAvatarSvg` always draw flat.
+- Fluffy, glass and metal need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` and `renderAvatarSvg` always draw flat.
 - A material is a value, not a name. `material: "fluffy"`, as it was written before, draws flat and logs one warning that names the import. Keep names in storage and links, and map them to the imported values where you render.
 - Writing a material of your own (the `CanvasMaterial` type) is experimental and may change in a minor release.
 
