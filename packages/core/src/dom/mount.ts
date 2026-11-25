@@ -32,8 +32,8 @@ export interface AvatarOptions {
   eyeColor?: string;
   /**
    * The body's finish: 'flat' (default), or an imported material object.
-   * Materials need canvas; the built-in fluffy and glass finishes also need WebGL2.
-   * Import from open-bot-avatar/materials/fluffy or open-bot-avatar/materials/glass.
+   * Materials need canvas; the built-in fluffy, glass and metal finishes also need WebGL2.
+   * Import from open-bot-avatar/materials/fluffy, open-bot-avatar/materials/glass or open-bot-avatar/materials/metal.
    * A material is a value, not a name: `material: "fluffy"` draws flat and warns once.
    */
   material?: AvatarMaterial;

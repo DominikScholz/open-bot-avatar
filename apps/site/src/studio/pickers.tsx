@@ -120,12 +120,13 @@ export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: 
   return <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />;
 }
 
-/* The material as a toggle of two faces: one smooth, one with fur standing off its edge. */
+/* The material as a toggle of faces: flat, fur, glass, and brushed metal. */
 
 const MATERIALS: Choice<MaterialName>[] = [
   { value: "flat", label: "Flat", hint: "Solid color" },
   { value: "fluffy", label: "Fluffy", hint: "Brushed fur" },
   { value: "glass", label: "Glass", hint: "Glossy glass" },
+  { value: "metal", label: "Metal", hint: "Brushed metal" },
 ];
 
 const SMOOTH_FACE = "M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0ZM8.9 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0ZM13.1 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0Z";
@@ -141,6 +142,17 @@ function Face({ material }: { material: MaterialName }) {
       <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
         <path d="M8.1 8.3a5.4 5.4 0 0 1 4.6-1.7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <rect x="9" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
+        <rect x="13.1" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (material === "metal") {
+    return (
+      <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7.5" fill="currentColor" fillOpacity="0.24" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M6.8 11.4 11.4 6.8M12.8 17.2 17.2 12.8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M18.6 3.1 19.35 5.05 21.3 5.8 19.35 6.55 18.6 8.5 17.85 6.55 15.9 5.8 17.85 5.05Z" fill="currentColor" />
         <rect x="9" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
         <rect x="13.1" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
       </svg>

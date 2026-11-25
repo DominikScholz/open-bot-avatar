@@ -43,7 +43,7 @@ avatar.destroy();
 | `view` | Extra `{ yaw, pitch }` rotation in radians, relative to the resting view. |
 | `depth` | Volume amount from 0 to 14. Default: 6; 0 is flat. |
 | `reducedMotion` | `true`, `false` or `"system"` (default), which follows `prefers-reduced-motion`. |
-| `material` | The body's finish: `"flat"` (default), or an imported material, `fluffy` or `glass`. See [Materials](#materials). |
+| `material` | The body's finish: `"flat"` (default), or an imported material, `fluffy`, `glass` or `metal`. See [Materials](#materials). |
 | `still` | Render one fixed pose without animation: a static SVG, or for a material one painted canvas. Default: `false`. |
 | `renderer` | `"canvas"` (default) paints each frame to one canvas. `"scene"` mounts a CSS 3D scene with one compositor layer per visible cross-section: more CPU, but less video memory for one avatar several hundred pixels wide. Without canvas support, live avatars use the scene. |
 | `label` | Accessible name. Defaults to the definition's name; `""` marks it decorative. |
@@ -140,7 +140,7 @@ A definition works wherever a state does: `mountAvatar`, `update`, the render fu
 - `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
 - A mark's `parts` are sized in `unit`, a share of the body's smaller side. Keep each outline the same from frame to frame, and animate a part with `x`, `y`, `turn` and `scale`: a live renderer keeps what it builds per outline.
 - `parts` also receives the clock (`time`, in seconds) and `still`, which is true under reduced motion. `time` is 0 then, so a mark that moves with `time` alone holds still.
-- A [material](#materials) draws every part in the shape of its outline: fur in `fluffy`, glass in `glass`. A part that is a circle or an upright capsule filling `box` can set `round: true` to be drawn from a ready ball, which is cheaper the first time.
+- A [material](#materials) draws every part in the shape of its outline: fur in `fluffy`, glass in `glass`, brushed metal in `metal`. A part that is a circle or an upright capsule filling `box` can set `round: true` to be drawn from a ready ball, which is cheaper the first time.
 - Your code is held to what can be drawn. A pose field that is left out or is not a finite number keeps the resting pose's. A part without a `shape`, an outline `d` or a `box` with a size is left out, and a part's `x`, `y`, `turn` or `scale` that is not a finite number counts as 0, 0, 0 and 1. A `pose` or `parts` function that throws is not caught.
 - `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
 - `isState` and `resolveLook` read names only. Use them for values from links and storage; they never return a definition.
@@ -162,13 +162,14 @@ const states: Record<string, AvatarOptions["state"]> = {
 
 ### Materials
 
-A material is the body's finish. There are three. The [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) shows them live.
+A material is the body's finish. There are four. The [documentation](https://dominikscholz.github.io/open-bot-avatar/#/docs) shows them live.
 
 | Material | Import | Look |
 | --- | --- | --- |
 | `"flat"` | Built in. Nothing to import. | Solid color. The default. |
 | `fluffy` | `import { fluffy } from "open-bot-avatar/materials/fluffy"` | A coat of fur with the eyes set into it. |
 | `glass` | `import { glass } from "open-bot-avatar/materials/glass"` | Tinted glass with reflections and refraction inside the body. It does not refract the page behind the avatar. |
+| `metal` | `import { metal } from "open-bot-avatar/materials/metal"` | Brushed and anodized metal with studio reflections and countersunk eyes. |
 
 Mounting ships the flat renderer only. A material is a value you import and pass as `material`, so a bundler leaves out the ones you don't use:
 
@@ -180,13 +181,13 @@ const avatar = mountAvatar(element, { definition, material: glass });
 avatar.update({ material: "flat" });
 ```
 
-- Fluffy and glass need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` and `renderAvatarSvg` always draw flat.
+- Fluffy, glass and metal need the canvas renderer and WebGL2, and draw flat without them. `renderer: "scene"` and `renderAvatarSvg` always draw flat.
 - Importing a material does not create a WebGL context; its first draw does.
 - With `still: true`, a material paints one canvas instead of an SVG.
 - A material is a value, not a name. `material: "fluffy"`, as it was written before, draws flat and logs one warning that names the import. Keep names in storage and links, and map them to the imported values where you render.
 - The `AvatarMaterial` type is exported by `open-bot-avatar/dom`, not by `open-bot-avatar`.
 
-> **Experimental.** Writing a material of your own is not settled. A material is a `CanvasMaterial` (exported by `open-bot-avatar/dom`): `render` draws one shape, the body or one part of a mark, to a canvas image, or returns `null` to have it drawn flat, and `margin` reserves room outside the projected body. `render` is given the renderer's own model of the shape and the view, which are not public yet, so this interface may change in a minor release. Pass the same material object on every update, and return from `render` synchronously. `fluffy` and `glass` as values to pass are stable.
+> **Experimental.** Writing a material of your own is not settled. A material is a `CanvasMaterial` (exported by `open-bot-avatar/dom`): `render` draws one shape, the body or one part of a mark, to a canvas image, or returns `null` to have it drawn flat, and `margin` reserves room outside the projected body. `render` is given the renderer's own model of the shape and the view, which are not public yet, so this interface may change in a minor release. Pass the same material object on every update, and return from `render` synchronously. `fluffy`, `glass` and `metal` as values to pass are stable.
 
 ## React
 
