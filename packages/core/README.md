@@ -111,7 +111,7 @@ A definition works wherever a state does: `mountAvatar`, `update`, the render fu
 - `pose` receives a context with the clock (`t`, `wave`), the state's age (`stateAge`), the mood, `reducedMotion`, the resting pose (`base`) and the calm idle pose (`rest`). It must be a pure function of the context. Under `reducedMotion`, `t` is 0 and `wave` returns 0; a pose that uses neither holds still.
 - `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
 - A mark's `parts` are sized in `unit`, a share of the body's smaller side. Keep each outline the same from frame to frame, and animate a part with `x`, `y`, `turn` and `scale`: a live renderer keeps what it builds per outline.
-- The `fluffy` material gives every part a coat of fur in the shape of its outline. A part that is a circle or an upright capsule filling `box` can set `round: true` to use a ready ball of fur, which is cheaper to draw the first time.
+- A [material](#materials) draws every part in the shape of its outline: fur in `fluffy`, glass in `glass`. A part that is a circle or an upright capsule filling `box` can set `round: true` to be drawn from a ready ball, which is cheaper the first time.
 - Your code is held to what can be drawn. A pose field that is left out or is not a finite number keeps the resting pose's. A part without a `shape`, an outline `d` or a `box` with a size is left out, and a part's `x`, `y`, `turn` or `scale` that is not a finite number counts as 0, 0, 0 and 1. A `pose` or `parts` function that throws is not caught.
 - `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
 - `isState` and `resolveLook` read names only. Use them for values from links and storage; they never return a definition.

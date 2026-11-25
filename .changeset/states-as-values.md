@@ -8,6 +8,6 @@ A definition is an `id` and a `pose` function that returns what differs from the
 
 States and marks of your own are experimental: they are written against the renderer's own model of a pose (`Pose`, `StateContext`, `MarkPart`), whose fields may still be renamed or removed in a minor release. The six names are stable.
 
-In the fluffy material a mark of your own is furry too: each part gets a coat in the shape of its outline. A part can set `round` to say it is a circle or an upright capsule, which fluffy draws from a ready ball of fur as it does the built-in marks. A frame's `paths` carry the flag for the parts of marks.
+A material draws a mark of your own too, each part in the shape of its outline: fur in fluffy, glass in glass. A part can set `round` to say it is a circle or an upright capsule, which a material draws from a ready ball as it does the built-in marks. A frame's `paths` carry the flag for the parts of marks. For this a material is one `render` function that draws the body and every part of a mark; `paintMark`, which the materials had before they were released, is gone.
 
 The six names draw exactly as before, with one fix: when a change from one mark to another is interrupted (blocked on its way from thinking, then left), the marks could each weigh too little to show while the body had already gone. The body now stays, small, until a mark shows. `isState` and `resolveLook` still read names only.
