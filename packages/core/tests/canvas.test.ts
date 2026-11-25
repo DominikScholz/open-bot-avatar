@@ -157,7 +157,7 @@ describe('mountAvatar on a canvas', () => {
     }
   });
 
-  it('accepts a caller-supplied material and falls back for marks it does not paint', () => {
+  it('accepts a caller-supplied material: one render function draws the body and the marks', () => {
     const tile = document.createElement('canvas');
     const render = vi.fn().mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
     const material: CanvasMaterial = { id: 'custom', render };
@@ -165,10 +165,37 @@ describe('mountAvatar on a canvas', () => {
     const surface = mountCanvas(el, 'custom', examples[0], 6);
     paintCanvas(surface, liveFrame(examples[0], { size: 96 }), 96, '#123456', '#151515', material);
     expect(render).toHaveBeenCalledTimes(1);
+    expect('parts' in render.mock.lastCall?.[0]).toBe(true);
     expect(render.mock.lastCall?.[2]).toMatchObject({ color: '#123456', ink: '#151515' });
     expect(painted(el).some((call) => call.op === 'drawImage')).toBe(true);
+    // The three dots are one ball, asked for once, without eyes, and drawn three times.
     paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', size: 96 }), 96, '#123456', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect('radius' in render.mock.lastCall?.[0]).toBe(true);
+    expect(render.mock.lastCall?.[2]).toEqual({ color: '#123456', ink: '#123456', eyes: [] });
+    // The body's image from the first paint, then the ball three times.
+    expect(painted(el).filter((call) => call.op === 'drawImage')).toHaveLength(4);
+    expect(painted(el).filter((call) => call.op === 'fill')).toHaveLength(0);
+    el.remove();
+  });
+
+  it('fills the marks plainly where a material draws none, and draws a host\'s own outline as a volume', () => {
+    const tile = document.createElement('canvas');
+    const image = { canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 };
+    const el = host();
+    const surface = mountCanvas(el, 'custom', examples[0], 6);
+    const none: CanvasMaterial = { id: 'none', render: () => null };
+    paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', size: 96 }), 96, '#123456', '#151515', none);
     expect(painted(el).filter((call) => call.op === 'fill')).toHaveLength(3);
+    // A part that is not a ball or a capsule reaches the material as a volume in its own shape.
+    const render = vi.fn().mockReturnValue(image);
+    const square = { id: 'square', parts: () => [{ shape: 'square', d: 'M-9 -9H9V9H-9Z', box: { x: -9, y: -9, w: 18, h: 18 }, x: 0, y: 0, turn: 0, scale: 1 }] };
+    const state = { id: 'square', pose: () => ({ marks: [{ mark: square, weight: 1 }] }) };
+    paintCanvas(surface, liveFrame(examples[0], { state, size: 96 }), 96, '#123456', '#151515', { id: 'custom', render });
+    expect(render).toHaveBeenCalledTimes(1);
+    const shape = render.mock.lastCall?.[0];
+    expect('parts' in shape && shape.parts.length).toBe(1);
+    expect(painted(el).filter((call) => call.op === 'drawImage')).toHaveLength(1);
     el.remove();
   });
 
@@ -266,7 +293,7 @@ describe('a mark of the host\'s own on a canvas', () => {
       const surface = mountCanvas(el, 'custom', examples[0], 6);
       const draws = () => painted(el).filter((c) => c.op === 'drawImage');
       // Not round: a volume built from the outline, drawn about the outline's own centre.
-      paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-9 -9H9V9H-9Z')), size: 96 }), 96, '#589df2', '#151515', 'fluffy');
+      paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-9 -9H9V9H-9Z')), size: 96 }), 96, '#589df2', '#151515', fluffyMaterial);
       expect(render).toHaveBeenCalledTimes(1);
       expect('parts' in render.mock.lastCall![0]).toBe(true);
       expect(render.mock.lastCall![2]).toEqual({ color: '#589df2', ink: '#589df2', eyes: [] });
@@ -278,13 +305,13 @@ describe('a mark of the host\'s own on a canvas', () => {
       expect(w).toBeGreaterThan(18 * (60 / 84) - 0.01);
       expect(fills(el)).toEqual([]);
       // Round: the ready capsule (in a color no other test has a sprite of).
-      paintCanvas(surface, liveFrame(examples[0], { state: showing({ ...square('M9 0A9 9 0 1 1 -9 0A9 9 0 1 1 9 0Z', { round: true }), shape: 'ball' }), size: 96 }), 96, '#0a0b0c', '#151515', 'fluffy');
+      paintCanvas(surface, liveFrame(examples[0], { state: showing({ ...square('M9 0A9 9 0 1 1 -9 0A9 9 0 1 1 9 0Z', { round: true }), shape: 'ball' }), size: 96 }), 96, '#0a0b0c', '#151515', fluffyMaterial);
       expect(render).toHaveBeenCalledTimes(2);
       expect('radius' in render.mock.lastCall![0]).toBe(true);
       expect(draws()).toHaveLength(2);
       // Unavailable: the outline is filled.
       render.mockReturnValue(null);
-      paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-7 -9H7V9H-7Z')), size: 96 }), 96, '#123456', '#151515', 'fluffy');
+      paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-7 -9H7V9H-7Z')), size: 96 }), 96, '#123456', '#151515', fluffyMaterial);
       expect(fills(el)).toEqual(['M-7 -9H7V9H-7Z']);
     } finally {
       render.mockRestore();

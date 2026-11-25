@@ -1,5 +1,5 @@
-import type { FramePath, SurfaceEye, ViewBasis } from '../../render.ts';
-import type { Volume } from '../../volume.ts';
+import type { SurfaceEye, ViewBasis } from '../../render.ts';
+import type { MaterialShape } from './shape.ts';
 
 /** An image valid until the next render; the canvas painter copies it immediately. */
 export interface MaterialImage {
@@ -21,18 +21,24 @@ export interface MaterialLook {
 /**
  * A canvas finish supplied by the caller. Importing DOM mounting never imports a material.
  *
+ * A material is one function: it renders a shape, seen from a view, to an image. The painter asks
+ * it for the body (a Volume, with the eyes to set into it) and for each part of a state's mark (a
+ * Capsule for a ball or a bar, a Volume for any other outline, no eyes), and does the rest: it
+ * places the images, keeps the marks as sprites and draws the ribbons.
+ *
  * @experimental `fluffy` and `glass` are supported as values to pass. Writing a material of your
- * own is not yet: `render` is given the renderer's own model of the body and the view, which are
+ * own is not yet: `render` is given the renderer's own model of a shape and of the view, which are
  * not part of the public API and may change in a minor release.
  */
 export interface CanvasMaterial {
   readonly id: string;
   /** Extra room outside the body's projected bounds, in viewBox units. */
   readonly margin?: number;
-  /** Return null where unavailable; the painter falls back to flat paths and eyes. */
-  render(shape: Volume, view: ViewBasis, look: MaterialLook, scale: number): MaterialImage | null;
-  /** Optional thinking/blocked marks. False leaves the original flat mark in place. */
-  paintMark?(ctx: CanvasRenderingContext2D, box: FramePath['box'], scale: number, color: string): boolean;
+  /**
+   * Render `shape` at `scale` device pixels per viewBox unit. Return null where the material is
+   * unavailable or does not draw this kind of shape; the painter falls back to flat paths and eyes.
+   */
+  render(shape: MaterialShape, view: ViewBasis, look: MaterialLook, scale: number): MaterialImage | null;
 }
 
 /** A flat fill (default), or an explicitly imported canvas material (see AvatarOptions). */

@@ -1,35 +1,33 @@
 /**
- * The marks of a state in fluffy. A part that is a ball or a capsule (the three dots, both parts
- * of the exclamation mark) is a small pompom from a ready model; any other outline gets a coat
- * of its own, from a volume built from the outline as an avatar's body is. Either is rendered
- * once per shape, color and size and kept as a sprite, since a mark only ever moves, squashes
- * and fades.
+ * The marks of a state in a material. A material only renders shapes (see material.ts); this
+ * turns a mark's part into one and keeps what comes back. A part that is a ball or a capsule (the
+ * three dots, both parts of the exclamation mark) is a ready capsule; any other outline is built
+ * into a volume as an avatar's body is, so it is drawn in its own shape. Either is rendered once
+ * per material, shape, color and size and kept as a sprite, since a mark only ever moves,
+ * squashes and fades.
  */
 import { filledArea, flattenPath, parsePath, serializePath, type Segment } from '../../path.ts';
 import { viewBasis, type FramePath } from '../../render.ts';
 import { analyzeBody } from '../../validate.ts';
 import { buildVolume, type Volume } from '../../volume.ts';
-import type { Capsule } from './mesh.ts';
-import { renderFluffy } from './renderer.ts';
+import type { CanvasMaterial } from './material.ts';
+import type { Capsule } from './shape.ts';
 
-/** Radius of a mark's model, viewBox units: enough for the short pile to read on a small dot. */
+/** Radius of a mark's model, viewBox units: enough for a short pile or a rim to read on a small dot. */
 const RADIUS = 12;
 const FRONT = viewBasis(0, 0);
 /** Sprites are rendered a little larger than they are drawn, for the top of a hop. */
 const HEADROOM = 1.12;
 
 const models = new Map<number, Capsule>();
-const sprites = new Map<string, Sprite>();
+/** Each material's sprites: two materials never share one, whatever their ids. */
+const sprites = new WeakMap<CanvasMaterial, Map<string, Sprite>>();
 /** A rendered mark: its image, and the square it covers in its model's units (`radius` to each side of (cx, cy)). */
 interface Sprite { canvas: HTMLCanvasElement; cx: number; cy: number; radius: number }
 const MAX_SPRITES = 32;
 
-/**
- * Paint a mark face-on as a fluffy ball or capsule filling `box`, under the context's transform
- * (which animates it). `scale` is device pixels per viewBox unit. False where fluffy can't be
- * drawn: the caller fills the mark's path instead.
- */
-export function paintFluffyMark(ctx: CanvasRenderingContext2D, box: FramePath['box'], scale: number, color: string): boolean {
+/** Paint a part that is a ball or a capsule filling `box`, from the ready model of that aspect. */
+function paintCapsule(material: CanvasMaterial, ctx: CanvasRenderingContext2D, box: FramePath['box'], scale: number, color: string): boolean {
   const aspect = Math.round((1000 * box.h) / box.w) / 1000;
   let model = models.get(aspect);
   if (!model) {
@@ -40,9 +38,9 @@ export function paintFluffyMark(ctx: CanvasRenderingContext2D, box: FramePath['b
   }
   /** Drawn units per model unit. */
   const unit = box.w / (2 * RADIUS);
-  // Whole powers of two, so a mark that grows or shrinks keeps the same fibers.
+  // Whole powers of two, so a mark that grows or shrinks keeps the same image.
   const density = Math.min(8, Math.max(0.5, 2 ** Math.ceil(Math.log2(HEADROOM * scale * unit))));
-  const sprite = spriteOf(`${aspect}|${color}|${density}`, model, color, density);
+  const sprite = spriteOf(material, `${aspect}|${color}|${density}`, model, color, density);
   if (!sprite) return false;
   const radius = sprite.radius * unit;
   ctx.drawImage(sprite.canvas, -radius, -radius, 2 * radius, 2 * radius);
@@ -50,20 +48,22 @@ export function paintFluffyMark(ctx: CanvasRenderingContext2D, box: FramePath['b
 }
 
 /** The sprite of a model in a color at a density (device pixels per model unit), rendered when first asked for. */
-function spriteOf(key: string, model: Capsule | Volume, color: string, density: number): Sprite | null {
-  let sprite = sprites.get(key);
+function spriteOf(material: CanvasMaterial, key: string, model: Capsule | Volume, color: string, density: number): Sprite | null {
+  let kept = sprites.get(material);
+  if (!kept) sprites.set(material, (kept = new Map()));
+  let sprite = kept.get(key);
   if (sprite) return sprite;
-  const image = renderFluffy(model, FRONT, { color, ink: color, eyes: [] }, density);
+  const image = material.render(model, FRONT, { color, ink: color, eyes: [] }, density);
   if (!image) return null;
-  // The renderer's canvas is shared with the body: keep a copy.
+  // The material's canvas may be shared with the body: keep a copy.
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = image.size;
   const copy = canvas.getContext('2d');
   if (!copy) return null;
   copy.drawImage(image.canvas, image.x, image.y, image.size, image.size, 0, 0, image.size, image.size);
   sprite = { canvas, cx: image.cx, cy: image.cy, radius: image.radius };
-  if (sprites.size >= MAX_SPRITES) sprites.delete(sprites.keys().next().value!);
-  sprites.set(key, sprite);
+  if (kept.size >= MAX_SPRITES) kept.delete(kept.keys().next().value!);
+  kept.set(key, sprite);
   return sprite;
 }
 
@@ -134,19 +134,26 @@ export function outlineModel(d: string, box: FramePath['box']): OutlineModel | n
   return model;
 }
 
-/**
- * Paint a mark's part of any outline `d` as a coat of fur in its shape, under the context's
- * transform (which animates it). `scale` is device pixels per viewBox unit. False where fluffy
- * can't be drawn or the outline can't be built into a volume: the caller fills the path instead.
- */
-export function paintFluffyOutline(ctx: CanvasRenderingContext2D, d: string, box: FramePath['box'], scale: number, color: string): boolean {
+/** Paint a part of any outline `d` in its own shape, from a volume built from the outline. */
+function paintOutline(material: CanvasMaterial, ctx: CanvasRenderingContext2D, d: string, box: FramePath['box'], scale: number, color: string): boolean {
   const model = outlineModel(d, box);
   if (!model) return false;
-  // Whole powers of two, so a mark that grows or shrinks keeps the same fibers.
+  // Whole powers of two, so a mark that grows or shrinks keeps the same image.
   const density = Math.min(8, Math.max(0.5, 2 ** Math.ceil(Math.log2((HEADROOM * scale) / model.scale))));
-  const sprite = spriteOf(`${model.key}|${color}|${density}`, model.volume, color, density);
+  const sprite = spriteOf(material, `${model.key}|${color}|${density}`, model.volume, color, density);
   if (!sprite) return false;
   const radius = sprite.radius / model.scale;
   ctx.drawImage(sprite.canvas, model.cx + (sprite.cx - CENTRE) / model.scale - radius, model.cy + (sprite.cy - CENTRE) / model.scale - radius, 2 * radius, 2 * radius);
   return true;
+}
+
+/**
+ * Paint one part of a mark in a material, under the context's transform (which animates it).
+ * `scale` is device pixels per viewBox unit. False where the material can't draw it (it returned
+ * no image, or the outline can't be built into a volume): the caller fills the part's path.
+ */
+export function paintMark(
+  material: CanvasMaterial, ctx: CanvasRenderingContext2D, part: { d: string; box: FramePath['box']; round: boolean }, scale: number, color: string,
+): boolean {
+  return part.round ? paintCapsule(material, ctx, part.box, scale, color) : paintOutline(material, ctx, part.d, part.box, scale, color);
 }

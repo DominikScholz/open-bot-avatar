@@ -20,6 +20,7 @@ import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
+import { paintMark } from './materials/marks.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 
 /** A square in viewBox units. */
@@ -215,8 +216,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
-        const painted = finish?.paintMark?.(ctx, section.box, scale, fill) ?? false;
-        if (!painted) ctx.fill(section.path, section.rule);
+        // In the material where it can draw the part, else as a plain fill.
+        if (!finish || !paintMark(finish, ctx, section, scale, fill)) ctx.fill(section.path, section.rule);
       } else if (!coat) {
         ctx.fill(section.path, section.rule);
       } else if (!coatPainted) {

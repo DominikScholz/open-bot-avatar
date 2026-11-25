@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { outlineModel } from '../src/dom/fluffy/marks.ts';
+import { outlineModel } from '../src/dom/materials/marks.ts';
 import { bodyScale, markParts } from '../src/effects.ts';
 import { avatarFrame, computePose, createAnimator, getExample, renderAvatarSvg, sceneFrame, type AvatarMark, type AvatarStateDefinition } from '../src/index.ts';
 import { BANG, DOTS } from '../src/marks.ts';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { outlineModel } from '../src/dom/fluffy/marks.ts';
+import { outlineModel } from '../src/dom/materials/marks.ts';
 import { parsePath, PathError } from '../src/path.ts';
 
 /** A question mark's hook about its own centre, sized in `u` (as a host's mark would draw it). */
@@ -10,7 +10,7 @@ const hook = (u: number) => {
 };
 const box = (u: number) => ({ x: -0.26 * u, y: -0.3225 * u, w: 0.52 * u, h: 0.645 * u });
 
-describe('a mark\'s outline in fluffy', () => {
+describe('a mark\'s outline in a material', () => {
   it('is parsed about its own centre, where a body\'s path would be out of bounds', () => {
     expect(() => parsePath('M-60 -60H60V60H-60Z')).toThrow(PathError);
     expect(parsePath('M-60 -60H60V60H-60Z', false).length).toBe(5);
