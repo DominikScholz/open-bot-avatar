@@ -1,5 +1,27 @@
 # open-bot-avatar
 
+## 0.5.0
+
+### Minor Changes
+
+- 5da67c3: `Pose` lists its marks as values. `Pose.marks` replaces `Pose.bang` and `Pose.dots`: each entry is a mark and how far the body has given way to it, so a mark is no longer a field of the pose. Code that builds a whole `Pose` by hand, or reads `bang` or `dots` from one, needs the new field; the `AvatarMark`, `MarkContext`, `MarkPart` and `PoseMark` types are exported for it.
+  
+  Nothing else changes: `state`, `mood` and every render function take what they took, and every state draws exactly as before. Stills and scenes are the same text; a frame's data is the same apart from what the next entry adds.
+- c03a769: Add an opt-in glass material and separate material entry points so DOM consumers do not ship unused renderers.
+  
+  Migration: import `fluffy` from `open-bot-avatar/materials/fluffy` and pass `material: fluffy` instead of the old `material: "fluffy"` string. Import `glass` from `open-bot-avatar/materials/glass` the same way. The old string draws flat and logs one warning that names the import. Flat remains the default, and the Studio keeps its existing serialized material names and links.
+  
+  The `AvatarMaterial` type moves from `open-bot-avatar` to `open-bot-avatar/dom`, so the root entry has no DOM types in it. `CanvasMaterial`, the interface a material implements, is experimental: it is given the renderer's own model of the body, and may change in a minor release.
+- 5da67c3: `state` takes a definition of your own as well as one of the six names.
+  
+  A definition is an `id` and a `pose` function that returns what differs from the resting pose: a lean, a look of the eyes, ribbons, or a mark the body gives way to. It works wherever a state does (`mountAvatar`, `update`, the render functions, `createAnimator`), eases to and from the built-in states, and takes a mood. Two definitions with one `id` are the same state. `stateDefinition` returns the definition behind a name, and the `AvatarStateDefinition` and `StateContext` types are exported.
+  
+  States and marks of your own are experimental: they are written against the renderer's own model of a pose (`Pose`, `StateContext`, `MarkPart`), whose fields may still be renamed or removed in a minor release. The six names are stable.
+  
+  A material draws a mark of your own too, each part in the shape of its outline: fur in fluffy, glass in glass. A part can set `round` to say it is a circle or an upright capsule, which a material draws from a ready ball as it does the built-in marks. A frame's `paths` carry the flag for the parts of marks. For this a material is one `render` function that draws the body and every part of a mark; `paintMark`, which the materials had before they were released, is gone.
+  
+  The six names draw exactly as before, with one fix: when a change from one mark to another is interrupted (blocked on its way from thinking, then left), the marks could each weigh too little to show while the body had already gone. The body now stays, small, until a mark shows. `isState` and `resolveLook` still read names only.
+
 ## 0.4.0
 
 ### Minor Changes
