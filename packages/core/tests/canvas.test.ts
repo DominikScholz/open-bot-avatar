@@ -2,13 +2,13 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
-import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
+import { mountCanvas, paintCanvas, paintLiveCanvas } from '../src/dom/paint.ts';
 import { glass as glassMaterial } from '../src/dom/materials/glass.ts';
 import * as glass from '../src/dom/glass/renderer.ts';
 import type { CanvasMaterial } from '../src/dom/materials/material.ts';
 import { fluffy as fluffyMaterial } from '../src/dom/materials/fluffy.ts';
 import * as fluffy from '../src/dom/fluffy/renderer.ts';
-import { avatarExtent, liveFrame } from '../src/render.ts';
+import { avatarExtent, liveFrame, liveTransform } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
 interface Recorder {
@@ -261,28 +261,105 @@ describe('mountAvatar on a canvas', () => {
     const material: CanvasMaterial = { id: 'cached', render };
     const el = host(160);
     const surface = mountCanvas(el, 'cached', examples[0], 6);
+    // Stills / fresh mounts do not promote a compositor layer until root motion is delegated.
+    expect(surface.wrap.style.willChange).toBe('');
 
     // Two frames 10ms apart in idle: 3D view barely moves, 2D root motion delegates to wrap.style.transform.
-    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', material);
+    const r0 = paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', material, 1.0);
+    expect(r0.reused).toBe(false);
     expect(render).toHaveBeenCalledTimes(1);
     const t0 = surface.wrap.style.transform;
     expect(t0).toMatch(/^matrix\(/);
+    expect(surface.wrap.style.willChange).toBe('transform');
 
-    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#ff6a1a', '#151515', material);
+    const r1 = paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#ff6a1a', '#151515', material, 1.01);
+    expect(r1.reused).toBe(true);
     expect(render).toHaveBeenCalledTimes(1);
     expect(surface.wrap.style.transform).not.toBe(t0);
 
     // Changing color or rotating the view invalidates immediately and repaints.
-    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material);
+    paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material, 1.01);
     expect(render).toHaveBeenCalledTimes(2);
 
-    paintCanvas(surface, liveFrame(examples[0], { state: 'idle', time: 1.01, view: { yaw: 0.4, pitch: 0 }, size: 160 }), 160, '#1f7cf2', '#151515', material);
+    paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.01, view: { yaw: 0.4, pitch: 0 }, size: 160 }), 160, '#1f7cf2', '#151515', material, 1.01);
     expect(render).toHaveBeenCalledTimes(3);
 
     // Overlays (marks/ribbons) clear the wrapper transform and paint directly.
-    paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material);
+    paintLiveCanvas(surface, liveTransform(examples[0], { state: 'thinking', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material, 1.01);
     expect(surface.wrap.style.transform).toBe('');
     el.remove();
+  });
+
+  it('bakes frame.root directly into canvas on direct paintCanvas calls (stills/toDataURL)', () => {
+    const el = host(160);
+    const surface = mountCanvas(el, 'still-waiting', examples[0], 6);
+    paintCanvas(surface, liveFrame(examples[0], { state: 'waiting', reducedMotion: true, size: 160 }), 160, '#ff6a1a', '#151515', 'flat');
+    expect(surface.wrap.style.transform).toBe('');
+    expect(surface.wrap.style.willChange).toBe('');
+    el.remove();
+  });
+
+  it('caches flat fallback at depth 0 and staggers minor idle material refreshes fairly', () => {
+    // Depth 0 with a material falls back to flat and still hits the retained-canvas cache.
+    const tile = document.createElement('canvas');
+    const render = vi.fn().mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const mat: CanvasMaterial = { id: 'stagger', render };
+    const el0 = host(160);
+    const s0 = mountCanvas(el0, 'd0', examples[0], 0);
+    const a = paintLiveCanvas(s0, liveTransform(examples[0], { depth: 0, state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', mat, 1.0);
+    const b = paintLiveCanvas(s0, liveTransform(examples[0], { depth: 0, state: 'idle', time: 1.01, size: 160 }), 160, '#ff6a1a', '#151515', mat, 1.01);
+    expect(a.reused).toBe(false);
+    expect(b.reused).toBe(true);
+    expect(render).not.toHaveBeenCalled();
+    el0.remove();
+
+    // 4 material avatars needing a minor idle refresh (~1.2 CSS px) on the same frame stagger 2 per frame.
+    const surfaces = [0, 1, 2, 3].map((i) => {
+      const el = host(160);
+      const s = mountCanvas(el, `m${i}`, examples[i], 6);
+      paintLiveCanvas(s, liveTransform(examples[i], { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', mat, 10.0);
+      return { el, s, def: examples[i] };
+    });
+    render.mockClear();
+    const resFrame1 = surfaces.map(({ s, def }) =>
+      paintLiveCanvas(s, liveTransform(def, { state: 'idle', time: 1.0, view: { yaw: 0.025, pitch: 0 }, size: 160 }), 160, '#ff6a1a', '#151515', mat, 11.0),
+    );
+    expect(resFrame1.filter((r) => !r.reused)).toHaveLength(2);
+    expect(resFrame1.filter((r) => r.reused)).toHaveLength(2);
+    // On the next frame, the two deferred avatars refresh.
+    const resFrame2 = surfaces.map(({ s, def }) =>
+      paintLiveCanvas(s, liveTransform(def, { state: 'idle', time: 1.0, view: { yaw: 0.025, pitch: 0 }, size: 160 }), 160, '#ff6a1a', '#151515', mat, 12.0),
+    );
+    expect(resFrame2.filter((r) => !r.reused)).toHaveLength(2);
+    expect(render).toHaveBeenCalledTimes(4);
+    surfaces.forEach(({ el }) => el.remove());
+  });
+
+  it('pins liveTransform against liveFrame and culls sub-pixel projected z-slices', () => {
+    const states = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'] as const;
+    for (const def of examples.slice(0, 3)) {
+      for (const state of states) {
+        for (const mood of ['neutral', 'happy'] as const) {
+          const opts = { state, mood, time: 1.8, stateAge: 1.8, size: 120, color: '#1f7cf2' };
+          const tr = liveTransform(def, opts);
+          const fr = liveFrame(def, opts);
+          expect(tr.view).toEqual(fr.surface.view);
+          expect(tr.root).toEqual(fr.root);
+          expect(tr.eyes).toEqual(fr.surface.eyes);
+          expect(tr.color).toBe(fr.color);
+          expect(tr.ink).toBe(fr.ink);
+          const frameHasOverlay = fr.shapes.some((s) => s.kind === 'ribbon' || s.key.startsWith('mark-'));
+          expect(tr.hasOverlay).toBe(frameHasOverlay);
+          expect(tr.buildFrame()).toEqual(fr);
+        }
+      }
+    }
+    // Straight front-on projects all z-slices onto the same pixels, so liveFrame culls intermediate ones.
+    const front = liveFrame(examples[0], { view: { yaw: 0.3, pitch: -0.2 }, reducedMotion: true, size: 96 });
+    const turned = liveFrame(examples[0], { view: { yaw: 0.9, pitch: 0.3 }, reducedMotion: true, size: 96 });
+    const slicesOf = (f: ReturnType<typeof liveFrame>) => f.shapes.filter((s) => s.kind === 'slice').length;
+    expect(slicesOf(front)).toBeLessThan(slicesOf(turned));
+    expect(slicesOf(front)).toBeGreaterThanOrEqual(1);
   });
 
   it('draws pill eyes without roundRect', async () => {

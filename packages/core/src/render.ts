@@ -498,9 +498,9 @@ export function avatarFrame(definition: AvatarDefinition, options: RenderOptions
 }
 
 /**
- * Lightweight per-frame check for live canvas avatars: computes only pose, view, root matrix and
- * eye state without building slice paths or sorting shapes. Returns null when overlays (ribbons
- * or marks) are active and a full `liveFrame` is needed.
+ * Lightweight per-frame check for live canvas avatars: computes pose, view, root matrix and eye
+ * state once without building slice paths or sorting shapes. Calling `buildFrame()` materializes
+ * the full `AvatarFrame` from that already-computed pose only on a cache miss.
  */
 export interface LiveTransform {
   view: ViewBasis;
@@ -508,24 +508,31 @@ export interface LiveTransform {
   eyes: SurfaceEye[];
   color: string;
   ink: string;
+  hasOverlay: boolean;
+  buildFrame: () => AvatarFrame;
 }
 
-export function liveTransform(definition: AvatarDefinition, options: RenderOptions = {}): LiveTransform | null {
+export function liveTransform(definition: AvatarDefinition, options: RenderOptions = {}): LiveTransform {
   const p = prepare(definition, depthOption(options));
   const pose = poseOf(p, options);
-  if (pose.ribbons > 0.01 || pose.marks.length > 0) return null;
   const { color, ink } = colors(options);
-  const eyes: SurfaceEye[] = eyeStates(p, pose).map((e) => ({
+  const v = viewBasis(pose.yaw, pose.pitch);
+  const root = rootMatrix(pose, p.vol.bounds);
+  const hasOverlay = pose.ribbons > 0.01 || pose.marks.length > 0;
+  const states = eyeStates(p, pose);
+  const eyes: SurfaceEye[] = states.map((e) => ({
     mark: eyeMark({ ...e, dx: 0, dy: 0 }),
     dx: e.dx,
     dy: e.dy,
   }));
   return {
-    view: viewBasis(pose.yaw, pose.pitch),
-    root: rootMatrix(pose, p.vol.bounds),
+    view: v,
+    root,
     eyes,
     color,
     ink,
+    hasOverlay,
+    buildFrame: () => flatFrameFrom(p, pose, v, root, states, eyes, color, ink, options, options.size),
   };
 }
 
@@ -679,16 +686,32 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions, needRibbonPa
 
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
-  const { vol } = p;
-  const b = vol.bounds;
   const { color, ink } = colors(options);
   const pose = poseOf(p, options);
-  const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
+  const root = rootMatrix(pose, p.vol.bounds);
+  const states = eyeStates(p, pose);
+  const eyes: SurfaceEye[] = states.map((e) => ({ mark: eyeMark({ ...e, dx: 0, dy: 0 }), dx: e.dx, dy: e.dy }));
+  return flatFrameFrom(p, pose, v, root, states, eyes, color, ink, options, size);
+}
+
+function flatFrameFrom(
+  p: Prepared,
+  pose: Pose,
+  v: ViewBasis,
+  root: Matrix,
+  states: [EyeState, EyeState],
+  eyes: SurfaceEye[],
+  color: string,
+  ink: string,
+  options: RenderOptions,
+  size: number | undefined,
+): AvatarFrame {
+  const { vol } = p;
+  const b = vol.bounds;
+  const pivot = pivotOf(b);
   const stack = activeStack(v);
-  const eyes: SurfaceEye[] = [];
   const fx = effectsOf(p, pose, options, size === undefined);
-  const root = rootMatrix(pose, b);
   // The body shrinks toward its center as it gives way to a mark.
   const shrink = (m: M): M => (fx.body < 1 ? mul(about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]), m) : m);
 
@@ -707,9 +730,8 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
     });
     // Painted on the surface; each eye goes once the surface under it turns away.
-    eyeStates(p, pose).forEach((e, idx) => {
+    states.forEach((e, idx) => {
       const plane = vol.eyePlanes[idx];
-      eyes.push({ mark: eyeMark({ ...e, dx: 0, dy: 0 }), dx: e.dx, dy: e.dy });
       if (!eyeVisible(v, plane)) return;
       // A slice through the middle of a mark must paint before the entire mark: sort at the near
       // edge of its footprint on the active stack.

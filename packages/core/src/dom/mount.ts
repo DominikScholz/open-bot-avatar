@@ -16,11 +16,11 @@
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { lookOf, type AvatarStateDefinition } from '../motion.ts';
-import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame, type SurfaceEye } from '../render.ts';
+import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
-import { currentPointer, requestFrame, subscribeFrames } from './clock.ts';
+import { currentPointer, isHighRefresh, requestFrame, subscribeFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
-import { canvasSupported, mountCanvas, paintCanvas, tryReuseCanvas, type CanvasSurface } from './paint.ts';
+import { canvasSupported, mountCanvas, paintCanvas, paintLiveCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
@@ -169,10 +169,10 @@ function eyesOrigin(definition: AvatarDefinition): { x: number; y: number } {
   return { x: at(x), y: at(y) };
 }
 
-/** Avatars smaller than this (CSS px), or in calm idle motion, redraw at CALM_FPS. */
+/** Avatars smaller than this (CSS px), or in calm steady motion, redraw at SMALL_FPS. */
 const SMALL_SIZE = 128;
 const SMALL_FPS = 30;
-/** Cap live redraws at 60 fps so 120 Hz+ ProMotion displays don't do 2x redundant work. */
+/** Cap live redraws at 60 fps on >= 110 Hz displays so 120 Hz+ ProMotion doesn't do 2x redundant work. */
 const MAX_FPS = 60;
 /** How far outside the viewport (CSS px) avatars keep animating, so they are already moving as they scroll in. */
 const VIEW_MARGIN = 100;
@@ -255,16 +255,14 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   /** Imported materials use a painted canvas even for stills. */
   const canvasMaterial = () => canvasMaterialOf(opts.material) !== null && opts.renderer !== 'scene' && canvasSupported();
 
-  let lastEyeSig = '';
+  let lastEyeKey = '';
   let calmFrame = false;
 
-  const eyeSignature = (eyes: SurfaceEye[]): string => {
-    let sig = '';
-    for (let i = 0; i < eyes.length; i++) {
-      const m = eyes[i].mark;
-      sig += m.shape === 'pill' ? `${Math.round(m.height * 10)}|` : `${m.shape}:${m.d}|`;
-    }
-    return sig;
+  const ensureSurface = (p: AvatarOptions): CanvasSurface => {
+    if (scene || lastStill) clear();
+    const key = `${geometryKey(p.definition)}|${p.depth}`;
+    if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+    return surface;
   };
 
   const resolveColors = (p: AvatarOptions, fallbackFill: string, fallbackInk: string): { fill: string; ink: string } => {
@@ -277,14 +275,11 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     };
   };
 
-  const paint = (p: AvatarOptions, options: RenderOptions) => {
-    if (scene || lastStill) clear();
+  const paintStill = (p: AvatarOptions, options: RenderOptions) => {
     const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
-    const key = `${geometryKey(p.definition)}|${p.depth}`;
-    if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+    const target = ensureSurface(p);
     const { fill, ink } = resolveColors(p, flat.color, flat.ink);
-    paintCanvas(surface, flat, size, fill, ink, p.material);
-    return flat;
+    paintCanvas(target, flat, size, fill, ink, p.material);
   };
 
   const draw = (time: number, pointer: { x: number; y: number } | null): boolean => {
@@ -307,7 +302,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         };
         if (canvasMaterial()) {
           // Nothing to paint until the host has a size; the resize that gives it one redraws.
-          if (size > 0) paint(p, { ...options, size });
+          if (size > 0) paintStill(p, { ...options, size });
           failed = false;
           return false;
         }
@@ -343,27 +338,12 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       };
       const isCalmState = !step.moving && look.mood !== 'happy' && (look.state === 'idle' || look.state === 'waiting' || look.state === 'done');
       if (p.renderer !== 'scene' && canvasSupported()) {
-        // Fast path: when the mounted canvas is already warm and no overlays are active, avoid
-        // building a full AvatarFrame (slices, paths, depth sort) if the retained bitmap can be reused.
-        const key = `${geometryKey(p.definition)}|${p.depth}`;
-        if (!scene && !lastStill && surface && surface.painted && surface.key === key && host.contains(surface.canvas)) {
-          const fast = liveTransform(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
-          if (fast) {
-            const { fill, ink } = resolveColors(p, fast.color, fast.ink);
-            if (tryReuseCanvas(surface, fast.view, fast.root, fast.eyes, size, fill, ink, p.material, time)) {
-              const eyeSig = eyeSignature(fast.eyes);
-              calmFrame = isCalmState && eyeSig === lastEyeSig;
-              lastEyeSig = eyeSig;
-              failed = false;
-              return !reducedMotion || step.moving;
-            }
-          }
-        }
-        const flat = paint(p, options);
-        const eyeSig = eyeSignature(flat.surface.eyes);
-        const hasRibbons = flat.shapes.some((s) => s.kind === 'ribbon');
-        calmFrame = isCalmState && !hasRibbons && eyeSig === lastEyeSig;
-        lastEyeSig = eyeSig;
+        const target = ensureSurface(p);
+        const transform = liveTransform(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+        const { fill, ink } = resolveColors(p, transform.color, transform.ink);
+        const { eyesKey } = paintLiveCanvas(target, transform, size, fill, ink, p.material, time);
+        calmFrame = isCalmState && !transform.hasOverlay && eyesKey === lastEyeKey;
+        lastEyeKey = eyesKey;
         failed = false;
         return !reducedMotion || step.moving;
       }
@@ -403,8 +383,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       calmFrame = false;
       const more = draw(time, pointer);
       if (!visible || !more) return false;
-      const fps = (size > 0 && size < SMALL_SIZE) || calmFrame ? SMALL_FPS : MAX_FPS;
-      return 1 / fps - FRAME_SLACK;
+      if ((size > 0 && size < SMALL_SIZE) || calmFrame) return 1 / SMALL_FPS - FRAME_SLACK;
+      return isHighRefresh() ? 1 / MAX_FPS - FRAME_SLACK : true;
     },
   });
 

@@ -9,17 +9,15 @@
  * so covering every possible view up front (avatarExtent, kept as the upper
  * bound) would cost about three times as much.
  *
- * When a frame has no ribbons or state marks, 2D root motion (hop, roll, squash)
- * is applied as a CSS transform on the canvas wrapper rather than re-rasterizing
- * the bitmap; the canvas only repaints when the 3D view, eyes, color, material
- * or size changes by a visible amount.
- *
- * A fluffy or glass avatar is painted the same way, except that its body and
- * eyes come as one image from the material renderer in place of the slices and
- * eye marks.
+ * For live avatars (`paintLiveCanvas`), when a frame has no ribbons or state
+ * marks, 2D root motion (hop, roll, squash) is applied as a CSS transform on
+ * the canvas wrapper rather than re-rasterizing the bitmap; the canvas only
+ * repaints when the 3D view, eyes, color, material or size changes past a
+ * sub-pixel threshold. Direct `paintCanvas` calls (e.g. stills and PNG export)
+ * always bake `frame.root` into the bitmap.
  */
 import { avatarExtent, preparedVolume, ribbonPointsOf } from '../render.ts';
-import type { AvatarFrame, EyeMark, FramePath, FrameShape, Matrix, SurfaceEye, ViewBasis } from '../render.ts';
+import type { AvatarFrame, EyeMark, FramePath, FrameShape, LiveTransform, Matrix, SurfaceEye, ViewBasis } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
@@ -173,7 +171,7 @@ function eyeMarkKey(m: EyeMark): string {
   return `d:${m.d}`;
 }
 
-function eyesCacheKey(eyes: SurfaceEye[]): string {
+export function eyesCacheKey(eyes: SurfaceEye[]): string {
   let key = '';
   for (let i = 0; i < eyes.length; i++) {
     const e = eyes[i];
@@ -195,6 +193,10 @@ function rootCss(root: Matrix, size: number): string {
 
 function setWrapTransform(surface: CanvasSurface, next: string) {
   if (surface.transform === next) return;
+  if (next && !surface.promoted) {
+    surface.wrap.style.willChange = 'transform';
+    surface.promoted = true;
+  }
   surface.transform = next;
   surface.wrap.style.transform = next;
 }
@@ -213,15 +215,18 @@ export interface CanvasSurface {
   left: number;
   top: number;
   transform: string;
+  promoted: boolean;
   /** Last model-space bitmap painted on `canvas` when root motion is delegated to `wrap.style.transform`. */
   painted: PaintedState | null;
+  /** Number of consecutive frames this surface was deferred by the idle WebGL stagger budget. */
+  coatWait: number;
 }
 
 export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefinition, depth: number | undefined): CanvasSurface {
   const cap = avatarExtent(definition, depth);
   const wrap = document.createElement('div');
   // In flow at the content box, like the scene's root, so the host's padding and border place it.
-  wrap.style.cssText = 'position:relative;width:100%;height:100%;pointer-events:none;transform-origin:0 0;will-change:transform';
+  wrap.style.cssText = 'position:relative;width:100%;height:100%;pointer-events:none;transform-origin:0 0';
   const canvas = document.createElement('canvas');
   canvas.setAttribute('aria-hidden', 'true');
   canvas.style.cssText = 'position:absolute';
@@ -229,73 +234,26 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   el.replaceChildren(wrap);
   let volume: Volume | undefined;
   return {
-    key, wrap, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0, transform: '',
+    key, wrap, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0, transform: '', promoted: false,
     volume: depth === 0 ? null : () => (volume ??= preparedVolume(definition, depth).vol),
     painted: null,
+    coatWait: 0,
   };
 }
 
 /** The marks of `thinking` and `blocked`, which a frame lists as slices in place of the body. */
 const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
 
-/**
- * Fast path for live frames without overlays: if the retained canvas bitmap is still valid within
- * sub-pixel view tolerance, updates only `wrap.style.transform` and returns true so the caller can
- * skip building a full `AvatarFrame` and repainting the canvas.
- */
-export function tryReuseCanvas(
+function paintFrame(
   surface: CanvasSurface,
-  view: ViewBasis,
-  root: Matrix,
-  eyes: SurfaceEye[],
+  frame: AvatarFrame,
   size: number,
   fill: string,
   ink: string,
-  material: AvatarMaterial = 'flat',
-  frameTime = -1,
-): boolean {
-  if (!surface.ctx || size <= 0) return false;
-  const prev = surface.painted;
-  if (!prev) return false;
-  const finish = canvasMaterialOf(material);
-  const dpr = window.devicePixelRatio || 1;
-  const layout = `${size}|${dpr}`;
-  if (
-    prev.material !== finish ||
-    prev.fill !== fill ||
-    prev.ink !== ink ||
-    prev.layout !== layout ||
-    Math.abs(prev.bodyScale - 1) >= 1e-4
-  ) {
-    return false;
-  }
-  const shiftPx = viewShift(view, prev.view, prev.rx, prev.ry, prev.rz) * (size / 100);
-  if (eyesCacheKey(eyes) !== prev.eyesKey) return false;
-  if (shiftPx >= VIEW_EPS_CSS_PX) {
-    // Stagger minor idle WebGL coat refreshes across frames so multiple fluffy/glass avatars
-    // don't clump on the same frame and spike frame time.
-    if (finish && frameTime >= 0 && shiftPx < COAT_STAGGER_PX) {
-      if (coatFrameTime !== frameTime) {
-        coatFrameTime = frameTime;
-        coatFrameCount = 0;
-      }
-      if (coatFrameCount >= MAX_IDLE_COATS_PER_FRAME) {
-        setWrapTransform(surface, rootCss(root, size));
-        return true;
-      }
-      coatFrameCount++;
-    }
-    return false;
-  }
-  setWrapTransform(surface, rootCss(root, size));
-  return true;
-}
-
-/**
- * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
- * canvas color. A material falls back to flat where it cannot be drawn.
- */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
+  material: AvatarMaterial,
+  delegateRoot: boolean,
+  eyesKey: string,
+) {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
@@ -304,37 +262,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const finish = canvasMaterialOf(material);
   const { view, scale: bodyScale, eyes } = frame.surface;
 
-  let hasOverlay = false;
-  for (let i = 0; i < frame.shapes.length; i++) {
-    const s = frame.shapes[i];
-    if (s.kind === 'ribbon' || (s.kind === 'slice' && isMark(s))) {
-      hasOverlay = true;
-      break;
-    }
-  }
-
-  // When there are no ribbons or marks, 2D root motion (breathing, sway, hop, squash) applies to the
-  // entire avatar uniformly via CSS transform on `wrap`. If the 3D view, eyes, color, material and
-  // size haven't changed past a sub-pixel threshold, skip repainting the canvas completely.
-  const delegateRoot = !hasOverlay && bodyScale > 0.001;
-  let eyesKey = '';
-  if (delegateRoot) {
-    eyesKey = eyesCacheKey(eyes);
-    const prev = surface.painted;
-    if (
-      prev &&
-      prev.material === finish &&
-      prev.fill === fill &&
-      prev.ink === ink &&
-      prev.layout === layout &&
-      Math.abs(prev.bodyScale - bodyScale) < 1e-4 &&
-      prev.eyesKey === eyesKey &&
-      viewShift(view, prev.view, prev.rx, prev.ry, prev.rz) * (size / 100) < VIEW_EPS_CSS_PX
-    ) {
-      setWrapTransform(surface, rootCss(frame.root, size));
-      return;
-    }
-  } else {
+  if (!delegateRoot) {
     surface.painted = null;
     setWrapTransform(surface, '');
   }
@@ -360,7 +288,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   } else {
-    // Whole device pixels, so the bitmap is never resampled. Setting the width also clears it.
+    // Whole device pixels to align the canvas box with the pixel grid. Setting width also clears it.
     surface.layout = layout;
     surface.fit = fit;
     surface.left = Math.floor(fit.x * scale);
@@ -416,6 +344,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
         for (let idx = 0; idx < stops.length; idx++) paint.addColorStop(idx / (stops.length - 1), stops[idx]);
       }
       ctx.fillStyle = paint;
+      // Live frames supply numeric ribbon vertices via ribbonPointsOf; avatarFrame supplies SVG `d`.
       const pts = ribbonPointsOf(shape);
       if (pts && pts.length > 0) {
         ctx.beginPath();
@@ -430,7 +359,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     }
   }
 
-  if (delegateRoot) {
+  if (delegateRoot && bodyScale > 0.001) {
     let rx = 35, ry = 35, rz = 12;
     if (surface.volume) {
       const vol = surface.volume();
@@ -439,7 +368,77 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       rz = 0;
       for (let i = 0; i < vol.parts.length; i++) if (vol.parts[i].depth / 2 > rz) rz = vol.parts[i].depth / 2;
     }
-    surface.painted = { material: coat ? finish : null, fill, ink, layout, bodyScale, eyesKey, view, rx, ry, rz };
+    // Store the requested `finish` so depth-0 / unavailable-WebGL fallbacks still hit the cache cleanly.
+    surface.painted = { material: finish, fill, ink, layout, bodyScale, eyesKey, view, rx, ry, rz };
+    surface.coatWait = 0;
     setWrapTransform(surface, rootCss(frame.root, size));
   }
+}
+
+/**
+ * Paint one frame `size` CSS pixels wide directly into `surface.canvas` (baking `frame.root` into
+ * the bitmap so `toDataURL()` and still exports capture the full pose). A material falls back to
+ * flat where it cannot be drawn.
+ */
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
+  paintFrame(surface, frame, size, fill, ink, material, false, '');
+}
+
+/**
+ * Live-avatar entry point: checks the retained bitmap cache from `transform` before materializing
+ * the full `AvatarFrame`. When no overlays are active and the 3D view/eyes/look are within
+ * sub-pixel tolerance, only `wrap.style.transform` is updated. Returns the current eye key so the
+ * caller can track blinks/morphs without recomputing it.
+ */
+export function paintLiveCanvas(
+  surface: CanvasSurface,
+  transform: LiveTransform,
+  size: number,
+  fill: string,
+  ink: string,
+  material: AvatarMaterial = 'flat',
+  frameTime = -1,
+): { eyesKey: string; reused: boolean } {
+  const eyesKey = eyesCacheKey(transform.eyes);
+  if (!surface.ctx || size <= 0) return { eyesKey, reused: false };
+  const finish = canvasMaterialOf(material);
+  const dpr = window.devicePixelRatio || 1;
+  const layout = `${size}|${dpr}`;
+
+  if (!transform.hasOverlay) {
+    const prev = surface.painted;
+    if (
+      prev &&
+      prev.material === finish &&
+      prev.fill === fill &&
+      prev.ink === ink &&
+      prev.layout === layout &&
+      Math.abs(prev.bodyScale - 1) < 1e-4 &&
+      prev.eyesKey === eyesKey
+    ) {
+      const shiftPx = viewShift(transform.view, prev.view, prev.rx, prev.ry, prev.rz) * (size / 100);
+      if (shiftPx < VIEW_EPS_CSS_PX) {
+        surface.coatWait = 0;
+        setWrapTransform(surface, rootCss(transform.root, size));
+        return { eyesKey, reused: true };
+      }
+      // Stagger minor idle WebGL coat refreshes across frames so multiple fluffy/glass avatars
+      // don't clump on one frame. Avatars already deferred on an earlier frame get priority.
+      if (finish && frameTime >= 0 && shiftPx < COAT_STAGGER_PX) {
+        if (coatFrameTime !== frameTime) {
+          coatFrameTime = frameTime;
+          coatFrameCount = 0;
+        }
+        if (coatFrameCount >= MAX_IDLE_COATS_PER_FRAME && surface.coatWait < 2) {
+          surface.coatWait++;
+          setWrapTransform(surface, rootCss(transform.root, size));
+          return { eyesKey, reused: true };
+        }
+        coatFrameCount++;
+      }
+    }
+  }
+
+  paintFrame(surface, transform.buildFrame(), size, fill, ink, material, !transform.hasOverlay, eyesKey);
+  return { eyesKey, reused: false };
 }

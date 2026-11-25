@@ -31,6 +31,8 @@ let visibilityBound = false;
 const due = new WeakMap<FrameSubscriber, number>();
 let pointer: Pointer | null = null;
 const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+let lastTickNow = 0;
+let highRefresh = false;
 
 function isHidden(): boolean {
   return typeof document !== 'undefined' && document.hidden === true;
@@ -42,6 +44,7 @@ function onVisibilityChange() {
       cancelAnimationFrame(frame);
       frame = 0;
     }
+    lastTickNow = 0;
   } else {
     wake();
   }
@@ -50,6 +53,12 @@ function onVisibilityChange() {
 function tick(now: number) {
   frame = 0;
   if (isHidden()) return;
+  if (lastTickNow > 0) {
+    const dt = now - lastTickNow;
+    // Detect >= 110 Hz displays (e.g. 120/144/240 Hz) so 60–100 Hz displays are never halved.
+    if (dt > 1 && dt < 100) highRefresh = dt < 9.5;
+  }
+  lastTickNow = now;
   const time = (now - startedAt) / 1000;
   let busy = false;
   ready.length = 0;
@@ -68,6 +77,7 @@ function tick(now: number) {
   }
   ready.length = 0;
   if (busy) wake();
+  else lastTickNow = 0;
 }
 
 function wake() {
@@ -94,6 +104,11 @@ export function subscribeFrames(subscriber: FrameSubscriber): () => void {
 export function setPointer(next: Pointer | null) {
   pointer = next;
   wake();
+}
+
+/** True when the display refresh rate is >= 110 Hz (so 60 fps capping skips frames without halving 90/100 Hz). */
+export function isHighRefresh(): boolean {
+  return highRefresh;
 }
 
 /** Current pointer position, if any (internal helper so measure hooks can skip layout reads when idle). */

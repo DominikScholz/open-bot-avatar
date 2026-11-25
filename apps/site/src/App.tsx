@@ -1,5 +1,5 @@
 import { BotAvatar } from "./BotAvatar";
-import { CONTRIBUTORS, Contributors, pictureAt } from "./Contributors";
+import { CONTRIBUTORS, Contributors, pictureAt } from "./Contributors.tsx";
 import { topOthers } from "./contributors";
 import { Docs } from "./Docs";
 import { REPO, href, useRoute, type Route } from "./route";
