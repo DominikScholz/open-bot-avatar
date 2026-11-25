@@ -8,7 +8,7 @@ const designPrompt = fileURLToPath(new URL('../../skills/generate-avatar/referen
 /** Where the site serves the design prompt, next to index.html (src/studio/brief.ts links to it). */
 const PROMPT_FILE = 'prompt.md';
 
-/** The module the site imports its contributors from (src/Contributors.tsx). */
+/** The module the site imports its contributors from (src/contributorData.ts). */
 const CONTRIBUTORS = 'virtual:contributors';
 
 /**

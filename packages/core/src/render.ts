@@ -118,8 +118,29 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
   return { ...rim, cx: bx + pose.sx * (rim.cx - bx), cy: by + pose.sy * (rim.cy - by) + pose.lift };
 }
 
+// Path text dominates the serialized key. Compare it directly on repeat calls and
+// serialize only the small tail, keeping eyes at index 3 for custom toJSON hooks.
+interface GeometryHit { id: string; name: string; path: string; tail: string; prepared: Prepared }
+let geometryHits = new WeakMap<AvatarDefinition, GeometryHit>();
+const emptyPrefix = '[null,null,null';
+
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
-  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth]);
+  const id = definition?.id, name = definition?.name, path = definition?.body?.path, eyes = definition?.eyes;
+  if (typeof definition === 'object' && typeof id === 'string' && typeof name === 'string' &&
+      typeof path === 'string' && !('toJSON' in Array.prototype)) {
+    const tail = JSON.stringify([null, null, null, eyes, depth]);
+    const hit = geometryHits.get(definition);
+    if (hit && hit.id === id && hit.name === name && hit.path === path && hit.tail === tail) return hit.prepared;
+    // Same key as the full serialization below, without reading the eye record a second time.
+    const key = `[${JSON.stringify(id)},${JSON.stringify(name)},${JSON.stringify(path)}${tail.slice(emptyPrefix.length)}`;
+    const prepared = prepareKey(definition, depth, key);
+    geometryHits.set(definition, { id, name, path, tail, prepared });
+    return prepared;
+  }
+  return prepareKey(definition, depth, JSON.stringify([id, name, path, eyes, depth]));
+}
+
+function prepareKey(definition: AvatarDefinition, depth: number, key: string): Prepared {
   const hit = cache.get(key);
   if (hit) return hit;
   const res = validateAvatar(definition);
@@ -140,7 +161,10 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     detail: new Map(),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
   };
-  if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
+  if (cache.size >= 64) {
+    cache.delete(cache.keys().next().value as string);
+    geometryHits = new WeakMap();
+  }
   cache.set(key, prepared);
   return prepared;
 }
@@ -381,11 +405,23 @@ function eyeMark(e: EyeState): EyeMark {
   return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
 }
 
+// A mounted avatar usually keeps both colors across frames. Cache normalized hex only;
+// CSS variables are still resolved against the host at paint time.
+const normalized = new Map<string, string>();
+function normalizedColor(input: string | undefined, fallback: string): string {
+  if (!input) return fallback;
+  const hit = normalized.get(input);
+  if (hit !== undefined) return hit;
+  const rgb = parseHex(input);
+  if (!rgb) return fallback;
+  const hex = toHex(rgb);
+  if (normalized.size >= 64) normalized.clear();
+  normalized.set(input, hex);
+  return hex;
+}
+
 function colors(options: RenderOptions): { color: string; ink: string } {
-  return {
-    color: toHex(parseHex(options.color) ?? (parseHex(DEFAULT_COLOR) as Rgb)),
-    ink: toHex(parseHex(options.eyeColor) ?? (parseHex(DEFAULT_EYE_COLOR) as Rgb)),
-  };
+  return { color: normalizedColor(options.color, DEFAULT_COLOR), ink: normalizedColor(options.eyeColor, DEFAULT_EYE_COLOR) };
 }
 
 // ---------------------------------------------------------------------------
@@ -713,7 +749,8 @@ function flatFrameFrom(
   const stack = activeStack(v);
   const fx = effectsOf(p, pose, options, size === undefined);
   // The body shrinks toward its center as it gives way to a mark.
-  const shrink = (m: M): M => (fx.body < 1 ? mul(about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]), m) : m);
+  const shrinkMatrix = fx.body > 0 && fx.body < 1 ? about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]) : null;
+  const shrink = (m: M): M => shrinkMatrix ? mul(shrinkMatrix, m) : m;
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
@@ -751,23 +788,27 @@ function flatFrameFrom(
 
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
   const fixed = fx.ribbons.length || fx.marks.length ? invert(root) : null;
-  const ribbon = (front: boolean): FrameShape[] =>
-    fx.ribbons.flatMap((r, i) => {
-      if (r.front !== front) return [];
-      const shape: FrameShape = { kind: 'ribbon', key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient };
-      ribbonPoints.set(shape, r.points);
-      return [shape];
-    });
-  const marks = fx.marks.map((mark, i): FrameShape => {
+  // Fill the final array in paint order: back ribbons, sorted body, front ribbons, marks.
+  const shapes = new Array<FrameShape>(items.length + fx.ribbons.length + fx.marks.length);
+  let back = 0;
+  for (const r of fx.ribbons) if (!r.front) back++;
+  for (let i = 0; i < items.length; i++) shapes[back + i] = items[i].shape;
+  let backAt = 0, frontAt = back + items.length;
+  fx.ribbons.forEach((r, i) => {
+    const shape: FrameShape = { kind: 'ribbon', key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front: r.front, fill: r.fill, gradient: r.gradient };
+    ribbonPoints.set(shape, r.points);
+    shapes[r.front ? frontAt++ : backAt++] = shape;
+  });
+  fx.marks.forEach((mark, i) => {
     // Two parts of one name share a path; given different outlines, the later one gets a path of its own.
     const taken = paths.get(mark.id);
     const id = taken && taken.d !== mark.d ? `${mark.id}-${hashString(mark.d).toString(36)}` : mark.id;
     if (!paths.has(id)) paths.set(id, { id, d: mark.d, evenOdd: false, box: mark.box, ...(mark.round ? { round: true } : {}) });
-    return { kind: 'slice', key: `mark-${i}`, path: id, matrix: mul(fixed as M, mark.matrix) };
+    shapes[frontAt++] = { kind: 'slice', key: `mark-${i}`, path: id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
-    shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
+    shapes,
     surface: { view: v, scale: fx.body, eyes: fx.body > 0 ? eyes : [] },
   };
 }

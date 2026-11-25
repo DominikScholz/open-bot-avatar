@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { examples } from '../src/examples.ts';
 import { flattenPath, parsePath } from '../src/path.ts';
-import { avatarFrame, liveFrame, renderAvatarSvg } from '../src/render.ts';
+import { avatarFrame, liveFrame, preparedVolume, renderAvatarSvg } from '../src/render.ts';
 
 const poses = [
   { time: 0, reducedMotion: true },
@@ -78,6 +78,53 @@ describe('avatarFrame', () => {
 });
 
 describe('liveFrame', () => {
+  it('tracks in-place geometry edits and shares prepared volumes by serialized content', () => {
+    const d = structuredClone(examples[0]);
+    const original = preparedVolume(d).vol;
+    expect(preparedVolume(structuredClone(d)).vol).toBe(original);
+    const before = liveFrame(d, poses[0]);
+    d.eyes.x += 1;
+    expect(liveFrame(d, poses[0]).shapes).not.toEqual(before.shapes);
+    d.eyes.x -= 1;
+    expect(preparedVolume(d).vol).toBe(original);
+    d.name += ' II';
+    expect(liveFrame(d, poses[0]).name).toBe(d.name);
+    expect(preparedVolume(d, 2).vol).not.toBe(preparedVolume(d).vol);
+    d.body.path = '';
+    expect(() => liveFrame(d, poses[0])).toThrow('Invalid avatar definition');
+  });
+
+  it('keeps eye key order, extra keys and custom serialization observable after a hit', () => {
+    const d = structuredClone(examples[0]);
+    const original = preparedVolume(d).vol;
+    const { x, y, spacing, scale } = d.eyes;
+    d.eyes = { y, x, spacing, scale };
+    expect(preparedVolume(d).vol).not.toBe(original);
+    Object.assign(d.eyes, { extra: 1 });
+    expect(() => preparedVolume(d)).toThrow('unknown field "eyes.extra"');
+    Object.defineProperty(d.eyes, 'toJSON', { value: () => ({ x, y, spacing, scale }) });
+    expect(preparedVolume(d).vol).toBe(original);
+  });
+
+  it('does not keep an identity hit after its serialized key is evicted', () => {
+    const d = { ...examples[0], name: 'Eviction probe' };
+    const old = preparedVolume(d, 0).vol;
+    for (let i = 0; i < 64; i++) preparedVolume({ ...d, name: `Eviction ${i}` }, 0);
+    expect(preparedVolume(d, 0).vol).not.toBe(old);
+  });
+
+  it('uses serialized eye values when a proxy reads differently from its target', () => {
+    const d = structuredClone(examples[0]);
+    const original = preparedVolume(d).vol;
+    let offset = 0;
+    d.eyes = new Proxy(d.eyes, {
+      get: (eyes, key, receiver) => key === 'x' ? eyes.x + offset : Reflect.get(eyes, key, receiver),
+    });
+    expect(preparedVolume(d).vol).toBe(original);
+    offset++;
+    expect(preparedVolume(d).vol).not.toBe(original);
+  });
+
   it('thins slices that would sit under a pixel apart, and only for small sizes', () => {
     for (const d of examples) {
       const all = avatarFrame(d, poses[0]).shapes.length;

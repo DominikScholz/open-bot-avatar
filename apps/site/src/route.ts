@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 
 export const REPO = "https://github.com/DominikScholz/open-bot-avatar";
 
@@ -12,7 +12,7 @@ export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(read);
   useEffect(() => {
     const onChange = () => {
-      setRoute(read());
+      startTransition(() => setRoute(read()));
       window.scrollTo(0, 0);
     };
     window.addEventListener("hashchange", onChange);

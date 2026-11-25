@@ -24,6 +24,10 @@ export interface FrameSubscriber {
 }
 
 const subscribers = new Set<FrameSubscriber>();
+// Only mountAvatar opts into parking. Public subscribers keep their existing behavior:
+// returning false need not schedule another tick, but they still join ticks requested by others.
+const mayPark = new WeakMap<FrameSubscriber, () => boolean>();
+const parked = new Set<FrameSubscriber>();
 const ready: FrameSubscriber[] = [];
 let frame = 0;
 let visibilityBound = false;
@@ -48,7 +52,7 @@ function onVisibilityChange() {
     }
     lastTickNow = 0;
   } else {
-    wake();
+    requestFrame();
   }
 }
 
@@ -80,6 +84,8 @@ function tick(now: number) {
       due.set(s, carried > time + DUE_TOLERANCE ? carried : time + next);
     } else {
       due.delete(s);
+      // A request made during draw already queued another frame; don't lose that invalidation.
+      if (next === false && !frame && mayPark.get(s)?.() && subscribers.delete(s)) parked.add(s);
     }
     busy = next !== false || busy;
   }
@@ -96,15 +102,38 @@ export function subscribeFrames(subscriber: FrameSubscriber): () => void {
   if (!visibilityBound && typeof document !== 'undefined') {
     visibilityBound = true;
     document.addEventListener('visibilitychange', onVisibilityChange);
+    if (typeof window !== 'undefined') {
+      // Moving a window between displays can change canvas resolution without resizing its host.
+      let dpr = window.devicePixelRatio;
+      window.addEventListener('resize', () => {
+        if (dpr === window.devicePixelRatio) return;
+        dpr = window.devicePixelRatio;
+        if (parked.size) requestFrame();
+      });
+    }
   }
   subscribers.add(subscriber);
   wake();
   return () => {
     subscribers.delete(subscriber);
+    parked.delete(subscriber);
     if (subscribers.size === 0) {
       if (frame) cancelAnimationFrame(frame);
       frame = 0;
     }
+  };
+}
+
+/** Internal: an unchanged mount can sit out other avatars' frames until an input changes. */
+export function subscribeMountFrames(subscriber: FrameSubscriber, canPark: () => boolean) {
+  mayPark.set(subscriber, canPark);
+  const unsubscribe = subscribeFrames(subscriber);
+  return {
+    request() {
+      if (parked.delete(subscriber)) subscribers.add(subscriber);
+      wake();
+    },
+    unsubscribe,
   };
 }
 
@@ -126,5 +155,8 @@ export function currentPointer(): Pointer | null {
 
 /** Request a frame after a non-animated change (color, depth, definition). */
 export function requestFrame() {
+  // Global invalidation: motion preference, restored WebGL context, or an explicit request.
+  for (const s of parked) subscribers.add(s);
+  parked.clear();
   wake();
 }

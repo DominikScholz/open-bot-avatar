@@ -122,57 +122,41 @@ function addGlassPart(
   // Bilinear lookup into sd2d for exact 3D solid-of-revolution SDF:
   // revolve-y: d3d(x, y, z) = sd2d(axis + hypot(x - axis, z / zScale), y)
   // revolve-x: d3d(x, y, z) = sd2d(x, axis + hypot(y - axis, z / zScale))
-  const sampleSD2D = (px: number, py: number): number => {
-    const fx = (px - x0) / stepXY;
-    const fy = (py - y0) / stepXY;
-    const ix = Math.max(0, Math.min(nxy - 2, Math.floor(fx)));
-    const iy = Math.max(0, Math.min(nxy - 2, Math.floor(fy)));
-    const tx = Math.max(0, Math.min(1, fx - ix));
-    const ty = Math.max(0, Math.min(1, fy - iy));
-    const o = iy * nxy + ix;
-    const a = sd2d[o] * (1 - tx) + sd2d[o + 1] * tx;
-    const b = sd2d[o + nxy] * (1 - tx) + sd2d[o + nxy + 1] * tx;
-    return a * (1 - ty) + b * ty;
-  };
-
-  // Smooth union radius where separate parts meet (clean blown-glass fillet, preserves exact shape)
   const joinK = 1.1;
-
-  if (part.kind === 'revolve-y' && part.axis !== undefined) {
+  if ((part.kind === 'revolve-x' || part.kind === 'revolve-y') && part.axis !== undefined) {
+    const aroundY = part.kind === 'revolve-y';
     const axis = part.axis;
     const zScale = part.thickness > 0.01 ? part.depth / part.thickness : 1;
     const invZ = zScale > 0.01 ? 1 / zScale : 1;
-    for (let j = 0; j < nxy; j++) {
-      const y = y0 + j * stepXY;
-      const off = j * nxy;
-      for (let i = 0; i < nxy; i++) {
-        const dx = x0 + i * stepXY - axis;
-        for (let k = 0; k < nz; k++) {
-          const z = Math.abs(z0 + k * stepZ) * invZ;
-          const rho = Math.hypot(dx, z);
-          const d = sampleSD2D(axis + rho, y) * Math.min(1, zScale);
-          const at = off + i + k * plane;
-          field[at] = firstPart ? d : smax(field[at], d, joinK);
+    const scale = Math.min(1, zScale);
+    // All rows in a slice share the same bilinear X indices and weights. Keep the
+    // fractions in double precision, just like the scalar lookup at each voxel.
+    const columns = new Int32Array(nxy);
+    const weights = new Float64Array(nxy);
+    for (let k = 0; k < nz; k++) {
+      const z = Math.abs(z0 + k * stepZ) * invZ;
+      if (aroundY || k === 0) {
+        for (let i = 0; i < nxy; i++) {
+          const px = aroundY ? axis + Math.hypot(xs[i] - axis, z) : xs[i];
+          const fx = (px - x0) / stepXY;
+          columns[i] = Math.max(0, Math.min(nxy - 2, Math.floor(fx)));
+          weights[i] = Math.max(0, Math.min(1, fx - columns[i]));
         }
       }
-    }
-    return;
-  }
-
-  if (part.kind === 'revolve-x' && part.axis !== undefined) {
-    const axis = part.axis;
-    const zScale = part.thickness > 0.01 ? part.depth / part.thickness : 1;
-    const invZ = zScale > 0.01 ? 1 / zScale : 1;
-    for (let j = 0; j < nxy; j++) {
-      const dy = y0 + j * stepXY - axis;
-      const off = j * nxy;
-      for (let i = 0; i < nxy; i++) {
-        const x = x0 + i * stepXY;
-        for (let k = 0; k < nz; k++) {
-          const z = Math.abs(z0 + k * stepZ) * invZ;
-          const rho = Math.hypot(dy, z);
-          const d = sampleSD2D(x, axis + rho) * Math.min(1, zScale);
-          const at = off + i + k * plane;
+      for (let j = 0; j < nxy; j++) {
+        const y = y0 + j * stepXY;
+        const py = aroundY ? y : axis + Math.hypot(y - axis, z);
+        const fy = (py - y0) / stepXY;
+        const iy = Math.max(0, Math.min(nxy - 2, Math.floor(fy)));
+        const ty = Math.max(0, Math.min(1, fy - iy));
+        const off = k * plane + j * nxy;
+        for (let i = 0; i < nxy; i++) {
+          const o = iy * nxy + columns[i];
+          const tx = weights[i];
+          const a = sd2d[o] * (1 - tx) + sd2d[o + 1] * tx;
+          const b = sd2d[o + nxy] * (1 - tx) + sd2d[o + nxy + 1] * tx;
+          const d = (a * (1 - ty) + b * ty) * scale;
+          const at = off + i;
           field[at] = firstPart ? d : smax(field[at], d, joinK);
         }
       }
@@ -288,14 +272,14 @@ function bakeVolume3D(vol: Volume, nxy: number, nz: number) {
   const spanZ = stepZ * (nz - 1);
 
   const plane = nxy * nxy;
-  const field = new Float32Array(plane * nz).fill(-1000);
+  let field = new Float32Array(plane * nz).fill(-1000);
 
   vol.parts.forEach((part, idx) => {
     addGlassPart(field, part, x0, y0, z0, stepXY, stepZ, nxy, nz, idx === 0);
   });
 
   // Three gentle separable 3D Gaussian passes suppress trilinear grid ripples while keeping silhouettes crisp!
-  const tmp = new Float32Array(field.length);
+  let tmp = new Float32Array(field.length);
   for (let pass = 0; pass < 3; pass++) {
     // X pass
     for (let k = 0; k < nz; k++) {
@@ -331,7 +315,7 @@ function bakeVolume3D(vol: Volume, nxy: number, nz: number) {
       }
     }
     for (let p = 0; p < plane; p++) tmp[p] = tmp[2 * plane + p];
-    field.set(tmp);
+    [field, tmp] = [tmp, field];
   }
 
   const data = new Uint16Array(field.length);

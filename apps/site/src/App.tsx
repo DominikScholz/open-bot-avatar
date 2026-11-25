@@ -1,12 +1,15 @@
+import { lazy } from "react";
 import { BotAvatar } from "./BotAvatar";
-import { CONTRIBUTORS, Contributors, pictureAt } from "./Contributors.tsx";
+import { CONTRIBUTORS, pictureAt } from "./contributorData";
 import { topOthers } from "./contributors";
-import { Docs } from "./Docs";
 import { REPO, href, useRoute, type Route } from "./route";
 import { useStoredState } from "./studio/hooks";
 import { DEFAULT_LOOK, reviveLook } from "./studio/look";
-import { Studio } from "./Studio";
 import { LOGO, LOGO_COLOR } from "./logo";
+
+const Studio = lazy(() => import("./Studio").then(({ Studio }) => ({ default: Studio })));
+const Docs = lazy(() => import("./Docs").then(({ Docs }) => ({ default: Docs })));
+const Contributors = lazy(() => import("./Contributors.tsx").then(({ Contributors }) => ({ default: Contributors })));
 
 const NAV: { route: Route; label: string }[] = [
   { route: "studio", label: "Editor" },

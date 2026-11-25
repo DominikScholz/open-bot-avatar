@@ -18,7 +18,7 @@ import { pointerGaze } from '../follow.ts';
 import { lookOf, type AvatarStateDefinition } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
-import { currentPointer, isHighRefresh, requestFrame, subscribeFrames } from './clock.ts';
+import { currentPointer, isHighRefresh, subscribeMountFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 import { cancelDeferredCoat, canvasSupported, currentMaterialEpoch, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
@@ -201,9 +201,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         if (next === size) return;
         size = next;
         dirty = true;
-        requestFrame();
+        frames.request();
       });
-  resize?.observe(host);
 
   /** Whether the host is in or near the viewport. Offscreen, a live avatar only redraws after a change. */
   let visible = true;
@@ -215,11 +214,10 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           if (next === visible) return;
           visible = next;
           if (!visible && surface) cancelDeferredCoat(surface);
-          if (visible) requestFrame();
+          if (visible) frames.request();
         },
         { rootMargin: `${VIEW_MARGIN}px` },
       );
-  intersect?.observe(host);
 
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
@@ -373,7 +371,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   };
 
   syncHost();
-  const unsubscribe = subscribeFrames({
+  const frames = subscribeMountFrames({
     measure: () => {
       rect = currentPointer() && visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
     },
@@ -392,17 +390,25 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       if ((size > 0 && size < SMALL_SIZE) || calmFrame) return 1 / SMALL_FPS;
       return isHighRefresh() ? 1 / MAX_FPS : true;
     },
+  }, () => {
+    if (opts.still || !visible) return true;
+    // Pointer-relative layout, CSS themes and custom pose functions can change without update().
+    // Keep sampling them when other avatars run, as before, without keeping the clock awake.
+    return !failed && !(opts.followPointer && !opts.holdGaze && !opts.lookAt) &&
+      isHex(opts.color) && isHex(opts.eyeColor) && typeof opts.state !== 'object';
   });
+  resize?.observe(host);
+  intersect?.observe(host);
 
   return {
     update(next) {
       opts = { ...opts, ...next };
       syncHost();
       dirty = true;
-      requestFrame();
+      frames.request();
     },
     destroy() {
-      unsubscribe();
+      frames.unsubscribe();
       resize?.disconnect();
       intersect?.disconnect();
       releasePointer?.();

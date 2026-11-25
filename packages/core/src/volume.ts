@@ -112,20 +112,16 @@ const THIN_MARGIN = 2;
 /** Depth spacing of refinement slices, units. */
 const FINE_Z = 0.6;
 
-function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  return Math.sqrt(segDist2(px, py, ax, ay, bx, by));
-}
-
 /** Distance from a point to the nearest edge of the polygons. */
 export function edgeDistance(polys: Point[][], x: number, y: number): number {
   let best = Infinity;
   for (const poly of polys) {
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const d = segDist(x, y, poly[j][0], poly[j][1], poly[i][0], poly[i][1]);
-      if (d < best) best = d;
+      const d2 = segDist2(x, y, poly[j][0], poly[j][1], poly[i][0], poly[i][1]);
+      if (d2 < best) best = d2;
     }
   }
-  return best;
+  return Math.sqrt(best);
 }
 
 /** Inward distance to the outline, or 0 outside the fill. */
