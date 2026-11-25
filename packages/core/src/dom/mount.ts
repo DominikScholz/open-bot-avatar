@@ -16,11 +16,11 @@
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { lookOf, type AvatarStateDefinition } from '../motion.ts';
-import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
+import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame, type SurfaceEye } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { currentPointer, requestFrame, subscribeFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
-import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
+import { canvasSupported, mountCanvas, paintCanvas, tryReuseCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
@@ -258,16 +258,31 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   let lastEyeSig = '';
   let calmFrame = false;
 
+  const eyeSignature = (eyes: SurfaceEye[]): string => {
+    let sig = '';
+    for (let i = 0; i < eyes.length; i++) {
+      const m = eyes[i].mark;
+      sig += m.shape === 'pill' ? `${Math.round(m.height * 10)}|` : `${m.shape}:${m.d}|`;
+    }
+    return sig;
+  };
+
+  const resolveColors = (p: AvatarOptions, fallbackFill: string, fallbackInk: string): { fill: string; ink: string } => {
+    // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
+    // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
+    const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
+    return {
+      fill: css && !isHex(p.color) ? css.color || fallbackFill : fallbackFill,
+      ink: css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || fallbackInk : fallbackInk,
+    };
+  };
+
   const paint = (p: AvatarOptions, options: RenderOptions) => {
     if (scene || lastStill) clear();
     const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
     const key = `${geometryKey(p.definition)}|${p.depth}`;
     if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
-    // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
-    // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
-    const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
-    const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
-    const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
+    const { fill, ink } = resolveColors(p, flat.color, flat.ink);
     paintCanvas(surface, flat, size, fill, ink, p.material);
     return flat;
   };
@@ -328,13 +343,24 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       };
       const isCalmState = !step.moving && look.mood !== 'happy' && (look.state === 'idle' || look.state === 'waiting' || look.state === 'done');
       if (p.renderer !== 'scene' && canvasSupported()) {
-        const flat = paint(p, options);
-        const eyes = flat.surface.eyes;
-        let eyeSig = '';
-        for (let i = 0; i < eyes.length; i++) {
-          const m = eyes[i].mark;
-          eyeSig += m.shape === 'pill' ? `${Math.round(m.height * 10)}|` : `${m.shape}:${m.d}|`;
+        // Fast path: when the mounted canvas is already warm and no overlays are active, avoid
+        // building a full AvatarFrame (slices, paths, depth sort) if the retained bitmap can be reused.
+        const key = `${geometryKey(p.definition)}|${p.depth}`;
+        if (!scene && !lastStill && surface && surface.painted && surface.key === key && host.contains(surface.canvas)) {
+          const fast = liveTransform(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+          if (fast) {
+            const { fill, ink } = resolveColors(p, fast.color, fast.ink);
+            if (tryReuseCanvas(surface, fast.view, fast.root, fast.eyes, size, fill, ink, p.material, time)) {
+              const eyeSig = eyeSignature(fast.eyes);
+              calmFrame = isCalmState && eyeSig === lastEyeSig;
+              lastEyeSig = eyeSig;
+              failed = false;
+              return !reducedMotion || step.moving;
+            }
+          }
         }
+        const flat = paint(p, options);
+        const eyeSig = eyeSignature(flat.surface.eyes);
         const hasRibbons = flat.shapes.some((s) => s.kind === 'ribbon');
         calmFrame = isCalmState && !hasRibbons && eyeSig === lastEyeSig;
         lastEyeSig = eyeSig;

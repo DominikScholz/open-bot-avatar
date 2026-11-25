@@ -137,7 +137,12 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
 }
 
 /** Max CSS-pixel surface shift below which the retained canvas bitmap is reused (2D root motion still runs via CSS transform). */
-const VIEW_EPS_CSS_PX = 0.45;
+const VIEW_EPS_CSS_PX = 0.6;
+/** Defer minor idle material coat refreshes past this per-frame budget so multiple WebGL avatars stagger smoothly. */
+const COAT_STAGGER_PX = 2.5;
+const MAX_IDLE_COATS_PER_FRAME = 2;
+let coatFrameTime = -1;
+let coatFrameCount = 0;
 
 interface PaintedState {
   material: CanvasMaterial | null;
@@ -232,6 +237,59 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
 
 /** The marks of `thinking` and `blocked`, which a frame lists as slices in place of the body. */
 const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
+
+/**
+ * Fast path for live frames without overlays: if the retained canvas bitmap is still valid within
+ * sub-pixel view tolerance, updates only `wrap.style.transform` and returns true so the caller can
+ * skip building a full `AvatarFrame` and repainting the canvas.
+ */
+export function tryReuseCanvas(
+  surface: CanvasSurface,
+  view: ViewBasis,
+  root: Matrix,
+  eyes: SurfaceEye[],
+  size: number,
+  fill: string,
+  ink: string,
+  material: AvatarMaterial = 'flat',
+  frameTime = -1,
+): boolean {
+  if (!surface.ctx || size <= 0) return false;
+  const prev = surface.painted;
+  if (!prev) return false;
+  const finish = canvasMaterialOf(material);
+  const dpr = window.devicePixelRatio || 1;
+  const layout = `${size}|${dpr}`;
+  if (
+    prev.material !== finish ||
+    prev.fill !== fill ||
+    prev.ink !== ink ||
+    prev.layout !== layout ||
+    Math.abs(prev.bodyScale - 1) >= 1e-4
+  ) {
+    return false;
+  }
+  const shiftPx = viewShift(view, prev.view, prev.rx, prev.ry, prev.rz) * (size / 100);
+  if (eyesCacheKey(eyes) !== prev.eyesKey) return false;
+  if (shiftPx >= VIEW_EPS_CSS_PX) {
+    // Stagger minor idle WebGL coat refreshes across frames so multiple fluffy/glass avatars
+    // don't clump on the same frame and spike frame time.
+    if (finish && frameTime >= 0 && shiftPx < COAT_STAGGER_PX) {
+      if (coatFrameTime !== frameTime) {
+        coatFrameTime = frameTime;
+        coatFrameCount = 0;
+      }
+      if (coatFrameCount >= MAX_IDLE_COATS_PER_FRAME) {
+        setWrapTransform(surface, rootCss(root, size));
+        return true;
+      }
+      coatFrameCount++;
+    }
+    return false;
+  }
+  setWrapTransform(surface, rootCss(root, size));
+  return true;
+}
 
 /**
  * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any

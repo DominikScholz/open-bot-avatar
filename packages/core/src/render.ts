@@ -498,6 +498,38 @@ export function avatarFrame(definition: AvatarDefinition, options: RenderOptions
 }
 
 /**
+ * Lightweight per-frame check for live canvas avatars: computes only pose, view, root matrix and
+ * eye state without building slice paths or sorting shapes. Returns null when overlays (ribbons
+ * or marks) are active and a full `liveFrame` is needed.
+ */
+export interface LiveTransform {
+  view: ViewBasis;
+  root: Matrix;
+  eyes: SurfaceEye[];
+  color: string;
+  ink: string;
+}
+
+export function liveTransform(definition: AvatarDefinition, options: RenderOptions = {}): LiveTransform | null {
+  const p = prepare(definition, depthOption(options));
+  const pose = poseOf(p, options);
+  if (pose.ribbons > 0.01 || pose.marks.length > 0) return null;
+  const { color, ink } = colors(options);
+  const eyes: SurfaceEye[] = eyeStates(p, pose).map((e) => ({
+    mark: eyeMark({ ...e, dx: 0, dy: 0 }),
+    dx: e.dx,
+    dy: e.dy,
+  }));
+  return {
+    view: viewBasis(pose.yaw, pose.pitch),
+    root: rootMatrix(pose, p.vol.bounds),
+    eyes,
+    color,
+    ink,
+  };
+}
+
+/**
  * avatarFrame for a live avatar drawn `options.size` CSS pixels wide: like the scene, it skips
  * cross-sections that would sit less than a pixel apart. Internal to the live renderers, so
  * `size` never changes what avatarFrame returns to custom renderers.

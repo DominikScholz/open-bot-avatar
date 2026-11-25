@@ -410,18 +410,21 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     const { shells, strandPasses, fineSockets } = fluffyDetail(scale);
     const triangles = fineSockets ? geometry.fine : geometry.coarse;
+    // Draw opaque body first, then outermost strands, then shells front-to-back so hardware early-Z
+    // rejects occluded inner shell fragments while keeping identical depth-tested output.
     gl.bindVertexArray(geometry.surface);
     gl.uniform1i(u.pass, PASS.body);
     gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
-    gl.uniform1i(u.pass, PASS.shell);
-    for (let layer = 1; layer <= shells; layer++) {
-      gl.uniform1f(u.shell, layer / shells);
-      gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
-    }
     gl.bindVertexArray(geometry.strands);
     gl.uniform1i(u.pass, PASS.strand);
     gl.uniform1f(u.strandWidth, ROOT_PASSES / strandPasses);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 8, rootsIn(geometry.strandCount, strandPasses));
+    gl.bindVertexArray(geometry.surface);
+    gl.uniform1i(u.pass, PASS.shell);
+    for (let layer = shells; layer >= 1; layer--) {
+      gl.uniform1f(u.shell, layer / shells);
+      gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
+    }
     invalidateAfterTurn();
     return image;
   };
