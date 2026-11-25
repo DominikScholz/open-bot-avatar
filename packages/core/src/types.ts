@@ -18,6 +18,11 @@ export interface AvatarEyes {
   scale: number;
 }
 
+export interface AvatarAccent {
+  parts: number[];
+  color?: string;
+}
+
 export interface AvatarDefinition {
   version: 1;
   /** Lowercase slug, e.g. "controller". */
@@ -25,7 +30,7 @@ export interface AvatarDefinition {
   /** Human-readable display name. */
   name: string;
   /** One filled path, nonzero fill rule; holes wind opposite to their outline. */
-  body: { path: string };
+  body: { path: string; color?: string; accents?: AvatarAccent[] };
   eyes: AvatarEyes;
 }
 
@@ -70,6 +75,7 @@ export interface RenderOptions {
   color?: string;
   /** Eye color as #rgb or #rrggbb. Defaults to a plain near-black ink. */
   eyeColor?: string;
+  accentColors?: string[];
   /**
    * Rendered width/height in CSS pixels. Omit for a fluid SVG. In sceneFrame it lets small
    * live avatars skip cross-sections that would sit less than a pixel apart.
