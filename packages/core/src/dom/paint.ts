@@ -145,15 +145,25 @@ const deferredCoats = new Set<CanvasSurface>();
 const coatPriority = new Set<CanvasSurface>();
 let materialEpoch = 0;
 
+/** Current material epoch, incremented on WebGL context restore so stills and cached bitmaps refresh. */
+export function currentMaterialEpoch(): number {
+  return materialEpoch;
+}
+
 /** Invalidate retained material bitmaps (e.g. after a WebGL2 context is restored). */
 export function invalidateMaterialCache() {
   materialEpoch++;
 }
 
-/** Drop a surface from any pending stagger queue and release its GPU bitmap when unmounted. */
-export function releaseCanvas(surface: CanvasSurface) {
+/** Cancel any pending coat-stagger reservation when a surface pauses (e.g. offscreen or still). */
+export function cancelDeferredCoat(surface: CanvasSurface) {
   deferredCoats.delete(surface);
   coatPriority.delete(surface);
+}
+
+/** Drop a surface from any pending stagger queue and release its GPU bitmap when unmounted. */
+export function releaseCanvas(surface: CanvasSurface) {
+  cancelDeferredCoat(surface);
   surface.painted = null;
   surface.canvas.width = 0;
   surface.canvas.height = 0;
@@ -271,6 +281,7 @@ function paintFrame(
 ) {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
+  cancelDeferredCoat(surface);
   const dpr = window.devicePixelRatio || 1;
   const scale = (size / 100) * dpr;
   const layout = `${size}|${dpr}`;
@@ -449,6 +460,9 @@ export function paintLiveCanvas(
       // reserving the slots FIFO for the oldest deferred surfaces so none starve.
       if (finish && frameTime >= 0 && shiftPx < COAT_STAGGER_PX) {
         if (coatFrameTime !== frameTime) {
+          // Any surface still in coatPriority didn't claim its slot on the previous frame (e.g. went
+          // offscreen or became still); drop it so inactive surfaces can never block active ones.
+          for (const stale of coatPriority) deferredCoats.delete(stale);
           coatFrameTime = frameTime;
           coatFrameCount = 0;
           coatPriority.clear();

@@ -2,14 +2,14 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
-import { invalidateMaterialCache, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas } from '../src/dom/paint.ts';
-import { subscribeFrames } from '../src/dom/clock.ts';
+import { cancelDeferredCoat, invalidateMaterialCache, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas } from '../src/dom/paint.ts';
+import { requestFrame, subscribeFrames } from '../src/dom/clock.ts';
 import { glass as glassMaterial } from '../src/dom/materials/glass.ts';
 import * as glass from '../src/dom/glass/renderer.ts';
 import type { CanvasMaterial } from '../src/dom/materials/material.ts';
 import { fluffy as fluffyMaterial } from '../src/dom/materials/fluffy.ts';
 import * as fluffy from '../src/dom/fluffy/renderer.ts';
-import { avatarExtent, avatarFrame, liveFrame, liveTransform } from '../src/render.ts';
+import { avatarExtent, avatarFrame, liveFrame, liveTransform, preparedVolume } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
 interface Recorder {
@@ -355,8 +355,50 @@ describe('mountAvatar on a canvas', () => {
     const afterRestore = paintLiveCanvas(sLoss, liveTransform(examples[0], { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', lossMat, 21.0);
     expect(afterRestore.reused).toBe(false);
     expect(lossRender).toHaveBeenCalledTimes(2);
-    releaseCanvas(sLoss);
-    elLoss.remove();
+    // Deferred surfaces that switch to stills or stop participating never deadlock later surfaces.
+    const five = Array.from({ length: 5 }, (_, i) => {
+      const def = examples[i % examples.length];
+      const el = host(160);
+      const s = mountCanvas(el, `q${i}`, def, 6);
+      paintLiveCanvas(s, liveTransform(def, { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', mat, 30.0);
+      return { el, s, def };
+    });
+    // Frame 31: 0 and 1 paint; 2, 3, 4 defer.
+    five.forEach(({ s, def }) =>
+      paintLiveCanvas(s, liveTransform(def, { state: 'idle', time: 1.0, view: { yaw: 0.025, pitch: 0 }, size: 160 }), 160, '#ff6a1a', '#151515', mat, 31.0),
+    );
+    // Surface 2 switches to a still (`paintCanvas`), surface 3 scrolls offscreen (`cancelDeferredCoat`).
+    paintCanvas(five[2].s, liveFrame(five[2].def, { state: 'idle', reducedMotion: true, size: 160 }), 160, '#ff6a1a', '#151515', mat);
+    cancelDeferredCoat(five[3].s);
+    // Surface 4 must repaint immediately on frame 32 without being blocked by 2 or 3.
+    const r4 = paintLiveCanvas(five[4].s, liveTransform(five[4].def, { state: 'idle', time: 1.0, view: { yaw: 0.025, pitch: 0 }, size: 160 }), 160, '#ff6a1a', '#151515', mat, 32.0);
+    expect(r4.reused).toBe(false);
+    expect(r4.deferred).toBe(false);
+    five.forEach(({ el, s }) => {
+      releaseCanvas(s);
+      el.remove();
+    });
+  });
+
+  it('reuses all 33 prepared volumes across passes and refreshes material stills after context restoration', async () => {
+    const defs = Array.from({ length: 33 }, (_, i) => ({ ...examples[0], id: `cache-33-${i}` }));
+    const firstPass = defs.map((d) => preparedVolume(d).vol);
+    const secondPass = defs.map((d) => preparedVolume(d).vol);
+    for (let i = 0; i < defs.length; i++) expect(secondPass[i]).toBe(firstPass[i]);
+
+    const tile = document.createElement('canvas');
+    const render = vi.fn().mockReturnValueOnce(null).mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const mat: CanvasMaterial = { id: 'still-restore', render };
+    const el = host(160);
+    const avatar = mountAvatar(el, { definition: examples[0], material: mat, still: true });
+    await frame();
+    expect(render).toHaveBeenCalledTimes(1);
+    invalidateMaterialCache();
+    requestFrame();
+    await frame();
+    expect(render).toHaveBeenCalledTimes(2);
+    avatar.destroy();
+    el.remove();
   });
 
   it('retries a deferred reduced-motion material avatar on the next frame instead of sleeping', async () => {

@@ -20,7 +20,7 @@ import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvata
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { currentPointer, isHighRefresh, requestFrame, subscribeFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
-import { canvasSupported, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas, type CanvasSurface } from './paint.ts';
+import { cancelDeferredCoat, canvasSupported, currentMaterialEpoch, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
@@ -214,6 +214,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           const next = entries[entries.length - 1].isIntersecting;
           if (next === visible) return;
           visible = next;
+          if (!visible && surface) cancelDeferredCoat(surface);
           if (visible) requestFrame();
         },
         { rootMargin: `${VIEW_MARGIN}px` },
@@ -256,11 +257,15 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
 
   let lastEyeKey = '';
   let calmFrame = false;
+  let stillEpoch = -1;
 
   const ensureSurface = (p: AvatarOptions): CanvasSurface => {
     if (scene || lastStill) clear();
     const key = `${geometryKey(p.definition)}|${p.depth}`;
-    if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+    if (!surface || surface.key !== key || !host.contains(surface.canvas)) {
+      if (surface) releaseCanvas(surface);
+      surface = mountCanvas(host, key, p.definition, p.depth);
+    }
     return surface;
   };
 
@@ -279,6 +284,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
     const target = ensureSurface(p);
     const { fill, ink } = resolveColors(p, flat.color, flat.ink);
     paintCanvas(target, flat, size, fill, ink, p.material);
+    stillEpoch = currentMaterialEpoch();
   };
 
   const draw = (time: number, pointer: { x: number; y: number } | null): boolean => {
@@ -340,7 +346,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const target = ensureSurface(p);
         const transform = liveTransform(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
         const { fill, ink } = resolveColors(p, transform.color, transform.ink);
-        const { eyesKey, deferred } = paintLiveCanvas(target, transform, size, fill, ink, p.material, time);
+        // Never defer an offscreen dirty update so offscreen bitmaps stay current for printing.
+        const { eyesKey, deferred } = paintLiveCanvas(target, transform, size, fill, ink, p.material, visible ? time : -1);
         calmFrame = !deferred && isCalmState && !transform.hasOverlay && eyesKey === lastEyeKey;
         lastEyeKey = eyesKey;
         failed = false;
@@ -371,9 +378,9 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       rect = currentPointer() && visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
     },
     draw: (time, pointer) => {
-      // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
-      // frame they ask for. A change still draws offscreen, so the content is current when printed.
-      if ((opts.still || !visible) && !dirty) return false;
+      // Stills, and live avatars out of view, only redraw after a change (or after WebGL context restore).
+      const materialStale = !!opts.still && size > 0 && canvasMaterial() && stillEpoch !== currentMaterialEpoch();
+      if ((opts.still || !visible) && !dirty && !materialStale) return false;
       if (opts.still && size > 0 && canvasMaterial()) {
         if (materialStillAt === time) return true;
         materialStillAt = time;
