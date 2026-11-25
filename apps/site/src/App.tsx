@@ -1,4 +1,6 @@
 import { BotAvatar } from "./BotAvatar";
+import { Contributors, pictureAt, useContributors } from "./Contributors";
+import { topOthers } from "./contributors";
 import { Docs } from "./Docs";
 import { REPO, href, useRoute, type Route } from "./route";
 import { useStoredState } from "./studio/hooks";
@@ -9,6 +11,7 @@ import { LOGO, LOGO_COLOR } from "./logo";
 const NAV: { route: Route; label: string }[] = [
   { route: "studio", label: "Editor" },
   { route: "docs", label: "Docs" },
+  { route: "contributors", label: "Contributors" },
 ];
 
 export function App() {
@@ -35,10 +38,31 @@ export function App() {
           </a>
         </nav>
       </header>
-      {route === "studio" ? <Studio look={look} setLook={setLook} /> : <Docs material={look.material} />}
-      <a className="credit" href="https://x.com/dom_scholz" target="_blank" rel="noopener">
-        by @dom_scholz
+      {route === "studio" ? <Studio look={look} setLook={setLook} /> : route === "docs" ? <Docs material={look.material} /> : <Contributors />}
+      <Credit />
+    </div>
+  );
+}
+
+/** Who made it: the author, and the faces of the three people who added the most, which lead to everyone. */
+function Credit() {
+  const others = topOthers(useContributors() ?? [], 3);
+  return (
+    <div className="credit">
+      <span>by</span>
+      <a href="https://x.com/dom_scholz" target="_blank" rel="noopener">
+        @dom_scholz
       </a>
+      {others.length > 0 ? (
+        <>
+          <span aria-hidden="true">&amp;</span>
+          <a className="credit-faces" href={href.contributors} aria-label="and contributors" data-tip="Contributors">
+            {others.map((person) => (
+              <img key={person.login} src={pictureAt(person, 20)} width={20} height={20} alt="" />
+            ))}
+          </a>
+        </>
+      ) : null}
     </div>
   );
 }
