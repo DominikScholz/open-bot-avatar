@@ -76,7 +76,7 @@ export function createAnimator(): Animator {
       // An avatar that mounts done starts it at rest, as if it had just finished celebrating; any
       // other state starts afresh (a working bot's first sweep comes a second or two in).
       const startAge = stateDefinition(state).startAge;
-      shown ??= { state, mood, since: now, began: now - (Number.isFinite(startAge) ? (startAge as number) : 0) * 1000 };
+      shown ??= { state, mood, since: now, began: now - (Number.isFinite(startAge) ? Math.max(0, startAge as number) : 0) * 1000 };
       const t = reducedMotion ? 1 : moodProgress(now - shown.since);
       let motionBlend: AvatarMotionBlend | undefined;
       if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };

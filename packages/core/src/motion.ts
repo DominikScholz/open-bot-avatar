@@ -303,6 +303,10 @@ export interface StateContext {
  * A state: what the bot does while it is in it, as a pose for each moment. The six of
  * AvatarState are definitions (see stateDefinition), and a host can pass one of its own wherever
  * a state is taken.
+ *
+ * @experimental A definition of a host's own is written against Pose and StateContext, the
+ * renderer's own model of a pose. Fields of either may be renamed or removed in a minor release
+ * while this settles; the six names are not affected.
  */
 export interface AvatarStateDefinition {
   /**

@@ -46,6 +46,7 @@ export interface MarkContext {
   still: boolean;
 }
 
+/** @experimental With states of a host's own (see AvatarStateDefinition): the shape of a mark may change in a minor release. */
 export interface AvatarMark {
   /** Names the mark; a pose lists its marks in the order of their ids. */
   id: string;
@@ -129,4 +130,24 @@ export function poseMarks(given: unknown): PoseMark[] {
     marks.push({ mark, weight: Math.min(1, weight) });
   }
   return marks.sort((m, n) => (m.mark.id < n.mark.id ? -1 : m.mark.id > n.mark.id ? 1 : 0));
+}
+
+/**
+ * The parts a mark laid out, as the renderer can draw them. A mark is a host's code, as a state's
+ * pose is: an entry that is no part (no name, no outline, no box of some size) is left out, and a
+ * place, turn or scale that is not a finite number is that of a part at rest in the mark's centre
+ * (0, 0, no turn, full size), so a slip in one field cannot put NaN into a frame or throw.
+ */
+export function markPartsOf(given: unknown): MarkPart[] {
+  if (!Array.isArray(given)) return [];
+  const number = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
+  const parts: MarkPart[] = [];
+  for (const part of given as (Partial<MarkPart> | null)[]) {
+    if (typeof part !== 'object' || part === null) continue;
+    const { shape, d, box } = part;
+    if (typeof shape !== 'string' || typeof d !== 'string' || d === '') continue;
+    if (typeof box !== 'object' || box === null || ![box.x, box.y, box.w, box.h].every(Number.isFinite) || !(box.w > 0 && box.h > 0)) continue;
+    parts.push({ ...part, shape, d, box, x: number(part.x, 0), y: number(part.y, 0), turn: number(part.turn, 0), scale: number(part.scale, 1) });
+  }
+  return parts;
 }

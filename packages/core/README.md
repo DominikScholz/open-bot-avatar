@@ -67,6 +67,8 @@ A mood combines with any state: a bot can be working and happy. A happy bot keep
 
 The six names are one vocabulary. If your bot has a status they don't cover, pass a definition instead of a name. A definition is an `id` and a `pose` function that returns what differs from the resting pose:
 
+> **Experimental.** States and marks of your own are written against the renderer's own model of a pose (`Pose`, `StateContext`, `MarkPart`). Fields of these may be renamed or removed in a minor release while the API settles. The six names are stable.
+
 ```ts
 import type { AvatarMark, AvatarStateDefinition } from "open-bot-avatar";
 
@@ -110,6 +112,7 @@ A definition works wherever a state does: `mountAvatar`, `update`, the render fu
 - `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
 - A mark's `parts` are sized in `unit`, a share of the body's smaller side. Keep each outline the same from frame to frame, and animate a part with `x`, `y`, `turn` and `scale`: a live renderer keeps what it builds per outline.
 - The `fluffy` material gives every part a coat of fur in the shape of its outline. A part that is a circle or an upright capsule filling `box` can set `round: true` to use a ready ball of fur, which is cheaper to draw the first time.
+- Your code is held to what can be drawn. A pose field that is left out or is not a finite number keeps the resting pose's. A part without a `shape`, an outline `d` or a `box` with a size is left out, and a part's `x`, `y`, `turn` or `scale` that is not a finite number counts as 0, 0, 0 and 1. A `pose` or `parts` function that throws is not caught.
 - `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
 - `isState` and `resolveLook` read names only. Use them for values from links and storage; they never return a definition.
 

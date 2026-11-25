@@ -102,6 +102,33 @@ describe('marks and states at the edges', () => {
     expect(createAnimator().step({ now: 0, state: { id: 'odd', pose: () => ({}), startAge: Number.NaN }, target: null, reducedMotion: false }).stateAge).toBe(0);
   });
 
+  it('a mark that lays out less than its parts, or nonsense, cannot throw or put NaN into a frame', () => {
+    const drawn = (parts: unknown) => {
+      const state: AvatarStateDefinition = { id: 'custom', pose: () => ({ marks: [{ mark: { id: 'custom', parts: () => parts as never }, weight: 1 }] }) };
+      const out = [renderAvatarSvg(mug, { state }), JSON.stringify(avatarFrame(mug, { state })), JSON.stringify(sceneFrame(mug, { state }))];
+      for (const text of out) expect(text).not.toMatch(/NaN|undefined|Infinity/);
+      return avatarFrame(mug, { state });
+    };
+    // No list of parts, or entries that are no parts: nothing of the mark is drawn.
+    for (const none of [undefined, null, 'parts', {}, [null], [undefined], [7], [{}]]) expect(drawn(none).shapes).toEqual([]);
+    // A part needs a name, an outline and a box with a size.
+    const whole = part('whole');
+    for (const broken of [{ ...whole, shape: 7 }, { ...whole, d: 5 }, { ...whole, d: '' }, { ...whole, box: undefined }, { ...whole, box: { x: 0, y: 0, w: Number.NaN, h: 4 } }, { ...whole, box: { x: 0, y: 0, w: 0, h: 4 } }]) {
+      expect(drawn([broken, whole]).paths.map((p) => p.d)).toEqual([whole.d]);
+    }
+    // A place, turn or scale that is no number is that of a part at rest in the mark's centre.
+    const [atRest] = drawn([whole]).shapes;
+    for (const slip of [{ x: Number.NaN }, { y: undefined }, { turn: undefined }, { scale: undefined }, { x: '3', y: null, turn: Number.POSITIVE_INFINITY, scale: Number.NaN }]) {
+      expect(drawn([{ ...whole, ...slip }]).shapes).toEqual([atRest]);
+    }
+    // What is given and usable is kept as it is.
+    const bounds = { minX: 10, minY: 10, maxX: 90, maxY: 90 };
+    const moved = { ...whole, x: 3, y: -4, turn: 0.5, scale: 2, round: true };
+    expect(markParts(bounds, [{ mark: { id: 'moved', parts: () => [moved] }, weight: 1 }], 1, 0, true)).toEqual([{ ...moved, x: 53, y: 46 }]);
+    // A start age before the state began is none.
+    expect(createAnimator().step({ now: 0, state: { id: 'early', pose: () => ({}), startAge: -5 }, target: null, reducedMotion: false }).stateAge).toBe(0);
+  });
+
   it('a mark redefined under its id blends as the one being changed to', () => {
     const v1: AvatarMark = { id: 'm', parts: () => [part('one')] }, v2: AvatarMark = { id: 'm', parts: () => [part('two', 'M-5 -5H5V5H-5Z')] };
     const state = (mark: AvatarMark, id: string): AvatarStateDefinition => ({ id, pose: () => ({ marks: [{ mark, weight: 1 }] }) });

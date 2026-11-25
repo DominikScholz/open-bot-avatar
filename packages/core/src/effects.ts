@@ -3,7 +3,7 @@
  * thinking or blocked bot turns into (see marks.ts). Pure geometry in viewBox units, from the
  * body's bounds, a seed and the animation clock.
  */
-import type { Box, MarkPart, PoseMark } from './marks.ts';
+import { markPartsOf, type Box, type MarkPart, type PoseMark } from './marks.ts';
 import { noise } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 
@@ -393,7 +393,7 @@ export function markParts(b: Bounds, marks: readonly PoseMark[], seed: number, t
   return marks.flatMap(({ mark, weight }) => {
     const g = grown(weight);
     if (!(g > 0)) return [];
-    return mark.parts(ctx).map((part) => ({ ...part, x: cx + part.x * g, y: cy + part.y * g, scale: part.scale * g }));
+    return markPartsOf(mark.parts(ctx)).map((part) => ({ ...part, x: cx + part.x * g, y: cy + part.y * g, scale: part.scale * g }));
   });
 }
 
