@@ -171,7 +171,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   const layout = `${size}|${dpr}`;
   if (sections.size > MAX_SECTIONS) sections.clear();
   for (const { id, d, evenOdd, box, round } of frame.paths) {
-    if (!sections.has(id)) sections.set(id, { d, box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
+    // A mark's part may come with another outline under its id (a host's mark is its own code): then it is made anew.
+    const known = sections.get(id);
+    if (!known || known.d !== d || known.round !== (round === true)) sections.set(id, { d, box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
   }
   const { matrices, bounds } = framePlacement(frame);
   const volume = material === 'fluffy' ? surface.volume : null;

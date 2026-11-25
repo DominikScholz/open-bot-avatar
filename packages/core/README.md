@@ -105,10 +105,10 @@ avatar.update({ state: asking });
 
 A definition works wherever a state does: `mountAvatar`, `update`, the render functions and `createAnimator`. Changes to and from it ease like any other, and a mood shapes its eyes.
 
-- `id` names the state. Two definitions with the same `id` are the same state, so you can build a definition inline on every render without restarting it.
+- `id` names the state. Two definitions with the same `id` are the same state, so you can build a definition inline on every render without restarting it. The six names are taken: a definition with the `id` of one replaces it without easing.
 - `pose` receives a context with the clock (`t`, `wave`), the state's age (`stateAge`), the mood, `reducedMotion`, the resting pose (`base`) and the calm idle pose (`rest`). It must be a pure function of the context. Under `reducedMotion`, `t` is 0 and `wave` returns 0; a pose that uses neither holds still.
 - `startAge` is the age in seconds a state has when an avatar mounts in it. The default is 0.
-- A mark's `parts` are sized in `unit`, a share of the body's smaller side. Each distinct outline needs its own `shape` name, across all the marks you use.
+- A mark's `parts` are sized in `unit`, a share of the body's smaller side. Keep each outline the same from frame to frame, and animate a part with `x`, `y`, `turn` and `scale`: a live renderer keeps what it builds per outline.
 - The `fluffy` material gives every part a coat of fur in the shape of its outline. A part that is a circle or an upright capsule filling `box` can set `round: true` to use a ready ball of fur, which is cheaper to draw the first time.
 - `stateDefinition("blocked")` returns the definition behind a name, to build a variant on.
 - `isState` and `resolveLook` read names only. Use them for values from links and storage; they never return a definition.

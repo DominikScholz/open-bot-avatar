@@ -16,8 +16,9 @@ export interface Box { x: number; y: number; w: number; h: number }
 /** One part of a mark: a fixed outline about its own centre, and where that centre is this frame. */
 export interface MarkPart {
   /**
-   * Stable name of the outline, e.g. "dot". An avatar's frame lists each name's outline once, so
-   * parts of one name share one outline: distinct outlines need distinct names, across marks.
+   * Stable name of the outline, e.g. "dot": it names the outline's path in a frame. Keep an
+   * outline as it is from frame to frame and move the part with `x`, `y`, `turn` and `scale`: a
+   * live renderer keeps what it builds per outline (a material, a whole model of it).
    */
   shape: string;
   d: string;
@@ -106,9 +107,26 @@ export const DOTS: AvatarMark = {
  */
 export function blendMarks(a: readonly PoseMark[], b: readonly PoseMark[], mix: (x: number, y: number) => number): PoseMark[] {
   const weight = (list: readonly PoseMark[], id: string) => list.find((m) => m.mark.id === id)?.weight ?? 0;
-  const marks = [...a, ...b.filter((m) => !a.some((n) => n.mark.id === m.mark.id))].map((m) => m.mark);
+  // A mark both sides name is the one being changed to, should the two differ under one id.
+  const marks = [...b, ...a.filter((m) => !b.some((n) => n.mark.id === m.mark.id))].map((m) => m.mark);
   return marks
     .map((mark) => ({ mark, weight: mix(weight(a, mark.id), weight(b, mark.id)) }))
     .filter((m) => m.weight > 0)
     .sort((m, n) => (m.mark.id < n.mark.id ? -1 : m.mark.id > n.mark.id ? 1 : 0));
+}
+
+/**
+ * The marks a state's pose gave, as a pose holds them: one per id, in the order of their ids,
+ * each weight within 0..1. An entry that is not a mark with a weight that counts is left out.
+ */
+export function poseMarks(given: unknown): PoseMark[] {
+  if (!Array.isArray(given)) return [];
+  const marks: PoseMark[] = [];
+  for (const entry of given as (Partial<PoseMark> | null)[]) {
+    const mark = entry?.mark, weight = entry?.weight;
+    if (typeof mark?.id !== 'string' || typeof mark.parts !== 'function') continue;
+    if (typeof weight !== 'number' || !(weight > 0) || marks.some((m) => m.mark.id === mark.id)) continue;
+    marks.push({ mark, weight: Math.min(1, weight) });
+  }
+  return marks.sort((m, n) => (m.mark.id < n.mark.id ? -1 : m.mark.id > n.mark.id ? 1 : 0));
 }

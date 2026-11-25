@@ -681,8 +681,11 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient }] : [],
     );
   const marks = fx.marks.map((mark, i): FrameShape => {
-    if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box, ...(mark.round ? { round: true } : {}) });
-    return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
+    // Two parts of one name share a path; given different outlines, the later one gets a path of its own.
+    const taken = paths.get(mark.id);
+    const id = taken && taken.d !== mark.d ? `${mark.id}-${hashString(mark.d).toString(36)}` : mark.id;
+    if (!paths.has(id)) paths.set(id, { id, d: mark.d, evenOdd: false, box: mark.box, ...(mark.round ? { round: true } : {}) });
+    return { kind: 'slice', key: `mark-${i}`, path: id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {
     name: p.def.name, color, ink, paths: [...paths.values()], root,

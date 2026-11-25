@@ -82,6 +82,41 @@ describe('marks and states at the edges', () => {
     expect(during.stateAge).toBeCloseTo(0.1);
   });
 
+  it('a pose that returns less than a pose, or nonsense, keeps the base pose for those fields', () => {
+    const base = computePose({ seed: 1, time: 0, state: { id: 'plain', pose: () => ({}) }, reducedMotion: true });
+    const odd = (partial: object) => computePose({ seed: 1, time: 0, state: { id: 'odd', pose: () => partial as never }, reducedMotion: true });
+    expect(odd({ marks: undefined, roll: undefined, sx: Number.NaN, lift: 'up', eyes: undefined })).toEqual(base);
+    expect(odd({ eyes: { arc: 1 } }).eyes).toEqual({ arc: 1, slit: 0 });
+    expect(odd({ marks: 'none' }).marks).toEqual([]);
+    const third: AvatarMark = { id: 'third', parts: () => [part('third')] };
+    // Marks without a weight that counts are left out, weights are held to 0..1, one mark per id, in id order.
+    expect(odd({ marks: [{ mark: third, weight: Number.NaN }, { mark: third }, null, { weight: 1 }, { mark: DOTS, weight: 7 }, { mark: BANG, weight: 0.5 }, { mark: BANG, weight: 0.2 }] }).marks)
+      .toEqual([{ mark: BANG, weight: 0.5 }, { mark: DOTS, weight: 1 }]);
+    for (const partial of [{ marks: undefined }, { marks: [{ mark: third, weight: Number.NaN }] }, { roll: undefined }, { eyes: { arc: 1 } }]) {
+      const state = { id: 'odd', pose: () => partial as never };
+      const svg = renderAvatarSvg(mug, { state, motionBlend: { from: { state: 'idle' }, t: 0.5 } });
+      expect(svg).not.toMatch(/NaN|undefined/);
+      expect(avatarFrame(mug, { state }).shapes.length).toBeGreaterThan(0);
+    }
+    // A start age that is not a number is no start age.
+    expect(createAnimator().step({ now: 0, state: { id: 'odd', pose: () => ({}), startAge: Number.NaN }, target: null, reducedMotion: false }).stateAge).toBe(0);
+  });
+
+  it('a mark redefined under its id blends as the one being changed to', () => {
+    const v1: AvatarMark = { id: 'm', parts: () => [part('one')] }, v2: AvatarMark = { id: 'm', parts: () => [part('two', 'M-5 -5H5V5H-5Z')] };
+    const state = (mark: AvatarMark, id: string): AvatarStateDefinition => ({ id, pose: () => ({ marks: [{ mark, weight: 1 }] }) });
+    const mid = computePose({ seed: 1, time: 0, state: state(v2, 'b'), reducedMotion: true, blend: { from: { state: state(v1, 'a') }, t: 0.3 } });
+    expect(mid.marks).toEqual([{ mark: v2, weight: 1 }]);
+  });
+
+  it('one outline in two boxes is two models', () => {
+    const d = 'M-9 -9H9V9H-9Z';
+    const a = outlineModel(d, { x: -9, y: -9, w: 18, h: 18 })!, b = outlineModel(d, { x: -9, y: -9, w: 36, h: 18 })!;
+    expect(a.cx).toBe(0);
+    expect(b.cx).toBe(9);
+    expect(b.scale).not.toBe(a.scale);
+  });
+
   it('an outline of two squares wound opposite ways still gets a model', () => {
     const box = { x: -20, y: -5, w: 40, h: 10 };
     const same = outlineModel('M-20 -5H-10V5H-20ZM10 -5H20V5H10Z', box);

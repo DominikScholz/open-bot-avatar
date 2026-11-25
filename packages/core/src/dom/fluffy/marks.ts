@@ -35,6 +35,7 @@ export function paintFluffyMark(ctx: CanvasRenderingContext2D, box: FramePath['b
   if (!model) {
     const halfHeight = RADIUS * aspect;
     model = { radius: RADIUS, bounds: { minX: -RADIUS, maxX: RADIUS, minY: -halfHeight, maxY: halfHeight } };
+    if (models.size >= MAX_OUTLINES) models.clear();
     models.set(aspect, model);
   }
   /** Drawn units per model unit. */
@@ -86,7 +87,9 @@ const MAX_OUTLINES = 64;
  * its contours.
  */
 export function outlineModel(d: string, box: FramePath['box']): OutlineModel | null {
-  const known = outlines.get(d);
+  // The box says where the outline's centre is and how large the model may be.
+  const name = `${d}|${box.x},${box.y},${box.w},${box.h}`;
+  const known = outlines.get(name);
   if (known !== undefined) return known;
   let model: OutlineModel | null = null;
   try {
@@ -127,7 +130,7 @@ export function outlineModel(d: string, box: FramePath['box']): OutlineModel | n
     model = null;
   }
   if (outlines.size >= MAX_OUTLINES) outlines.delete(outlines.keys().next().value!);
-  outlines.set(d, model);
+  outlines.set(name, model);
   return model;
 }
 

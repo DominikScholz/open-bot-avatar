@@ -3,7 +3,7 @@
  * mood, gaze, reducedMotion): no wall clock, no Math.random, so any frame can
  * be reproduced exactly (tests, SSR, scrubbing).
  */
-import { BANG, DOTS, blendMarks, type PoseMark } from './marks.ts';
+import { BANG, DOTS, blendMarks, poseMarks, type PoseMark } from './marks.ts';
 import type { AvatarMood, AvatarMotion, AvatarMotionBlend, AvatarState } from './types.ts';
 
 /**
@@ -503,6 +503,23 @@ export function lookOf(given: { state?: unknown; mood?: unknown; motion?: unknow
   return isStateDefinition(given.state) ? { state: given.state, mood: named.mood } : named;
 }
 
+const POSE_NUMBERS = ['yaw', 'pitch', 'roll', 'lift', 'sx', 'sy', 'gazeX', 'gazeY', 'blink', 'squintL', 'squintR', 'ribbons', 'cage', 'sweep'] as const;
+
+/**
+ * What a state's pose returned, laid over the base pose. A definition is a host's code: a field it
+ * leaves out, or gives no usable value for (not a finite number, not a list of marks), keeps the
+ * base's, so a slip in one field cannot empty the frame.
+ */
+function laid(base: Pose, given: Partial<Pose> | undefined): Pose {
+  const pose = { ...base };
+  if (typeof given !== 'object' || given === null) return pose;
+  const number = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
+  for (const key of POSE_NUMBERS) pose[key] = number(given[key], base[key]);
+  pose.eyes = { arc: number(given.eyes?.arc, base.eyes.arc), slit: number(given.eyes?.slit, base.eyes.slit) };
+  if (given.marks !== undefined) pose.marks = poseMarks(given.marks);
+  return pose;
+}
+
 function statePose(input: PoseInput): Pose {
   const { seed, time, gaze, reducedMotion, view } = input;
   const { state, mood } = lookOf(input);
@@ -526,7 +543,7 @@ function statePose(input: PoseInput): Pose {
     wave: (period, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase)),
     base,
   };
-  const pose: Pose = { ...base, ...stateDefinition(state).pose({ ...ctx, rest: (pace = 1) => rest(ctx, pace) }) };
+  const pose = laid(base, stateDefinition(state).pose({ ...ctx, rest: (pace = 1) => rest(ctx, pace) }));
 
   if (given && weight > 0) {
     // A look target wins over idle wander. The body turns to face it: the resting
