@@ -13,7 +13,7 @@ import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import { halfDepth } from '../materials/shape.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
 import { ROOT_PASSES, buildMesh, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
-import { PASS, fragmentShader, vertexShader } from './shaders.ts';
+import { COATS, PASS, fragmentShader, vertexShader } from './shaders.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 
 /** The colors of a coat and the eyes set into it (none for a state mark). */
@@ -22,6 +22,7 @@ export interface FluffyLook {
   color: string;
   /** Eye color, any CSS color. */
   ink: string;
+  accents?: string[];
   /** Up to two eyes, left first. */
   eyes: SurfaceEye[];
 }
@@ -194,7 +195,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const uniform = (name: string) => gl.getUniformLocation(program, name);
   const u = {
     view: uniform('view'), pivot: uniform('pivot'), extent: uniform('extent'), radius: uniform('radius'),
-    shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), color: uniform('color'), ink: uniform('ink'),
+    shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), coats: uniform('coats[0]'), ink: uniform('ink'),
     eyeRegion: uniform('eyeRegion[0]'), eyeSize: uniform('eyeSize[0]'),
   };
   gl.enable(gl.DEPTH_TEST);
@@ -222,7 +223,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.generateMipmap(gl.TEXTURE_3D);
   texture(3, 'dyeRamp', gl.TEXTURE_2D);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, DYE_RAMP_SIZE, 1);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, DYE_RAMP_SIZE, COATS);
   clampLinear();
   // Last, so its unit stays active: the eyes' tiles sit side by side, and change the most.
   texture(1, 'eyeField', gl.TEXTURE_2D);
@@ -256,6 +257,14 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.bindVertexArray(surface);
     const vertices = buffer(gl.ARRAY_BUFFER, mesh.vertices);
     attributes(24, [3, 3], false);
+    const paint = (data: Float32Array, perInstance: boolean) => {
+      const b = buffer(gl.ARRAY_BUFFER, data);
+      gl.enableVertexAttribArray(3);
+      gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 4, 0);
+      if (perInstance) gl.vertexAttribDivisor(3, 1);
+      return b;
+    };
+    const paints = paint(mesh.paints, false);
     const indices = buffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
     // The strands: one instance per root (position, normal, two random numbers); the shader
     // shapes its eight vertices from gl_VertexID.
@@ -263,10 +272,11 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.bindVertexArray(strands);
     const roots = buffer(gl.ARRAY_BUFFER, mesh.roots);
     attributes(32, [3, 3, 2], true);
+    const rootPaints = paint(mesh.rootPaints, true);
 
     const b = shape.bounds, rx = (b.maxX - b.minX) / 2, ry = (b.maxY - b.minY) / 2, rz = halfDepth(shape);
     return {
-      surface, strands, buffers: [vertices, indices, roots],
+      surface, strands, buffers: [vertices, paints, indices, roots, rootPaints],
       coarse: mesh.coarse, fine: mesh.fine, strandCount: mesh.roots.length / 8,
       cx: b.minX + rx, cy: b.minY + ry, extent: [rx, ry, rz], radius: Math.ceil(Math.hypot(rx, ry, rz) + PILE_REACH), usedAt: 0,
     };
@@ -352,13 +362,16 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
       contours[slot] = socketKey(mark);
     });
 
+    const coatColors = Array.from({ length: COATS }, (_, k) => (k === 0 ? look.color : look.accents?.[k - 1] ?? look.color));
+    const coatKey = coatColors.join('|');
+
     // Root motion is composited by the painter, so only a turn of the surface or a change of
     // look needs a new image.
     const turn = shown.view
       ? Math.abs(view.cY - shown.view.cY) + Math.abs(view.sY - shown.view.sY) + Math.abs(view.sP - shown.view.sP) + Math.abs(view.cP - shown.view.cP)
       : Infinity;
     if (
-      shown.geometry === geometry && shown.pixels === pixels && shown.color === look.color && shown.ink === look.ink &&
+      shown.geometry === geometry && shown.pixels === pixels && shown.color === coatKey && shown.ink === look.ink &&
       contours.every((key, slot) => key === shown.contours[slot]) && regions.every((value, i) => value === shown.regions[i]) &&
       turn < SAME_VIEW / (radius * scale)
     ) {
@@ -367,7 +380,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     shown.geometry = geometry;
     shown.view = view;
     shown.pixels = pixels;
-    shown.color = look.color;
+    shown.color = coatKey;
     shown.ink = look.ink;
     shown.regions.set(regions);
 
@@ -379,13 +392,13 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.uniform4fv(u.eyeRegion, regions);
     gl.uniform2fv(u.eyeSize, sizes);
 
-    const [r, g, b] = readColor(look.color);
-    gl.uniform3f(u.color, r / 255, g / 255, b / 255);
-    if (dye !== look.color) {
+    const coats = coatColors.map(readColor);
+    gl.uniform3fv(u.coats, coats.flatMap(([r, g, b]) => [r / 255, g / 255, b / 255]));
+    if (dye !== coatKey) {
       gl.activeTexture(gl.TEXTURE3);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, DYE_RAMP_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, dyeRamp([r, g, b]));
+      coats.forEach((rgb, row) => gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, DYE_RAMP_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, dyeRamp(rgb)));
       gl.activeTexture(gl.TEXTURE1);
-      dye = look.color;
+      dye = coatKey;
     }
     const [inkR, inkG, inkB] = readColor(look.ink);
     gl.uniform3f(u.ink, inkR / 255, inkG / 255, inkB / 255);

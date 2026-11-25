@@ -9,6 +9,7 @@ import { SOCKET_PAD } from '../materials/socket.ts';
 
 /** The values of the `pass` uniform. */
 export const PASS = { body: 0, shell: 1, strand: 2 } as const;
+export const COATS = 4;
 
 /** A number as a GLSL float literal. */
 const float = (n: number) => (Number.isInteger(n) ? `${n}.` : `${n}`);
@@ -51,6 +52,7 @@ precision highp int;
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 seed;
+layout(location = 3) in float paint;
 uniform mat3 view;
 uniform vec3 pivot, extent;
 uniform float radius, shell;
@@ -58,10 +60,13 @@ uniform float strandWidth; // 1 at full detail; wider where fewer strands are dr
 uniform int pass;
 out vec3 P, N, V, pilePosition, lean;
 out float tip, variation, across, pocketDepth;
+flat out int coat;
 ${passes}
 ${socketField}
 
 void main() {
+  coat = int(floor(paint));
+  float pile = fract(paint) * 2.;
   vec3 n = normalize(normal), p = position;
   vec3 rounded = (position - pivot) / extent;
   // Broadly bend the lighting normals across flat front faces of inflated paths.
@@ -95,8 +100,8 @@ void main() {
   variation = .5;
   across = 0.;
   if (pass == SHELL) {
-    p += n * shell * 1.10 * loft;
-    p += lean * (1.05 * shell * loft);
+    p += n * shell * 1.10 * loft * pile;
+    p += lean * (1.05 * shell * loft * pile);
   }
   if (pass == STRAND) {
     // Four cross-sections make a bent, tapered strand. Roots are fixed in model space.
@@ -114,10 +119,10 @@ void main() {
       comb.xy = mix(comb.xy, alongEdge * (dot(comb.xy, alongEdge) < 0. ? -1. : 1.), .88 * (1. - smoothstep(.4, 3.5, d)));
     }
     vec3 bend = cross(n, comb);
-    float len = mix(1.6, 3.8, seed.y) * loft;
+    float len = mix(1.6, 3.8, seed.y) * loft * pile;
     vec3 direction = n * (.30 + .18 * tip) + comb * (.93 - .12 * tip) + bend * (seed.x - .5) * .45 * tip;
     pilePosition += comb * (.7 * len * tip);
-    p += n * .52 * loft;
+    p += n * .52 * loft * pile;
     float width = (.073 + .11 * seed.y) * strandWidth;
     p += .065 * n + len * tip * direction;
     vec3 screenDir = view * (direction + .06 * comb);
@@ -143,12 +148,13 @@ precision highp int;
 uniform sampler2D pile;
 uniform sampler2D dyeRamp;
 uniform highp sampler3D brushedPile;
-uniform vec3 color, ink;
+uniform vec3 coats[${COATS}], ink;
 uniform mat3 view;
 uniform int pass;
 uniform float shell;
 in vec3 P, N, V, pilePosition, lean;
 in float tip, variation, across, pocketDepth;
+flat in int coat;
 out vec4 result;
 ${passes}
 ${socketField}
@@ -174,6 +180,7 @@ float brushedHeight() {
 }
 
 void main() {
+  vec3 color = coats[coat];
   vec3 n = normalize(N);
   vec3 light = normalize(vec3(-.52, -.83, .62));
   float diffuse = dot(n, light);
@@ -246,7 +253,7 @@ void main() {
   // above the nominal exposure of the dye.
   float backing = diffuseLevel * pileFill;
   float exposure = backing * backing * (.72 + .39 * wrap) + 1.45 * fiberLight * pileFill;
-  vec4 ramp = texture(dyeRamp, vec2(exposure / ${float(DYE_RAMP_RANGE)}, .5));
+  vec4 ramp = texture(dyeRamp, vec2(exposure / ${float(DYE_RAMP_RANGE)}, (float(coat) + .5) / ${float(COATS)}));
   vec3 base = ramp.rgb;
   if (ramp.a > 0.) {
     // On yellow, the dyed roots and the light scattered by the tips can have the same lightness
