@@ -29,6 +29,8 @@ let frame = 0;
 let visibilityBound = false;
 /** Animation time before which a subscriber that asked to wait is skipped (neither measured nor drawn). */
 const due = new WeakMap<FrameSubscriber, number>();
+/** Tolerance (s) for VSync jitter so 60 Hz / 120 Hz don't slip by a frame while 144 Hz stays <= 60 fps. */
+const DUE_TOLERANCE = 0.0015;
 let pointer: Pointer | null = null;
 const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 let lastTickNow = 0;
@@ -64,15 +66,21 @@ function tick(now: number) {
   ready.length = 0;
   for (const s of subscribers) {
     const at = due.get(s);
-    if (at !== undefined && at > time) busy = true;
+    if (at !== undefined && at - time > DUE_TOLERANCE) busy = true;
     else ready.push(s);
   }
   for (let i = 0; i < ready.length; i++) ready[i].measure?.();
   for (let i = 0; i < ready.length; i++) {
     const s = ready[i];
+    const prevDue = due.get(s);
     const next = s.draw(time, pointer);
-    if (typeof next === 'number') due.set(s, time + next);
-    else due.delete(s);
+    if (typeof next === 'number') {
+      // Carry the deadline forward so jitter does not accumulate and 144 Hz stays at 60 fps.
+      const carried = prevDue !== undefined ? prevDue + next : time + next;
+      due.set(s, carried > time + DUE_TOLERANCE ? carried : time + next);
+    } else {
+      due.delete(s);
+    }
     busy = next !== false || busy;
   }
   ready.length = 0;

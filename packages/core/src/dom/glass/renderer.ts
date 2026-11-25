@@ -7,6 +7,8 @@ import { EdgeIndex } from '../../distance.ts';
 import { edgeBands } from '../../path.ts';
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import type { Volume, VolumePart } from '../../volume.ts';
+import { requestFrame } from '../clock.ts';
+import { invalidateMaterialCache } from '../paint.ts';
 import { halfDepth, type Capsule, type MaterialShape } from '../materials/shape.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 import { fragmentShader, vertexShader } from './shaders.ts';
@@ -635,7 +637,11 @@ export function renderGlass(shape: GlassShape, view: ViewBasis, look: GlassLook,
   if (renderer === undefined) {
     renderer = null;
     try {
-      renderer = createRenderer(() => (renderer = undefined));
+      renderer = createRenderer(() => {
+        renderer = undefined;
+        invalidateMaterialCache();
+        requestFrame();
+      });
     } catch (error) {
       console.warn('open-bot-avatar: glass is unavailable, drawing flat', error);
     }

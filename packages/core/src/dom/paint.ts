@@ -141,9 +141,24 @@ const COAT_STAGGER_PX = 2.5;
 const MAX_IDLE_COATS_PER_FRAME = 2;
 let coatFrameTime = -1;
 let coatFrameCount = 0;
+const deferredCoats = new Set<CanvasSurface>();
+const coatPriority = new Set<CanvasSurface>();
+let materialEpoch = 0;
+
+/** Invalidate retained material bitmaps (e.g. after a WebGL2 context is restored). */
+export function invalidateMaterialCache() {
+  materialEpoch++;
+}
+
+/** Drop a surface from any pending stagger queue when it is unmounted. */
+export function releaseCanvas(surface: CanvasSurface) {
+  deferredCoats.delete(surface);
+  coatPriority.delete(surface);
+}
 
 interface PaintedState {
   material: CanvasMaterial | null;
+  epoch: number;
   fill: string;
   ink: string;
   layout: string;
@@ -218,8 +233,6 @@ export interface CanvasSurface {
   promoted: boolean;
   /** Last model-space bitmap painted on `canvas` when root motion is delegated to `wrap.style.transform`. */
   painted: PaintedState | null;
-  /** Number of consecutive frames this surface was deferred by the idle WebGL stagger budget. */
-  coatWait: number;
 }
 
 export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefinition, depth: number | undefined): CanvasSurface {
@@ -237,7 +250,6 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
     key, wrap, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0, transform: '', promoted: false,
     volume: depth === 0 ? null : () => (volume ??= preparedVolume(definition, depth).vol),
     painted: null,
-    coatWait: 0,
   };
 }
 
@@ -368,9 +380,11 @@ function paintFrame(
       rz = 0;
       for (let i = 0; i < vol.parts.length; i++) if (vol.parts[i].depth / 2 > rz) rz = vol.parts[i].depth / 2;
     }
-    // Store the requested `finish` so depth-0 / unavailable-WebGL fallbacks still hit the cache cleanly.
-    surface.painted = { material: finish, fill, ink, layout, bodyScale, eyesKey, view, rx, ry, rz };
-    surface.coatWait = 0;
+    // Store the requested `finish` and current `materialEpoch` so depth-0 fallbacks cache cleanly
+    // while a restored WebGL2 context invalidates any flat fallback painted during context loss.
+    surface.painted = { material: finish, epoch: materialEpoch, fill, ink, layout, bodyScale, eyesKey, view, rx, ry, rz };
+    deferredCoats.delete(surface);
+    coatPriority.delete(surface);
     setWrapTransform(surface, rootCss(frame.root, size));
   }
 }
@@ -398,9 +412,9 @@ export function paintLiveCanvas(
   ink: string,
   material: AvatarMaterial = 'flat',
   frameTime = -1,
-): { eyesKey: string; reused: boolean } {
+): { eyesKey: string; reused: boolean; deferred: boolean } {
   const eyesKey = eyesCacheKey(transform.eyes);
-  if (!surface.ctx || size <= 0) return { eyesKey, reused: false };
+  if (!surface.ctx || size <= 0) return { eyesKey, reused: false, deferred: false };
   const finish = canvasMaterialOf(material);
   const dpr = window.devicePixelRatio || 1;
   const layout = `${size}|${dpr}`;
@@ -410,6 +424,7 @@ export function paintLiveCanvas(
     if (
       prev &&
       prev.material === finish &&
+      (finish === null || prev.epoch === materialEpoch) &&
       prev.fill === fill &&
       prev.ink === ink &&
       prev.layout === layout &&
@@ -418,27 +433,36 @@ export function paintLiveCanvas(
     ) {
       const shiftPx = viewShift(transform.view, prev.view, prev.rx, prev.ry, prev.rz) * (size / 100);
       if (shiftPx < VIEW_EPS_CSS_PX) {
-        surface.coatWait = 0;
+        deferredCoats.delete(surface);
+        coatPriority.delete(surface);
         setWrapTransform(surface, rootCss(transform.root, size));
-        return { eyesKey, reused: true };
+        return { eyesKey, reused: true, deferred: false };
       }
-      // Stagger minor idle WebGL coat refreshes across frames so multiple fluffy/glass avatars
-      // don't clump on one frame. Avatars already deferred on an earlier frame get priority.
+      // Strictly cap minor idle WebGL coat refreshes to MAX_IDLE_COATS_PER_FRAME per frame,
+      // reserving the slots FIFO for the oldest deferred surfaces so none starve.
       if (finish && frameTime >= 0 && shiftPx < COAT_STAGGER_PX) {
         if (coatFrameTime !== frameTime) {
           coatFrameTime = frameTime;
           coatFrameCount = 0;
+          coatPriority.clear();
+          for (const s of deferredCoats) {
+            if (coatPriority.size >= MAX_IDLE_COATS_PER_FRAME) break;
+            coatPriority.add(s);
+          }
         }
-        if (coatFrameCount >= MAX_IDLE_COATS_PER_FRAME && surface.coatWait < 2) {
-          surface.coatWait++;
+        const slotsLeft = MAX_IDLE_COATS_PER_FRAME - coatFrameCount;
+        if (slotsLeft <= 0 || (!coatPriority.has(surface) && slotsLeft <= coatPriority.size)) {
+          deferredCoats.add(surface);
           setWrapTransform(surface, rootCss(transform.root, size));
-          return { eyesKey, reused: true };
+          return { eyesKey, reused: true, deferred: true };
         }
         coatFrameCount++;
+        deferredCoats.delete(surface);
+        coatPriority.delete(surface);
       }
     }
   }
 
   paintFrame(surface, transform.buildFrame(), size, fill, ink, material, !transform.hasOverlay, eyesKey);
-  return { eyesKey, reused: false };
+  return { eyesKey, reused: false, deferred: false };
 }

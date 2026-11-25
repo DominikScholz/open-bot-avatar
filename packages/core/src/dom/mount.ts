@@ -20,7 +20,7 @@ import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvata
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
 import { currentPointer, isHighRefresh, requestFrame, subscribeFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
-import { canvasSupported, mountCanvas, paintCanvas, paintLiveCanvas, type CanvasSurface } from './paint.ts';
+import { canvasSupported, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
@@ -176,8 +176,6 @@ const SMALL_FPS = 30;
 const MAX_FPS = 60;
 /** How far outside the viewport (CSS px) avatars keep animating, so they are already moving as they scroll in. */
 const VIEW_MARGIN = 100;
-/** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
-const FRAME_SLACK = 0.004;
 
 /**
  * The frame that last painted a material still. They take turns, one a frame: the first paint of a
@@ -246,6 +244,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   };
 
   const clear = () => {
+    if (surface) releaseCanvas(surface);
     host.textContent = '';
     scene = null;
     surface = null;
@@ -341,11 +340,11 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         const target = ensureSurface(p);
         const transform = liveTransform(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
         const { fill, ink } = resolveColors(p, transform.color, transform.ink);
-        const { eyesKey } = paintLiveCanvas(target, transform, size, fill, ink, p.material, time);
-        calmFrame = isCalmState && !transform.hasOverlay && eyesKey === lastEyeKey;
+        const { eyesKey, deferred } = paintLiveCanvas(target, transform, size, fill, ink, p.material, time);
+        calmFrame = !deferred && isCalmState && !transform.hasOverlay && eyesKey === lastEyeKey;
         lastEyeKey = eyesKey;
         failed = false;
-        return !reducedMotion || step.moving;
+        return !reducedMotion || step.moving || deferred;
       }
       if (surface) clear();
       const frame = sceneFrame(p.definition, { ...options, color: p.color });
@@ -383,8 +382,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       calmFrame = false;
       const more = draw(time, pointer);
       if (!visible || !more) return false;
-      if ((size > 0 && size < SMALL_SIZE) || calmFrame) return 1 / SMALL_FPS - FRAME_SLACK;
-      return isHighRefresh() ? 1 / MAX_FPS - FRAME_SLACK : true;
+      if ((size > 0 && size < SMALL_SIZE) || calmFrame) return 1 / SMALL_FPS;
+      return isHighRefresh() ? 1 / MAX_FPS : true;
     },
   });
 

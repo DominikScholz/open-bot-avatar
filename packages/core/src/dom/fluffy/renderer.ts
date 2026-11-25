@@ -10,6 +10,8 @@
  * small avatar draws less of each (see fluffyDetail).
  */
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
+import { requestFrame } from '../clock.ts';
+import { invalidateMaterialCache } from '../paint.ts';
 import { halfDepth } from '../materials/shape.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
 import { ROOT_PASSES, buildMesh, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
@@ -440,8 +442,12 @@ export function renderFluffy(shape: FluffyShape, view: ViewBasis, look: FluffyLo
   if (renderer === undefined) {
     renderer = null;
     try {
-      // After a restore everything on the GPU is gone: start over on the next frame.
-      renderer = createRenderer(() => (renderer = undefined));
+      // After a restore everything on the GPU is gone: invalidate cached fallbacks and redraw.
+      renderer = createRenderer(() => {
+        renderer = undefined;
+        invalidateMaterialCache();
+        requestFrame();
+      });
     } catch (error) {
       console.warn('open-bot-avatar: fluffy is unavailable, drawing flat', error);
     }

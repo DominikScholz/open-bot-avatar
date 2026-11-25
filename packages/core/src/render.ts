@@ -768,7 +768,7 @@ function flatFrameFrom(
   return {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
-    surface: { view: v, scale: fx.body, eyes },
+    surface: { view: v, scale: fx.body, eyes: fx.body > 0 ? eyes : [] },
   };
 }
 
