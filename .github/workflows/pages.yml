@@ -17,6 +17,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The build gets the token (below) and runs the site's dependencies: it may read, nothing more.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -28,7 +31,7 @@ jobs:
       - run: pnpm --filter site build
         env:
           BASE: /${{ github.event.repository.name }}/
-          # The build reads the contributors from GitHub, for the page to fall back on.
+          # The build reads the contributors from GitHub and puts them into the site.
           GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-pages-artifact@v4
         with:

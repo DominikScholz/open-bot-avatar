@@ -1,31 +1,17 @@
-import { useEffect, useState } from "react";
-import { loadContributors, type Contributor } from "./contributors";
+import built from "virtual:contributors";
+import { readContributors, type Contributor } from "./contributors";
 import { REPO } from "./route";
 
-/** The contributors, read from GitHub: undefined while it is asked, null when it did not answer. */
-export function useContributors(): Contributor[] | null | undefined {
-  const [people, setPeople] = useState<Contributor[] | null | undefined>(undefined);
-  useEffect(() => {
-    let current = true;
-    loadContributors().then(
-      (list) => current && setPeople(list),
-      () => current && setPeople(null),
-    );
-    return () => {
-      current = false;
-    };
-  }, []);
-  return people;
-}
+/** Everyone GitHub counted as a contributor when the site was built. Every push to main builds it again. */
+export const CONTRIBUTORS = readContributors(built);
 
 /** A profile picture at `size` CSS pixels, asked for at twice that for sharp screens. */
 export function pictureAt(person: Contributor, size: number): string {
   return `${person.picture}${person.picture.includes("?") ? "&" : "?"}s=${2 * size}`;
 }
 
-/** Who built it, read from GitHub when the page opens. */
+/** Who built it. */
 export function Contributors() {
-  const people = useContributors();
   return (
     <main className="page contributors">
       <section className="page-head">
@@ -33,15 +19,13 @@ export function Contributors() {
         <p className="lead">Open Bot Avatar is open source. These are the people who built it.</p>
       </section>
 
-      {people === undefined ? (
-        <p role="status">Loading the list from GitHub.</p>
-      ) : people === null ? (
+      {CONTRIBUTORS.length === 0 ? (
         <p role="status">
-          GitHub did not answer. The list is also on <a href={`${REPO}/graphs/contributors`}>GitHub</a>.
+          This build of the site has no list. It is on <a href={`${REPO}/graphs/contributors`}>GitHub</a>.
         </p>
       ) : (
         <ul className="people">
-          {people.map((person) => (
+          {CONTRIBUTORS.map((person) => (
             <li key={person.login}>
               <a className="person" href={person.profile}>
                 <img src={pictureAt(person, 72)} width={72} height={72} alt="" loading="lazy" />

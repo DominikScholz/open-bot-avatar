@@ -1,5 +1,5 @@
 import { BotAvatar } from "./BotAvatar";
-import { Contributors, pictureAt, useContributors } from "./Contributors";
+import { CONTRIBUTORS, Contributors, pictureAt } from "./Contributors";
 import { topOthers } from "./contributors";
 import { Docs } from "./Docs";
 import { REPO, href, useRoute, type Route } from "./route";
@@ -46,7 +46,7 @@ export function App() {
 
 /** Who made it: the author, and the faces of the three people who added the most, which lead to everyone. */
 function Credit() {
-  const others = topOthers(useContributors() ?? [], 3);
+  const others = topOthers(CONTRIBUTORS, 3);
   return (
     <div className="credit">
       <span>by</span>

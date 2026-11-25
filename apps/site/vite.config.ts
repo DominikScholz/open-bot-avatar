@@ -8,14 +8,15 @@ const designPrompt = fileURLToPath(new URL('../../skills/generate-avatar/referen
 /** Where the site serves the design prompt, next to index.html (src/studio/brief.ts links to it). */
 const PROMPT_FILE = 'prompt.md';
 
-/** Where the site serves the contributors it was built with, next to index.html (src/contributors.ts reads it). */
-const CONTRIBUTORS_FILE = 'contributors.json';
+/** The module the site imports its contributors from (src/Contributors.tsx). */
+const CONTRIBUTORS = 'virtual:contributors';
 
 /**
- * GitHub's list of contributors as it is now, for the page to fall back on when GitHub refuses a
- * visitor's own request (60 an hour, shared by everyone behind one address). GITHUB_TOKEN or
- * GH_TOKEN raises the build's own limit. Without an answer the file lists no one, and the page
- * says so: a build never fails for it.
+ * GitHub's list of contributors as it is now, built into the site: every push to main builds the
+ * site again, and that is when the list can change. A visitor's browser asks GitHub nothing, so
+ * its limit of 60 requests an hour per address does not matter. GITHUB_TOKEN or GH_TOKEN raises
+ * the build's own limit. Without an answer the list is empty and the page links to GitHub: a
+ * build never fails for it.
  */
 let contributors: Promise<string> | undefined;
 function contributorsNow(): Promise<string> {
@@ -32,7 +33,8 @@ function contributorsNow(): Promise<string> {
       // The fields the page reads, as GitHub names them.
       return JSON.stringify(list.map(({ login, type, avatar_url, html_url }) => ({ login, type, avatar_url, html_url })));
     } catch (error) {
-      console.warn(`Contributors: built without a list (${error instanceof Error ? error.message : error}).`);
+      // In GitHub Actions the line shows as a warning on the run, where an empty page would otherwise go unnoticed.
+      console.warn(`${process.env.GITHUB_ACTIONS ? '::warning::' : ''}Contributors: built without a list (${error instanceof Error ? error.message : error}).`);
       return '[]';
     }
   })();
@@ -66,19 +68,10 @@ export default defineConfig({
       },
     },
     {
-      // The contributors at a fixed URL, as GitHub listed them when the site was built or the dev server first asked.
       name: 'contributors',
-      configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          if (req.url?.split('?')[0] !== `${server.config.base}${CONTRIBUTORS_FILE}`) return next();
-          contributorsNow().then((source) => {
-            res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(source);
-          });
-        });
-      },
-      async generateBundle() {
-        this.emitFile({ type: 'asset', fileName: CONTRIBUTORS_FILE, source: await contributorsNow() });
+      resolveId: (id) => (id === CONTRIBUTORS ? `\0${CONTRIBUTORS}` : null),
+      async load(id) {
+        return id === `\0${CONTRIBUTORS}` ? `export default ${await contributorsNow()};` : null;
       },
     },
   ],
