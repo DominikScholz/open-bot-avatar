@@ -10,10 +10,11 @@
  * small avatar draws less of each (see fluffyDetail).
  */
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
+import { halfDepth } from '../materials/shape.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
-import { ROOT_PASSES, buildMesh, halfDepth, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
+import { ROOT_PASSES, buildMesh, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
 import { PASS, fragmentShader, vertexShader } from './shaders.ts';
-import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from './socket.ts';
+import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 
 /** The colors of a coat and the eyes set into it (none for a state mark). */
 export interface FluffyLook {

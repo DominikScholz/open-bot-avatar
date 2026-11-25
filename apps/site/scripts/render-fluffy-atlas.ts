@@ -2,6 +2,7 @@
 import { examples } from 'open-bot-avatar';
 import { liveFrame } from '../../../packages/core/src/render.ts';
 import { mountCanvas, paintCanvas } from '../../../packages/core/src/dom/paint.ts';
+import { fluffy } from '../../../packages/core/src/dom/materials/fluffy.ts';
 import { GALLERY } from '../src/gallery';
 import { defaultColor } from '../src/studio/look';
 import { thumbnailKey, THUMB_LOOK, THUMB_VIEW } from '../src/studio/outline';
@@ -16,7 +17,7 @@ const keys = avatars.map((definition, i) => {
   const color = defaultColor(definition.id);
   const frame = liveFrame(definition, { size: cell, reducedMotion: true, view: THUMB_VIEW, gaze: THUMB_LOOK });
   const surface = mountCanvas(document.createElement('div'), definition.id, definition, undefined);
-  paintCanvas(surface, frame, cell, color, frame.ink, 'fluffy');
+  paintCanvas(surface, frame, cell, color, frame.ink, fluffy);
   const x = (i % side) * cell, y = Math.floor(i / side) * cell;
   ctx.save();
   ctx.beginPath();

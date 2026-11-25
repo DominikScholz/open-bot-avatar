@@ -121,6 +121,22 @@
       cursor: grabbing;
     }
 
+    .stage-glass-caustic {
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      width: 150px;
+      height: 36px;
+      transform: translateX(-50%);
+      pointer-events: none;
+      border-radius: 50%;
+      background:
+        radial-gradient(ellipse 36% 52% at 50% 48%, color-mix(in srgb, var(--glass-tint, #14b3a5) 68%, #ffffff 32%) 0%, color-mix(in srgb, var(--glass-tint, #14b3a5) 38%, transparent) 48%, transparent 80%),
+        radial-gradient(ellipse 68% 58% at 50% 56%, color-mix(in srgb, var(--glass-tint, #14b3a5) 36%, transparent) 0%, transparent 74%);
+      filter: blur(8px);
+      opacity: 0.78;
+    }
+
     .stage-avatar {
       width: 156px;
       height: 156px;

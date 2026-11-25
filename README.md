@@ -70,9 +70,45 @@ avatar.destroy();
 | `view` | Extra rotation, `{ yaw, pitch }` in radians. |
 | `depth` | Volume, 0 (flat) to 14. Default: 6. |
 | `reducedMotion` | `true`, `false` or `"system"` (default). |
-| `material` | `"flat"` (default) or `"fluffy"`, a coat of fur. |
+| `material` | `"flat"` (default), or an imported `fluffy` / `glass` material. |
 | `still` | One static image, no animation. Default: `false`. |
 | `label` | Accessible name. Default: the definition's name; `""` for decorative. |
+
+## Optional materials
+
+DOM mounting ships the flat renderer. Import a material explicitly to include its renderer:
+
+```ts
+import { mountAvatar } from "open-bot-avatar/dom";
+import { glass } from "open-bot-avatar/materials/glass";
+
+const avatar = mountAvatar(element, { definition, material: glass });
+avatar.update({ material: "flat" });
+```
+
+For fur, import `{ fluffy }` from `open-bot-avatar/materials/fluffy` and pass `material: fluffy`.
+There is no global registration. Each entry imports only its own renderer and shared helpers;
+a production bundler can discard unused materials. The Studio includes both because its picker
+uses both. Importing a material does not create a WebGL context; its first draw does.
+
+Both materials need the canvas renderer and WebGL2. They fall back to flat paths when WebGL2 is
+unavailable, and `renderer: "scene"` continues to draw flat. A material with `still: true` paints
+one canvas instead of an SVG. Glass uses a sampled 3D distance field and a ray-marching shader
+with approximate studio reflections, refraction and absorption. It does not refract the DOM
+behind the avatar.
+
+**Migration:** `material: "fluffy"` is replaced by an explicit import and `material: fluffy`.
+The old string now draws flat and logs one warning that names the import. The default and
+`material: "flat"` are unchanged. Stored material names should be resolved to material objects
+in the application's rendering layer, as in the Studio; do not store the objects themselves in
+JSON. The `AvatarMaterial` type is exported by `open-bot-avatar/dom` and no longer by
+`open-bot-avatar`, which has no DOM types in it.
+
+**Materials of your own are experimental.** A material is a `CanvasMaterial` (exported by
+`open-bot-avatar/dom`): `render` returns a canvas image, or `null` for the flat fallback, and
+`margin` reserves space outside the projected body. `render` is given the renderer's own model
+of the body and the view, which are not public yet, so this interface may change in a minor
+release. Pass the same material object on every update, and return from `render` synchronously.
 
 ## SVG
 

@@ -1,4 +1,5 @@
-import type { AvatarDefinition, AvatarMaterial } from "open-bot-avatar";
+import type { MaterialName } from "./look";
+import type { AvatarDefinition } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { thumbnailKey, THUMB_LOOK, THUMB_VIEW } from "./outline";
 import keys from "./fluffy-thumbnails.json";
@@ -14,7 +15,7 @@ const side = Math.ceil(Math.sqrt(keys.length));
  * a baked image in their own colors, and only another color or one of yours is rendered here.
  * Bake it again after a change to how fluffy looks: pnpm --filter site thumbnails.
  */
-export function AvatarThumbnail({ definition, color, material }: { definition: AvatarDefinition; color: string; material: AvatarMaterial }) {
+export function AvatarThumbnail({ definition, color, material }: { definition: AvatarDefinition; color: string; material: MaterialName }) {
   const cell = material === "fluffy" ? cells.get(thumbnailKey(definition, color)) : undefined;
   if (cell === undefined) {
     return <BotAvatar className="avatar-view" definition={definition} color={color} material={material} still view={THUMB_VIEW} lookAt={THUMB_LOOK} label="" />;

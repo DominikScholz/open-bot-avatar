@@ -17,11 +17,10 @@
  */
 import { avatarExtent, preparedVolume } from '../render.ts';
 import type { AvatarFrame, FramePath, FrameShape, Matrix } from '../render.ts';
-import type { AvatarDefinition, AvatarMaterial } from '../types.ts';
+import type { AvatarDefinition } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
-import { paintFluffyMark, paintFluffyOutline } from './fluffy/marks.ts';
-import { renderFluffy } from './fluffy/renderer.ts';
+import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -42,8 +41,6 @@ export interface Bounds {
 export const FIT_SLACK = 8;
 /** Margin a frame keeps from the bitmap's edge for antialiasing, viewBox units. */
 export const FIT_PAD = 1;
-/** How far a fluffy coat's pile reaches past the frame's flat bounds, viewBox units. */
-const PILE_MARGIN = 3;
 
 /**
  * The square to lay the bitmap out over: `prev` while it still holds `b`, else `prev` grown to
@@ -161,7 +158,7 @@ const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
 
 /**
  * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
- * canvas color. A `fluffy` body falls back to flat where fluffy can't be drawn.
+ * canvas color. A material falls back to flat where it cannot be drawn.
  */
 export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
   const { canvas, ctx } = surface;
@@ -176,13 +173,14 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (!known || known.d !== d || known.round !== (round === true)) sections.set(id, { d, box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
   }
   const { matrices, bounds } = framePlacement(frame);
-  const volume = material === 'fluffy' ? surface.volume : null;
-  const fluffy = volume !== null;
-  if (fluffy) {
-    bounds.x0 -= PILE_MARGIN;
-    bounds.y0 -= PILE_MARGIN;
-    bounds.x1 += PILE_MARGIN;
-    bounds.y1 += PILE_MARGIN;
+  const finish = canvasMaterialOf(material);
+  const volume = finish ? surface.volume : null;
+  if (finish) {
+    const margin = finish.margin ?? 0;
+    bounds.x0 -= margin;
+    bounds.y0 -= margin;
+    bounds.x1 += margin;
+    bounds.y1 += margin;
   }
   const fit = fitSquare(surface.layout === layout ? surface.fit : null, bounds, surface.cap);
   if (surface.layout === layout && fit === surface.fit) {
@@ -203,7 +201,9 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
 
   // The whole body and its eyes as one image, unless it has shrunk away into a mark.
   const { view, scale: bodyScale, eyes } = frame.surface;
-  const coat = volume && bodyScale > 0.001 ? renderFluffy(volume(), view, { color: fill, ink, eyes }, scale) : null;
+  const coat = finish && volume && bodyScale > 0.001
+    ? finish.render(volume(), view, { color: fill, ink, eyes }, scale)
+    : null;
   let coatPainted = false;
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
@@ -215,9 +215,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       if (isMark(shape)) {
-        // A ball or a capsule from the ready model, any other outline from a coat of its own.
-        const furred = fluffy && (section.round ? paintFluffyMark(ctx, section.box, scale, fill) : paintFluffyOutline(ctx, section.d, section.box, scale, fill));
-        if (!furred) ctx.fill(section.path, section.rule);
+        const painted = finish?.paintMark?.(ctx, section.box, scale, fill) ?? false;
+        if (!painted) ctx.fill(section.path, section.rule);
       } else if (!coat) {
         ctx.fill(section.path, section.rule);
       } else if (!coatPainted) {

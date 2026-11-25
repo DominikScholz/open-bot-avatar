@@ -3,6 +3,10 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
 import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
+import { glass as glassMaterial } from '../src/dom/materials/glass.ts';
+import * as glass from '../src/dom/glass/renderer.ts';
+import type { CanvasMaterial } from '../src/dom/materials/material.ts';
+import { fluffy as fluffyMaterial } from '../src/dom/materials/fluffy.ts';
 import * as fluffy from '../src/dom/fluffy/renderer.ts';
 import { avatarExtent, liveFrame } from '../src/render.ts';
 
@@ -101,7 +105,7 @@ describe('mountAvatar on a canvas', () => {
     const tile = document.createElement('canvas');
     const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
     const el = host();
-    const avatar = mountAvatar(el, { definition: examples[0], material: 'fluffy', still: true, color: '#1f7cf2', eyeColor: '#151515' });
+    const avatar = mountAvatar(el, { definition: examples[0], material: fluffyMaterial, still: true, color: '#1f7cf2', eyeColor: '#151515' });
     try {
       await frame();
       expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(1);
@@ -113,12 +117,84 @@ describe('mountAvatar on a canvas', () => {
       avatar.update({ material: 'flat' });
       await frame();
       expect(el.querySelector('svg')).not.toBeNull();
-      avatar.update({ material: 'fluffy' });
+      avatar.update({ material: fluffyMaterial });
       await frame();
       expect(el.querySelector('canvas')).not.toBeNull();
     } finally {
       avatar.destroy();
       render.mockRestore();
+    }
+  });
+
+  it('switches imported materials on a still and preserves the flat fallback', async () => {
+    const tile = document.createElement('canvas');
+    const image = { canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 };
+    const renderGlass = vi.spyOn(glass, 'renderGlass').mockReturnValue(image);
+    const renderFluffy = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue(image);
+    const el = host();
+    const avatar = mountAvatar(el, { definition: examples[0], material: glassMaterial, still: true });
+    try {
+      await frame();
+      expect(renderGlass).toHaveBeenCalledTimes(1);
+      expect(renderFluffy).not.toHaveBeenCalled();
+      await frame();
+      expect(renderGlass).toHaveBeenCalledTimes(1);
+      avatar.update({ material: fluffyMaterial });
+      await frame();
+      expect(renderFluffy).toHaveBeenCalledTimes(1);
+      renderGlass.mockReturnValue(null);
+      avatar.update({ material: glassMaterial });
+      await frame();
+      expect(painted(el).some((call) => call.op === 'fill')).toBe(true);
+      avatar.update({ renderer: 'scene' });
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      expect(el.querySelector('canvas')).toBeNull();
+    } finally {
+      avatar.destroy();
+      renderGlass.mockRestore();
+      renderFluffy.mockRestore();
+    }
+  });
+
+  it('accepts a caller-supplied material and falls back for marks it does not paint', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.fn().mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const material: CanvasMaterial = { id: 'custom', render };
+    const el = host();
+    const surface = mountCanvas(el, 'custom', examples[0], 6);
+    paintCanvas(surface, liveFrame(examples[0], { size: 96 }), 96, '#123456', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(render.mock.lastCall?.[2]).toMatchObject({ color: '#123456', ink: '#151515' });
+    expect(painted(el).some((call) => call.op === 'drawImage')).toBe(true);
+    paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', size: 96 }), 96, '#123456', '#151515', material);
+    expect(painted(el).filter((call) => call.op === 'fill')).toHaveLength(3);
+    el.remove();
+  });
+
+  it('draws flat and warns once for a material given by name', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const el = host();
+    // What a host wrote before materials were values, and what an untyped caller may still pass.
+    const avatar = mountAvatar(el, { definition: examples[0], material: 'fluffy' as never, still: true });
+    try {
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      expect(el.querySelector('canvas')).toBeNull();
+      avatar.update({ still: false });
+      await frame();
+      await frame();
+      expect(painted(el).some((call) => call.op === 'fill')).toBe(true);
+      expect(painted(el).some((call) => call.op === 'drawImage')).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('Import { fluffy } from "open-bot-avatar/materials/fluffy"');
+      avatar.update({ material: 'flat' });
+      avatar.update({ material: undefined });
+      await frame();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      avatar.destroy();
+      warn.mockRestore();
     }
   });
 
@@ -140,12 +216,12 @@ describe('mountAvatar on a canvas', () => {
       const def = examples[0], el = host();
       const surface = mountCanvas(el, 'marks', def, 6);
       const markFrame = (state: 'thinking' | 'blocked', time: number) => liveFrame(def, { state, time, size: 96 });
-      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', 'fluffy');
+      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', fluffyMaterial);
       expect(render).toHaveBeenCalledTimes(1);
       expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(6);
 
       render.mockReturnValue(null);
-      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', 'fluffy');
+      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', fluffyMaterial);
       expect(painted(el).filter(call => call.op === 'fill')).toHaveLength(2);
     } finally {
       render.mockRestore();

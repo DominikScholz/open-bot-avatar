@@ -1,5 +1,6 @@
+import type { MaterialName } from "./look";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import type { AvatarDefinition, AvatarMaterial, AvatarMood, AvatarState } from "open-bot-avatar";
+import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
 import { FaceToggle, MaterialToggle, MOODS, STATES, StatePills } from "./pickers";
@@ -9,7 +10,7 @@ export type ViewAngle = { yaw: number; pitch: number };
 interface StageProps {
   definition: AvatarDefinition;
   color: string;
-  material: AvatarMaterial;
+  material: MaterialName;
   state: AvatarState;
   mood: AvatarMood;
   followCursor: boolean;
@@ -21,7 +22,7 @@ interface StageProps {
   onView: (view: ViewAngle) => void;
   onState: (state: AvatarState) => void;
   onMood: (mood: AvatarMood) => void;
-  onMaterial: (material: AvatarMaterial) => void;
+  onMaterial: (material: MaterialName) => void;
   /** Shown under the state and mood (the avatar's actions). */
   children?: ReactNode;
 }
@@ -144,6 +145,13 @@ export function Stage({ definition, color, material, state, mood, followCursor, 
         reducedMotion={reducedMotion}
         label=""
       />
+      {material === "glass" && state !== "thinking" && state !== "blocked" ? (
+        <div
+          className="stage-glass-caustic"
+          aria-hidden="true"
+          style={{ "--glass-tint": color } as Record<string, string>}
+        />
+      ) : null}
       {/* Over the preview: keep its drag, double-click reset and arrow-key turning out of these. */}
       <div className="stage-bar" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <FaceToggle mood={mood} onMood={onMood} />

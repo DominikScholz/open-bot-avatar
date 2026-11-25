@@ -7,10 +7,11 @@
  * Building a mesh takes tens of milliseconds, so the renderer keeps what it builds (see renderer.ts).
  */
 import { EdgeIndex } from '../../distance.ts';
-import { edgeBands, type Bounds } from '../../path.ts';
+import { edgeBands } from '../../path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC } from '../../validate.ts';
 import type { Volume, VolumePart } from '../../volume.ts';
-import { SOCKET_PAD } from './socket.ts';
+import { halfDepth, type Capsule, type MaterialShape } from '../materials/shape.ts';
+import { SOCKET_PAD } from '../materials/socket.ts';
 
 export interface FluffyMesh {
   /** Position and outward normal per vertex (6 floats). */
@@ -33,20 +34,9 @@ export interface IndexRange {
   count: number;
 }
 
-/** A state mark: a vertical capsule centered at the origin. Equal width and height give a ball. */
-export interface Capsule {
-  bounds: Bounds;
-  radius: number;
-}
-
-export type FluffyShape = Volume | Capsule;
-
+export type { Capsule } from '../materials/shape.ts';
+export type FluffyShape = MaterialShape;
 const isCapsule = (shape: FluffyShape): shape is Capsule => 'radius' in shape;
-
-/** Front-to-back half extent of a shape, viewBox units. */
-export function halfDepth(shape: FluffyShape): number {
-  return isCapsule(shape) ? shape.radius : Math.max(0.5, ...shape.parts.map((part) => part.depth / 2));
-}
 
 /** Grid spacing, viewBox units. */
 const STEP = 1.05;
