@@ -28,6 +28,8 @@ jobs:
       - run: pnpm --filter site build
         env:
           BASE: /${{ github.event.repository.name }}/
+          # The build reads the contributors from GitHub, for the page to fall back on.
+          GITHUB_TOKEN: ${{ github.token }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: apps/site/dist

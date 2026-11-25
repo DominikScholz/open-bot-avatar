@@ -42,24 +42,33 @@ function kept(): { at: number; list: Contributor[] } | null {
   }
 }
 
+/**
+ * The list as it was when the site was built, served beside the page (vite.config.ts writes it):
+ * what a visitor sees whom GitHub refuses and whose browser has kept nothing.
+ */
+const BUILT = `${import.meta.env.BASE_URL}contributors.json`;
+
+/** The people a URL lists. Fails when it does not answer or lists no one. */
+async function ask(url: string, init?: RequestInit): Promise<Contributor[]> {
+  const response = await fetch(url, init);
+  if (!response.ok) throw new Error(`${url} answered ${response.status}.`);
+  const list = readContributors(await response.json());
+  if (list.length === 0) throw new Error(`${url} listed no one.`);
+  return list;
+}
+
 let loading: Promise<Contributor[]> | undefined;
 
 /**
  * The contributors, asked for once per page load. An answer less than an hour old is used again
- * without asking; when GitHub does not answer, an older one is better than none. A request that
- * failed with nothing kept is made again the next time.
+ * without asking. When GitHub does not answer, an older answer is used, or else the list the site
+ * was built with. A request that left nothing to show is made again the next time.
  */
 export function loadContributors(): Promise<Contributor[]> {
   const last = kept();
   if (last && Date.now() - last.at < FRESH_MS) return Promise.resolve(last.list);
-  loading ??= fetch(SOURCE, { headers: { Accept: "application/vnd.github+json" } })
-    .then((response) => {
-      if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
-      return response.json();
-    })
-    .then((raw) => {
-      const list = readContributors(raw);
-      if (list.length === 0) throw new Error("GitHub listed no one.");
+  loading ??= ask(SOURCE, { headers: { Accept: "application/vnd.github+json" } })
+    .then((list) => {
       try {
         localStorage.setItem(KEPT, JSON.stringify({ at: Date.now(), list }));
       } catch {
@@ -67,9 +76,9 @@ export function loadContributors(): Promise<Contributor[]> {
       }
       return list;
     })
+    .catch(() => last?.list ?? ask(BUILT))
     .catch((error) => {
       loading = undefined;
-      if (last) return last.list;
       throw error;
     });
   return loading;
