@@ -24,7 +24,7 @@ precision highp int;
 in vec2 vNdc;
 out vec4 result;
 
-uniform highp sampler3D volumeField; // R16F 3D SDF (positive inside, z >= 0 mirrored)
+uniform highp sampler3D volumeField;
 uniform highp sampler2D eyeField;    // socket.ts signed distance tiles
 uniform vec3 boxMin;                 // (x0, y0, z0) in viewBox units
 uniform vec3 boxSpan;                // (spanX, spanY, spanZ) in viewBox units
@@ -38,6 +38,7 @@ uniform int isCapsule;               // 1 for state marks (thinking dots / block
 uniform vec2 capsuleDims;            // (radius, halfStem) for capsule marks
 uniform mat3 view;                   // yaw-then-pitch rotation matrix (model -> screen, Y-down)
 uniform vec3 color;                  // glass tint color (0..1)
+uniform vec3 accentColors[3];
 uniform vec3 ink;                    // eye ink color (0..1)
 uniform vec4 eyeRegion[2];           // face-plane center, square span, max host depth
 uniform vec2 eyeSize[2];
@@ -53,7 +54,7 @@ float mapSDF(vec3 p) {
     q.y -= clamp(q.y, -capsuleDims.y, capsuleDims.y);
     return length(q) - capsuleDims.x;
   }
-  vec3 q = vec3(p.x, p.y, abs(p.z));
+  vec3 q = p;
   vec3 boxMax = boxMin + boxSpan;
   vec3 cl = clamp(q, boxMin, boxMax);
   vec3 outVec = q - cl;
@@ -197,6 +198,23 @@ vec3 sampleInternalStudio(vec3 posS, vec3 dirS, vec3 jewelTint, float isTIR) {
 }
 
 // Trace one ray through the exact 3D Volume SDF (front hit -> up to 3 internal bounces + Beer-Lambert!)
+int paintAt(vec3 p) {
+  vec3 cl = clamp(p, boxMin, boxMin + boxSpan);
+  vec3 texSize = vec3(textureSize(volumeField, 0));
+  vec3 uvw = (((cl - boxMin) / boxSpan) * (texSize - 1.0) + 0.5) / texSize;
+  return int(floor(texture(volumeField, uvw).g + 0.5));
+}
+
+void tintOf(vec3 c, out vec3 jewelTint, out vec3 absorbSigma) {
+  float maxC = max(c.r, max(c.g, c.b));
+  float minC = min(c.r, min(c.g, c.b));
+  float sat = maxC > 0.001 ? (maxC - minC) / maxC : 0.0;
+  vec3 pureHue = maxC > 0.05 ? (c / maxC) : vec3(0.88, 0.94, 0.97);
+  jewelTint = mix(vec3(0.88, 0.94, 0.97), pureHue, clamp(sat * 1.08, 0.0, 1.0));
+  vec3 transColor = mix(vec3(0.97), jewelTint, clamp(sat * 0.88, 0.0, 1.0));
+  absorbSigma = -log(max(transColor, vec3(0.12))) * 0.62 + vec3(0.08);
+}
+
 vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
   vec3 rdS = vec3(0.0, 0.0, -1.0);
   vec3 roS = vec3(screenXY, radius * 1.25);
@@ -247,6 +265,10 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
   t = hi;
 
   vec3 p1 = ro + rd * t;
+  if (isCapsule == 0) {
+    int paint = paintAt(p1 - calcNormal(p1) * 0.6);
+    if (paint > 0) tintOf(accentColors[min(paint, 3) - 1], jewelTint, absorbSigma);
+  }
   vec3 n1 = calcNormal(p1);
   vec3 n1S = normalize(view * n1);
   vec3 p1S = view * (p1 - pivot);
