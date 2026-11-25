@@ -354,7 +354,7 @@
     }
 
     .finishes-small {
-      max-width: 480px;
+      max-width: 540px;
       margin: 0 auto 8px;
     }
 
@@ -364,8 +364,9 @@
       background: none;
     }
 
+    /* mountAvatar redraws an avatar under 128px at 30 frames a second: a mark growing in shows that. */
     .finishes-small .finish-avatar {
-      width: min(100%, 112px);
+      width: min(100%, 136px);
     }
 
     .finishes-small .finish strong {
