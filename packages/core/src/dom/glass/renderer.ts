@@ -42,7 +42,7 @@ const VOL_PAD = 4.5;
 const GLASS_REACH = 4;
 const SOCKET_RISE = 0.8;
 const SAME_VIEW = 0.06;
-const KEPT_SHAPES = 32;
+const KEPT_SHAPES = 8;
 const IDLE_MS = 6000;
 
 type Rgb = [number, number, number];

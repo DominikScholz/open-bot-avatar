@@ -81,7 +81,7 @@ interface Section {
   round: boolean;
 }
 
-const MAX_SECTIONS = 4096;
+const MAX_SECTIONS = 1024;
 const sections = new Map<string, Section>();
 
 let supported: boolean | undefined;
@@ -150,10 +150,13 @@ export function invalidateMaterialCache() {
   materialEpoch++;
 }
 
-/** Drop a surface from any pending stagger queue when it is unmounted. */
+/** Drop a surface from any pending stagger queue and release its GPU bitmap when unmounted. */
 export function releaseCanvas(surface: CanvasSurface) {
   deferredCoats.delete(surface);
   coatPriority.delete(surface);
+  surface.painted = null;
+  surface.canvas.width = 0;
+  surface.canvas.height = 0;
 }
 
 interface PaintedState {
@@ -206,14 +209,14 @@ function rootCss(root: Matrix, size: number): string {
   return `matrix(${r4(a)},${r4(b)},${r4(c)},${r4(d)},${r2(e * k)},${r2(f * k)})`;
 }
 
-function setWrapTransform(surface: CanvasSurface, next: string) {
+function setCanvasTransform(surface: CanvasSurface, next: string) {
   if (surface.transform === next) return;
   if (next && !surface.promoted) {
-    surface.wrap.style.willChange = 'transform';
+    surface.canvas.style.willChange = 'transform';
     surface.promoted = true;
   }
   surface.transform = next;
-  surface.wrap.style.transform = next;
+  surface.canvas.style.transform = next;
 }
 
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
@@ -239,7 +242,7 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   const cap = avatarExtent(definition, depth);
   const wrap = document.createElement('div');
   // In flow at the content box, like the scene's root, so the host's padding and border place it.
-  wrap.style.cssText = 'position:relative;width:100%;height:100%;pointer-events:none;transform-origin:0 0';
+  wrap.style.cssText = 'position:relative;width:100%;height:100%;pointer-events:none';
   const canvas = document.createElement('canvas');
   canvas.setAttribute('aria-hidden', 'true');
   canvas.style.cssText = 'position:absolute';
@@ -276,7 +279,7 @@ function paintFrame(
 
   if (!delegateRoot) {
     surface.painted = null;
-    setWrapTransform(surface, '');
+    setCanvasTransform(surface, '');
   }
 
   if (sections.size > MAX_SECTIONS) sections.clear();
@@ -307,9 +310,13 @@ function paintFrame(
     surface.top = Math.floor(fit.y * scale);
     const bitmap = Math.ceil(fit.size * scale) + 1;
     canvas.width = canvas.height = bitmap;
-    canvas.style.left = `${surface.left / dpr}px`;
-    canvas.style.top = `${surface.top / dpr}px`;
+    const leftPx = surface.left / dpr;
+    const topPx = surface.top / dpr;
+    canvas.style.left = `${leftPx}px`;
+    canvas.style.top = `${topPx}px`;
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
+    // Anchor CSS root transforms at the viewBox (0, 0) origin without promoting `wrap` as a second layer.
+    canvas.style.transformOrigin = `${-leftPx}px ${-topPx}px`;
   }
 
   // The whole body and its eyes as one image, unless it has shrunk away into a mark.
@@ -385,7 +392,7 @@ function paintFrame(
     surface.painted = { material: finish, epoch: materialEpoch, fill, ink, layout, bodyScale, eyesKey, view, rx, ry, rz };
     deferredCoats.delete(surface);
     coatPriority.delete(surface);
-    setWrapTransform(surface, rootCss(frame.root, size));
+    setCanvasTransform(surface, rootCss(frame.root, size));
   }
 }
 
@@ -435,7 +442,7 @@ export function paintLiveCanvas(
       if (shiftPx < VIEW_EPS_CSS_PX) {
         deferredCoats.delete(surface);
         coatPriority.delete(surface);
-        setWrapTransform(surface, rootCss(transform.root, size));
+        setCanvasTransform(surface, rootCss(transform.root, size));
         return { eyesKey, reused: true, deferred: false };
       }
       // Strictly cap minor idle WebGL coat refreshes to MAX_IDLE_COATS_PER_FRAME per frame,
@@ -453,7 +460,7 @@ export function paintLiveCanvas(
         const slotsLeft = MAX_IDLE_COATS_PER_FRAME - coatFrameCount;
         if (slotsLeft <= 0 || (!coatPriority.has(surface) && slotsLeft <= coatPriority.size)) {
           deferredCoats.add(surface);
-          setWrapTransform(surface, rootCss(transform.root, size));
+          setCanvasTransform(surface, rootCss(transform.root, size));
           return { eyesKey, reused: true, deferred: true };
         }
         coatFrameCount++;

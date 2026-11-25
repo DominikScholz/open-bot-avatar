@@ -263,20 +263,22 @@ describe('mountAvatar on a canvas', () => {
     const el = host(160);
     const surface = mountCanvas(el, 'cached', examples[0], 6);
     // Stills / fresh mounts do not promote a compositor layer until root motion is delegated.
+    expect(surface.canvas.style.willChange).toBe('');
     expect(surface.wrap.style.willChange).toBe('');
 
-    // Two frames 10ms apart in idle: 3D view barely moves, 2D root motion delegates to wrap.style.transform.
+    // Two frames 10ms apart in idle: 3D view barely moves, 2D root motion delegates to canvas.style.transform.
     const r0 = paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.0, size: 160 }), 160, '#ff6a1a', '#151515', material, 1.0);
     expect(r0.reused).toBe(false);
     expect(render).toHaveBeenCalledTimes(1);
-    const t0 = surface.wrap.style.transform;
+    const t0 = surface.canvas.style.transform;
     expect(t0).toMatch(/^matrix\(/);
-    expect(surface.wrap.style.willChange).toBe('transform');
+    expect(surface.canvas.style.willChange).toBe('transform');
+    expect(surface.wrap.style.willChange).toBe('');
 
     const r1 = paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#ff6a1a', '#151515', material, 1.01);
     expect(r1.reused).toBe(true);
     expect(render).toHaveBeenCalledTimes(1);
-    expect(surface.wrap.style.transform).not.toBe(t0);
+    expect(surface.canvas.style.transform).not.toBe(t0);
 
     // Changing color or rotating the view invalidates immediately and repaints.
     paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material, 1.01);
@@ -285,9 +287,13 @@ describe('mountAvatar on a canvas', () => {
     paintLiveCanvas(surface, liveTransform(examples[0], { state: 'idle', time: 1.01, view: { yaw: 0.4, pitch: 0 }, size: 160 }), 160, '#1f7cf2', '#151515', material, 1.01);
     expect(render).toHaveBeenCalledTimes(3);
 
-    // Overlays (marks/ribbons) clear the wrapper transform and paint directly.
+    // Overlays (marks/ribbons) clear the canvas transform and paint directly.
     paintLiveCanvas(surface, liveTransform(examples[0], { state: 'thinking', time: 1.01, size: 160 }), 160, '#1f7cf2', '#151515', material, 1.01);
-    expect(surface.wrap.style.transform).toBe('');
+    expect(surface.canvas.style.transform).toBe('');
+    // Releasing zeros the backing store so GPU memory is freed immediately on unmount.
+    releaseCanvas(surface);
+    expect(surface.canvas.width).toBe(0);
+    expect(surface.canvas.height).toBe(0);
     el.remove();
   });
 
@@ -295,8 +301,8 @@ describe('mountAvatar on a canvas', () => {
     const el = host(160);
     const surface = mountCanvas(el, 'still-waiting', examples[0], 6);
     paintCanvas(surface, liveFrame(examples[0], { state: 'waiting', reducedMotion: true, size: 160 }), 160, '#ff6a1a', '#151515', 'flat');
-    expect(surface.wrap.style.transform).toBe('');
-    expect(surface.wrap.style.willChange).toBe('');
+    expect(surface.canvas.style.transform).toBe('');
+    expect(surface.canvas.style.willChange).toBe('');
     el.remove();
   });
 

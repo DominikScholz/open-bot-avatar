@@ -140,7 +140,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     detail: new Map(),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
   };
-  if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
+  if (cache.size >= 32) cache.delete(cache.keys().next().value as string);
   cache.set(key, prepared);
   return prepared;
 }
