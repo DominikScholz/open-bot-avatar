@@ -4,6 +4,9 @@
  * Hair roots are scattered over it by area, and the front around the eyes is refined so a socket
  * and its bead keep their shape in profile.
  *
+ * A small avatar is drawn from the same surface with fewer triangles: the full mesh merged down to
+ * wider cells (see mergeMesh). Its roots are those of the full mesh, so the coat does not change.
+ *
  * Building a mesh takes tens of milliseconds, so the renderer keeps what it builds (see renderer.ts).
  */
 import { EdgeIndex } from '../../distance.ts';
@@ -18,7 +21,10 @@ export interface FluffyMesh {
   vertices: Float32Array;
   /** The triangles twice: as the grid gives them, then with those around the eyes refined. */
   indices: Uint32Array;
-  /** Where each set sits in `indices`. A small avatar is drawn from the coarse one. */
+  /**
+   * Where each set sits in `indices`. A small avatar is drawn from the coarse one, and so are the
+   * shells at any size. Every triangle winds the same way seen from outside.
+   */
   coarse: IndexRange;
   fine: IndexRange;
   /**
@@ -39,7 +45,7 @@ export type FluffyShape = MaterialShape;
 const isCapsule = (shape: FluffyShape): shape is Capsule => 'radius' in shape;
 
 /** Grid spacing, viewBox units. */
-const STEP = 1.05;
+export const STEP = 1.05;
 /** Empty margin around the shape, viewBox units. */
 const PAD = 3 * STEP;
 /**
@@ -120,13 +126,16 @@ function addPart(g: Grid, part: VolumePart) {
   }
 }
 
-/** One vertex in every cell the surface crosses, at the mean of its edge crossings, and a quad across every crossed edge. */
-function surfaceNets(g: Grid): { vertices: number[]; indices: number[] } {
+/**
+ * One vertex in every cell the surface crosses, at the mean of its edge crossings, and a quad across
+ * every crossed edge. `turned` lists the triangles that face the other way round (see wind).
+ */
+function surfaceNets(g: Grid): { vertices: number[]; indices: number[]; turned: number[] } {
   const { field, nx, ny, nz } = g, plane = nx * ny;
   const corners = [0, 1, nx, nx + 1, plane, plane + 1, plane + nx, plane + nx + 1];
   const strides = [1, nx, plane];
   const ids = new Int32Array(field.length).fill(-1);
-  const vertices: number[] = [], indices: number[] = [];
+  const vertices: number[] = [], indices: number[] = [], turned: number[] = [];
   for (let k = 1; k < nz - 2; k++) for (let j = 1; j < ny - 2; j++) for (let i = 1; i < nx - 2; i++) {
     const cell = i + j * nx + k * plane, inside = field[cell] > 0;
     let crossed = false;
@@ -158,10 +167,101 @@ function surfaceNets(g: Grid): { vertices: number[]; indices: number[] } {
       if ((field[cell + strides[axis]] > 0) === inside) continue;
       const u = strides[(axis + 1) % 3], v = strides[(axis + 2) % 3];
       const p = ids[cell - u], q = ids[cell - u - v], r = ids[cell - v];
-      if (Math.min(p, q, r) >= 0) indices.push(id, p, q, id, q, r);
+      if (Math.min(p, q, r) < 0) continue;
+      // A quad is listed the same way whichever side of its edge is inside.
+      if (!inside) turned.push(indices.length, indices.length + 3);
+      indices.push(id, p, q, id, q, r);
     }
   }
-  return { vertices, indices };
+  return { vertices, indices, turned };
+}
+
+/**
+ * Turn the listed triangles round, so that every one winds the same way seen from outside and the
+ * renderer can cull those that face away. After the roots are scattered: a root's place in its
+ * triangle follows the order of the corners, and the coat should not change.
+ */
+function wind(indices: number[], turned: number[]) {
+  for (const t of turned) {
+    const b = indices[t + 1];
+    indices[t + 1] = indices[t + 2];
+    indices[t + 2] = b;
+  }
+}
+
+/** The field between its samples. */
+function fieldAt(g: Grid, x: number, y: number, z: number): number {
+  const fx = Math.min(g.nx - 1.001, Math.max(0, (x - g.x0) / STEP));
+  const fy = Math.min(g.ny - 1.001, Math.max(0, (y - g.y0) / STEP));
+  const fz = Math.min(g.nz - 1.001, Math.max(0, (z - g.z0) / STEP));
+  const i = Math.floor(fx), j = Math.floor(fy), k = Math.floor(fz), u = fx - i, v = fy - j, w = fz - k;
+  const f = g.field, plane = g.nx * g.ny, at = i + j * g.nx + k * plane;
+  const a = f[at] * (1 - u) + f[at + 1] * u, b = f[at + g.nx] * (1 - u) + f[at + g.nx + 1] * u;
+  const c = f[at + plane] * (1 - u) + f[at + plane + 1] * u, d = f[at + plane + g.nx] * (1 - u) + f[at + plane + g.nx + 1] * u;
+  return (a * (1 - v) + b * v) * (1 - w) + (c * (1 - v) + d * v) * w;
+}
+
+/**
+ * The same surface in fewer triangles, for an avatar too small to show them: the vertices in each
+ * cell of `cell` units become one, at their mean. Vertices whose normals lean different ways stay
+ * apart, so the two sides of a thin part do not close up. A mean of points on a curved surface lies
+ * inside it, which shows at a thin tip as a gap under the strands: each merged vertex is moved back
+ * out along its normal by the field's own measure of how deep it sits.
+ *
+ * A coarser grid would be cheaper to build, but it rounds thin parts off and loses the thinnest.
+ */
+function mergeMesh(g: Grid, vertices: number[], indices: number[], cell: number): { vertices: number[]; indices: number[] } {
+  const count = vertices.length / 6;
+  const across = Math.ceil((g.nx * STEP) / cell) + 1, down = Math.ceil((g.ny * STEP) / cell) + 1;
+  const ids = new Int32Array(count), known = new Map<number, number>();
+  // Per merged vertex: summed position and normal, and how many went in.
+  const sums: number[] = [];
+  for (let i = 0; i < count; i++) {
+    const o = 6 * i, nx = vertices[o + 3], ny = vertices[o + 4], nz = vertices[o + 5];
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+    const facing = ax >= ay && ax >= az ? (nx > 0 ? 0 : 1) : ay >= az ? (ny > 0 ? 2 : 3) : nz > 0 ? 4 : 5;
+    const at = Math.floor((vertices[o] - g.x0) / cell) + across * (Math.floor((vertices[o + 1] - g.y0) / cell) + down * Math.floor((vertices[o + 2] - g.z0) / cell));
+    const key = at * 6 + facing;
+    let id = known.get(key);
+    if (id === undefined) {
+      id = sums.length / 7;
+      known.set(key, id);
+      sums.push(0, 0, 0, 0, 0, 0, 0);
+    }
+    ids[i] = id;
+    for (let k = 0; k < 6; k++) sums[7 * id + k] += vertices[o + k];
+    sums[7 * id + 6]++;
+  }
+  const total = sums.length / 7, half = STEP / 2;
+  const merged: number[] = [];
+  for (let id = 0; id < total; id++) {
+    const n = sums[7 * id + 6];
+    let x = sums[7 * id] / n, y = sums[7 * id + 1] / n, z = sums[7 * id + 2] / n;
+    let nx = sums[7 * id + 3], ny = sums[7 * id + 4], nz = sums[7 * id + 5];
+    const length = Math.hypot(nx, ny, nz) || 1;
+    nx /= length, ny /= length, nz /= length;
+    for (let pass = 0; pass < 2; pass++) {
+      // The field is positive inside and rises about one per unit: its value over its slope is the depth.
+      const slope = (fieldAt(g, x - nx * half, y - ny * half, z - nz * half) - fieldAt(g, x + nx * half, y + ny * half, z + nz * half)) / STEP;
+      // Across a wall the field jumps and has no slope to trust.
+      if (slope < 0.3) break;
+      const out = Math.max(-cell / 2, Math.min(cell / 2, fieldAt(g, x, y, z) / slope));
+      x += nx * out, y += ny * out, z += nz * out;
+    }
+    merged.push(x, y, z, nx, ny, nz);
+  }
+  // Triangles that still span three vertices, each once.
+  const seen = new Set<number>(), triangles: number[] = [];
+  for (let t = 0; t < indices.length; t += 3) {
+    const a = ids[indices[t]], b = ids[indices[t + 1]], c = ids[indices[t + 2]];
+    if (a === b || b === c || a === c) continue;
+    const low = Math.min(a, b, c), high = Math.max(a, b, c);
+    const key = (low * total + (a + b + c - low - high)) * total + high;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    triangles.push(a, b, c);
+  }
+  return { vertices: merged, indices: triangles };
 }
 
 /** Seeded, so a shape always grows the same coat. */
@@ -198,8 +298,9 @@ function scatterRoots(vertices: number[], indices: number[]): Float32Array {
  * The grid is too coarse to describe a bead in profile: split the front triangles within reach of
  * an eye (its largest mark, anywhere its gaze takes it). Adds the new vertices to `vertices`.
  */
-function refineSockets(vertices: number[], indices: number[], vol: Volume): number[] {
-  const pad = SOCKET_PAD + 2 * STEP;
+function refineSockets(vertices: number[], indices: number[], vol: Volume, cell: number): number[] {
+  // Triangles are picked by one corner, so reach as far as they are wide.
+  const pad = SOCKET_PAD + 2 * cell;
   const reachX = vol.eyeScale * (EYE_W * (HAPPY_ARC.halfWidth + HAPPY_ARC.stroke / 2) + GAZE_X) + pad;
   const reachY = vol.eyeScale * (EYE_H / 2 + GAZE_Y) + pad;
   const refined: number[] = [];
@@ -233,16 +334,28 @@ function refineSockets(vertices: number[], indices: number[], vol: Volume): numb
   return refined;
 }
 
-export function buildMesh(shape: FluffyShape): FluffyMesh {
+export interface MeshOptions {
+  /** Merge the mesh down to cells this wide, viewBox units (see mergeMesh). The grid's own step, the default, keeps every triangle. */
+  cell?: number;
+  /** Refine the triangles around the eyes. Without, `fine` is `coarse`: for a mesh only drawn too small to show a socket's profile. */
+  sockets?: boolean;
+  /** Scatter the hair roots. Without, there are none: for a second mesh of a shape whose roots are already kept. */
+  roots?: boolean;
+}
+
+export function buildMesh(shape: FluffyShape, options: MeshOptions = {}): FluffyMesh {
+  const cell = Math.max(STEP, options.cell ?? STEP);
   const grid = emptyGrid(shape);
   if (isCapsule(shape)) addCapsule(grid, shape);
   else for (const part of shape.parts) addPart(grid, part);
-  const { vertices, indices } = surfaceNets(grid);
-  // Roots first: refining would otherwise change which triangle each one falls on.
-  const roots = scatterRoots(vertices, indices);
+  const full = surfaceNets(grid);
+  // Roots first, and from the full mesh: winding, merging or refining would otherwise change where each one falls.
+  const roots = options.roots === false ? new Float32Array(0) : scatterRoots(full.vertices, full.indices);
+  wind(full.indices, full.turned);
+  const { vertices, indices } = cell > STEP ? mergeMesh(grid, full.vertices, full.indices, cell) : full;
   const coarse = { start: 0, count: indices.length };
-  if (isCapsule(shape)) return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), coarse, fine: coarse, roots };
-  const refined = refineSockets(vertices, indices, shape);
+  if (isCapsule(shape) || options.sockets === false) return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices), coarse, fine: coarse, roots };
+  const refined = refineSockets(vertices, indices, shape, cell);
   const all = new Uint32Array(indices.length + refined.length);
   all.set(indices);
   all.set(refined, indices.length);

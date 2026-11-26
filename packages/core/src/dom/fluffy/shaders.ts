@@ -137,7 +137,11 @@ void main() {
   gl_Position = vec4(projected.x, -projected.y, -projected.z, radius) / radius;
 }`;
 
-export const fragmentShader = `#version 300 es
+/**
+ * `fewerReads` is for an avatar drawn small: the pile is then finer than a pixel, the volume is read
+ * from its smaller levels, and two neighboring reads of the brush can be one read between them.
+ */
+export const fragmentShader = (fewerReads: boolean) => `#version 300 es
 precision highp float;
 precision highp int;
 uniform sampler2D pile;
@@ -165,10 +169,14 @@ float brushedHeight() {
   vec3 uvw = pilePosition / 15.;
   vec3 stepUV = lean * .019;
   float locks = 4. * texture(brushedPile, uvw).r;
+  ${fewerReads ? `
+  // The same tent as below: the reads at one and two steps, weighing 3 and 2, as one between them.
+  locks += 5. * (texture(brushedPile, uvw + 1.4 * stepUV).r + texture(brushedPile, uvw - 1.4 * stepUV).r);
+  locks += texture(brushedPile, uvw + 3. * stepUV).r + texture(brushedPile, uvw - 3. * stepUV).r;` : `
   for (int i = 1; i <= 3; i++) {
     vec3 delta = float(i) * stepUV;
     locks += (4. - float(i)) * (texture(brushedPile, uvw + delta).r + texture(brushedPile, uvw - delta).r);
-  }
+  }`}
   float tuft = texture(brushedPile, uvw * .42).r;
   return clamp(.5 + 1.65 * (locks / 16. - .5) + .16 * (tuft - .5), 0., 1.);
 }

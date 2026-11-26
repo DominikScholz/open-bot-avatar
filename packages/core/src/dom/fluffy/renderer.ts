@@ -7,12 +7,12 @@
  * A frame is three kinds of draw over the same mesh: the solid body, a few shells of pile lifted
  * off it, and the single strands (see shaders.ts). Meshes are built once per shape and kept on
  * the GPU while their avatars keep painting, so a page of avatars only pays for drawing, and a
- * small avatar draws less of each (see fluffyDetail).
+ * small avatar draws less of each, from a mesh of fewer triangles (see fluffyDetail).
  */
 import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import { halfDepth } from '../materials/shape.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
-import { ROOT_PASSES, buildMesh, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
+import { ROOT_PASSES, STEP, buildMesh, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
 import { PASS, fragmentShader, vertexShader } from './shaders.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 
@@ -61,28 +61,63 @@ const KEPT_MESHES = 8;
 const IDLE_MS = 2000;
 
 /**
+ * A small avatar is drawn from a mesh merged down to wider cells (see mergeMesh in mesh.ts): up to
+ * this many pixels per viewBox unit, cells this many units wide. Above the last, the full mesh. On
+ * a 2× display that is cells of 3 up to 60 CSS pixels and of 2 up to 170.
+ */
+const MESH_CELLS: readonly (readonly [scale: number, cell: number])[] = [[1.2, 3], [3.4, 2]];
+
+export interface FluffyDetail {
+  /** Shells the pile is divided into, and how many of them are drawn, from the body outwards. */
+  shells: number;
+  drawnShells: number;
+  /** How many of the mesh's ROOT_PASSES passes of strands are drawn. */
+  strandPasses: number;
+  /** Whether the body is drawn from the triangles refined around the eyes. */
+  fineSockets: boolean;
+  /** Width of the mesh's cells, viewBox units: the grid's own step is the full mesh. */
+  cell: number;
+  /** Whether the brush reads the pile five times instead of seven (see fragmentShader). */
+  fewerReads: boolean;
+}
+
+/**
  * How much of a coat to draw at `scale` pixels per viewBox unit. A small avatar gets fewer shells,
  * the unrefined triangles around its eyes, and a share of its strands (`strandPasses` of the
- * mesh's ROOT_PASSES), each widened by as much as there are fewer, so they cover the same. The
- * image averages out to the same coat at half to two thirds of the cost.
+ * mesh's ROOT_PASSES), each widened by as much as there are fewer, so they cover the same. It is
+ * also drawn from fewer triangles and with a shorter brush. The image averages out to the same
+ * coat at about half the cost.
  */
-export function fluffyDetail(scale: number): { shells: number; strandPasses: number; fineSockets: boolean } {
+export function fluffyDetail(scale: number): FluffyDetail {
   const detail = Math.min(1, scale / FULL_DETAIL);
+  const shells = Math.max(2, Math.ceil(SHELLS * detail));
   return {
-    shells: Math.max(2, Math.ceil(SHELLS * detail)),
+    shells,
+    // Up to full detail the pile is averaged over a pixel, and no lock reaches the height of the
+    // outermost shell: it would be drawn and discarded whole.
+    drawnShells: scale <= FULL_DETAIL ? shells - 1 : shells,
     // By the root, not in proportion: strands that get much wider show as wisps along the outline.
     strandPasses: Math.max(ROOT_PASSES / 4, Math.ceil(ROOT_PASSES * Math.sqrt(detail))),
     fineSockets: detail > 0.75,
+    cell: MESH_CELLS.find(([upTo]) => scale <= upTo)?.[1] ?? STEP,
+    fewerReads: detail <= 0.5,
   };
 }
 
-/** A mesh on the GPU, and where its shape sits. */
-interface Geometry {
-  surface: WebGLVertexArrayObject;
-  strands: WebGLVertexArrayObject;
+/** A shape's surface on the GPU, in cells of one width. */
+interface Surface {
+  vertexArray: WebGLVertexArrayObject;
   buffers: WebGLBuffer[];
   coarse: IndexRange;
   fine: IndexRange;
+}
+
+/** A shape on the GPU, and where it sits. */
+interface Geometry {
+  /** By the width of the mesh's cells, each built when the shape is first drawn at such a size. */
+  surfaces: Map<number, Surface>;
+  strands: WebGLVertexArrayObject;
+  roots: WebGLBuffer;
   strandCount: number;
   cx: number;
   cy: number;
@@ -189,23 +224,38 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   canvas.addEventListener('webglcontextlost', (event) => event.preventDefault());
   canvas.addEventListener('webglcontextrestored', onContextRestored);
 
-  const program = link(gl, vertexShader, fragmentShader);
-  gl.useProgram(program);
-  const uniform = (name: string) => gl.getUniformLocation(program, name);
-  const u = {
-    view: uniform('view'), pivot: uniform('pivot'), extent: uniform('extent'), radius: uniform('radius'),
-    shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), color: uniform('color'), ink: uniform('ink'),
-    eyeRegion: uniform('eyeRegion[0]'), eyeSize: uniform('eyeSize[0]'),
+  // Texture units: 0 fibers, 1 eye distance tiles, 2 root density, 3 dye ramp.
+  const samplers = ['pile', 'eyeField', 'brushedPile', 'dyeRamp'];
+  /** One program per brush (see fragmentShader), linked when an avatar of such a size is first drawn. */
+  const programs = new Map<boolean, ReturnType<typeof prepare>>();
+  const prepare = (fewerReads: boolean) => {
+    const program = link(gl, vertexShader, fragmentShader(fewerReads));
+    gl.useProgram(program);
+    const uniform = (name: string) => gl.getUniformLocation(program, name);
+    samplers.forEach((sampler, unit) => gl.uniform1i(uniform(sampler), unit));
+    return {
+      program,
+      view: uniform('view'), pivot: uniform('pivot'), extent: uniform('extent'), radius: uniform('radius'),
+      shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), color: uniform('color'), ink: uniform('ink'),
+      eyeRegion: uniform('eyeRegion[0]'), eyeSize: uniform('eyeSize[0]'),
+    };
   };
+  const programOf = (fewerReads: boolean) => {
+    let program = programs.get(fewerReads);
+    if (!program) programs.set(fewerReads, (program = prepare(fewerReads)));
+    return program;
+  };
+  // Throws here, not on a later frame, if the shaders don't compile.
+  programOf(false);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.enable(gl.SCISSOR_TEST);
+  // The image's y runs down, which turns the mesh's winding around.
+  gl.frontFace(gl.CW);
 
-  // Texture units: 0 fibers, 1 eye distance tiles, 2 root density, 3 dye ramp.
-  const texture = (unit: number, sampler: string, target: number) => {
+  const texture = (unit: number, target: number) => {
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(target, gl.createTexture());
-    gl.uniform1i(uniform(sampler), unit);
   };
   const clampLinear = () => {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -213,19 +263,19 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   };
-  texture(0, 'pile', gl.TEXTURE_2D);
+  texture(0, gl.TEXTURE_2D);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, fiberTile());
   gl.generateMipmap(gl.TEXTURE_2D);
-  texture(2, 'brushedPile', gl.TEXTURE_3D);
+  texture(2, gl.TEXTURE_3D);
   const side = 64;
   gl.texImage3D(gl.TEXTURE_3D, 0, gl.R8, side, side, side, 0, gl.RED, gl.UNSIGNED_BYTE, rootVolume(side));
   gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.generateMipmap(gl.TEXTURE_3D);
-  texture(3, 'dyeRamp', gl.TEXTURE_2D);
+  texture(3, gl.TEXTURE_2D);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, DYE_RAMP_SIZE, 1);
   clampLinear();
   // Last, so its unit stays active: the eyes' tiles sit side by side, and change the most.
-  texture(1, 'eyeField', gl.TEXTURE_2D);
+  texture(1, gl.TEXTURE_2D);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, 2 * SOCKET_TILE, SOCKET_TILE);
   clampLinear();
 
@@ -234,29 +284,36 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const geometries = new Map<FluffyShape, Geometry>();
   let sweepPending = false;
 
-  const upload = (shape: FluffyShape): Geometry => {
-    const mesh = buildMesh(shape);
-    const buffer = (target: number, data: Float32Array | Uint32Array) => {
-      const b = gl.createBuffer();
-      gl.bindBuffer(target, b);
-      gl.bufferData(target, data, gl.STATIC_DRAW);
-      return b;
-    };
-    const attributes = (stride: number, sizes: number[], perInstance: boolean) => {
-      let offset = 0;
-      sizes.forEach((size, location) => {
-        gl.enableVertexAttribArray(location);
-        gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset);
-        if (perInstance) gl.vertexAttribDivisor(location, 1);
-        offset += 4 * size;
-      });
-    };
-    // The body and its shells: position and normal per vertex.
-    const surface = gl.createVertexArray();
-    gl.bindVertexArray(surface);
+  const buffer = (target: number, data: Float32Array | Uint32Array) => {
+    const b = gl.createBuffer();
+    gl.bindBuffer(target, b);
+    gl.bufferData(target, data, gl.STATIC_DRAW);
+    return b;
+  };
+  const attributes = (stride: number, sizes: number[], perInstance: boolean) => {
+    let offset = 0;
+    sizes.forEach((size, location) => {
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset);
+      if (perInstance) gl.vertexAttribDivisor(location, 1);
+      offset += 4 * size;
+    });
+  };
+  /** The body and its shells: position and normal per vertex. */
+  const surface = (mesh: ReturnType<typeof buildMesh>): Surface => {
+    const vertexArray = gl.createVertexArray();
+    gl.bindVertexArray(vertexArray);
     const vertices = buffer(gl.ARRAY_BUFFER, mesh.vertices);
     attributes(24, [3, 3], false);
     const indices = buffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
+    return { vertexArray, buffers: [vertices, indices], coarse: mesh.coarse, fine: mesh.fine };
+  };
+  /** Sockets are only refined in a mesh that is drawn large enough to show them. */
+  const meshOptions = (cell: number) => ({ cell, sockets: cell === STEP || MESH_CELLS.some(([upTo, width]) => width === cell && fluffyDetail(upTo).fineSockets) });
+
+  const upload = (shape: FluffyShape, cell: number): Geometry => {
+    const mesh = buildMesh(shape, meshOptions(cell));
+    const surfaces = new Map([[cell, surface(mesh)]]);
     // The strands: one instance per root (position, normal, two random numbers); the shader
     // shapes its eight vertices from gl_VertexID.
     const strands = gl.createVertexArray();
@@ -266,8 +323,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 
     const b = shape.bounds, rx = (b.maxX - b.minX) / 2, ry = (b.maxY - b.minY) / 2, rz = halfDepth(shape);
     return {
-      surface, strands, buffers: [vertices, indices, roots],
-      coarse: mesh.coarse, fine: mesh.fine, strandCount: mesh.roots.length / 8,
+      surfaces, strands, roots, strandCount: mesh.roots.length / 8,
       cx: b.minX + rx, cy: b.minY + ry, extent: [rx, ry, rz], radius: Math.ceil(Math.hypot(rx, ry, rz) + PILE_REACH), usedAt: 0,
     };
   };
@@ -278,9 +334,12 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     for (const [shape, geometry] of geometries) {
       if (geometries.size <= KEPT_MESHES) return;
       if (now - geometry.usedAt < IDLE_MS) continue;
-      gl.deleteVertexArray(geometry.surface);
+      for (const { vertexArray, buffers } of geometry.surfaces.values()) {
+        gl.deleteVertexArray(vertexArray);
+        buffers.forEach((b) => gl.deleteBuffer(b));
+      }
       gl.deleteVertexArray(geometry.strands);
-      geometry.buffers.forEach((b) => gl.deleteBuffer(b));
+      gl.deleteBuffer(geometry.roots);
       geometries.delete(shape);
     }
     // Stills paint once: without another frame, nothing else would come back for theirs.
@@ -293,15 +352,22 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     }
   };
 
-  const geometryOf = (shape: FluffyShape): Geometry => {
+  const geometryOf = (shape: FluffyShape, cell: number): Geometry => {
     let geometry = geometries.get(shape);
     if (geometry) geometries.delete(shape);
-    else geometry = upload(shape);
+    else geometry = upload(shape, cell);
     // Most recently drawn last.
     geometries.set(shape, geometry);
     geometry.usedAt = performance.now();
     if (geometries.size > KEPT_MESHES) sweep();
     return geometry;
+  };
+
+  /** The shape's surface in cells of this width: the roots it already has serve every width. */
+  const surfaceOf = (shape: FluffyShape, geometry: Geometry, cell: number): Surface => {
+    let found = geometry.surfaces.get(cell);
+    if (!found) geometry.surfaces.set(cell, (found = surface(buildMesh(shape, { ...meshOptions(cell), roots: false }))));
+    return found;
   };
 
   // --- Eyes ---------------------------------------------------------------------------------------
@@ -333,7 +399,8 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 
   return (shape, view, look, scale) => {
     if (gl.isContextLost()) return null;
-    const geometry = geometryOf(shape);
+    const { shells, drawnShells, strandPasses, fineSockets, cell, fewerReads } = fluffyDetail(scale);
+    const geometry = geometryOf(shape, cell);
     const { cx, cy, radius } = geometry;
     const pixels = Math.min(MAX_PIXELS, Math.max(MIN_PIXELS, Math.ceil(2 * radius * scale)));
     // Avatars of different sizes take turns in the canvas: it only grows, since resizing it
@@ -371,6 +438,8 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     shown.ink = look.ink;
     shown.regions.set(regions);
 
+    const u = programOf(fewerReads);
+    gl.useProgram(u.program);
     look.eyes.forEach(({ mark }, slot) => {
       if (contours[slot] === shown.contours[slot]) return;
       gl.texSubImage2D(gl.TEXTURE_2D, 0, slot * SOCKET_TILE, 0, SOCKET_TILE, SOCKET_TILE, gl.RED, gl.UNSIGNED_BYTE, tileOf(mark, contours[slot]));
@@ -399,16 +468,21 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.viewport(0, 0, pixels, pixels);
     gl.scissor(0, 0, pixels, pixels);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    const { shells, strandPasses, fineSockets } = fluffyDetail(scale);
-    const triangles = fineSockets ? geometry.fine : geometry.coarse;
-    gl.bindVertexArray(geometry.surface);
+    const { vertexArray, coarse, fine } = surfaceOf(shape, geometry, cell);
+    const body = fineSockets ? fine : coarse;
+    gl.bindVertexArray(vertexArray);
+    // The surface is closed: what faces away is behind what faces the viewer.
+    gl.enable(gl.CULL_FACE);
     gl.uniform1i(u.pass, PASS.body);
-    gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
+    gl.drawElements(gl.TRIANGLES, body.count, gl.UNSIGNED_INT, 4 * body.start);
+    // The shells stand off the sockets, whose profile only the body shows: the unrefined triangles do.
     gl.uniform1i(u.pass, PASS.shell);
-    for (let layer = 1; layer <= shells; layer++) {
+    for (let layer = 1; layer <= drawnShells; layer++) {
       gl.uniform1f(u.shell, layer / shells);
-      gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
+      gl.drawElements(gl.TRIANGLES, coarse.count, gl.UNSIGNED_INT, 4 * coarse.start);
     }
+    // A strand is a ribbon, seen from either side.
+    gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(geometry.strands);
     gl.uniform1i(u.pass, PASS.strand);
     gl.uniform1f(u.strandWidth, ROOT_PASSES / strandPasses);
