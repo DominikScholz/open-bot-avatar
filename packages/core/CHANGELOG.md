@@ -1,5 +1,13 @@
 # open-bot-avatar
 
+## 0.5.2
+
+### Patch Changes
+
+- 1e692e6: Fluffy draws in about half the time. Triangles that face away are culled, the outermost shell of pile is left out where it draws nothing, and the shells follow the plain triangles around the eyes. An avatar drawn small also uses a mesh of fewer triangles and a shorter brush, which builds faster and holds less memory. Every strand stays where it was; at small sizes the surface under the strands differs by a shade in a few pixels. No API changes.
+- 2786462: Reduce flat frame assembly and ribbon sampling work. Build fluffy meshes with fewer distance calculations and pack hair roots in draw order. Speed up glass texture baking without changing the rendered output. Skip unchanged avatar mounts in the shared frame loop and reuse prepared geometry across live frames.
+- 2786462: Reduce live avatar CPU and GPU usage by delegating 2D root motion to CSS transforms when no overlays are active, retaining canvas bitmaps across sub-pixel view changes, capping live frame rates (60 fps max, 30 fps in calm idle states), pausing the animation loop while the document is hidden, culling sub-pixel projected z-slices, avoiding per-frame ribbon `Path2D` parsing, and tightening WebGL2 `fluffy`/`glass` overhead.
+
 ## 0.5.1
 
 ### Patch Changes
