@@ -99,7 +99,7 @@ describe("share links", () => {
   });
 
   it("carry the material when it isn't the default, and saved looks keep it", () => {
-    const link = (material: "flat" | "fluffy" | "glass") => shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, material, color: defaultColor("mug") });
+    const link = (material: "flat" | "fluffy" | "glass" | "matte") => shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, material, color: defaultColor("mug") });
     expect(DEFAULT_LOOK.material).toBe("fluffy");
     expect(link("fluffy")).toBe("https://example.test/?avatar=mug");
     expect(link("flat")).toBe("https://example.test/?avatar=mug&material=flat");
@@ -107,6 +107,9 @@ describe("share links", () => {
     expect(link("glass")).toBe("https://example.test/?avatar=mug&material=glass");
     expect(readShare(new URL(link("glass")).search)).toEqual({ avatar: "mug", material: "glass" });
     expect(reviveLook({ material: "glass" })?.material).toBe("glass");
+    expect(link("matte")).toBe("https://example.test/?avatar=mug&material=matte");
+    expect(readShare(new URL(link("matte")).search)).toEqual({ avatar: "mug", material: "matte" });
+    expect(reviveLook({ material: "matte" })?.material).toBe("matte");
     expect(readShare("?material=velvet")).toEqual({});
     expect(reviveLook({ material: "flat" })?.material).toBe("flat");
     expect(reviveLook({ material: "velvet" })?.material).toBe("fluffy");

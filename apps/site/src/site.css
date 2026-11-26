@@ -317,10 +317,10 @@
       margin-top: 6px;
     }
 
-    /* One avatar in each material, side by side: flat, fluffy, glass. */
+    /* One avatar in each material: two by two for the cards with code, a row of four for a custom state. */
     .finishes {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
       margin: 16px 0;
     }
@@ -381,7 +381,8 @@
     }
 
     .finishes-small {
-      max-width: 540px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      max-width: 680px;
       margin: 0 auto 8px;
     }
 
@@ -554,7 +555,7 @@
         white-space: normal;
       }
 
-      /* The cards stack, each with its avatar beside its text; a custom state keeps its row of three. */
+      /* The cards stack, each with its avatar beside its text; a custom state keeps its row of four. */
       .finishes-large {
         grid-template-columns: minmax(0, 1fr);
       }

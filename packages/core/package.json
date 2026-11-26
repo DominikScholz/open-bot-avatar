@@ -31,6 +31,11 @@
       "open-bot-avatar/source": "./src/dom/materials/glass.ts",
       "types": "./dist/dom/materials/glass.d.ts",
       "default": "./dist/dom/materials/glass.js"
+    },
+    "./materials/matte": {
+      "open-bot-avatar/source": "./src/dom/materials/matte.ts",
+      "types": "./dist/dom/materials/matte.d.ts",
+      "default": "./dist/dom/materials/matte.js"
     }
   },
   "files": ["dist", "src"],

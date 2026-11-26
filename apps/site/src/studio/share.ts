@@ -10,7 +10,7 @@ import { DEFAULT_LOOK, PALETTE, defaultColor, readMaterial, type LookState } fro
  *   &state=working           idle, thinking, working, waiting, blocked or done
  *   &mood=happy              neutral or happy; an older link's mood=thinking
  *                            still opens the thinking state
- *   &material=flat           flat, fluffy or glass
+ *   &material=flat           flat, fluffy, glass or matte
  *   &def=…                   a whole definition, as base64url JSON (raw JSON works too); it's
  *                            validated like an import, then added to yours and selected
  */

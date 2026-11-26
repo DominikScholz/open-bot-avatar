@@ -7,6 +7,7 @@ import { glass as glassMaterial } from '../src/dom/materials/glass.ts';
 import * as glass from '../src/dom/glass/renderer.ts';
 import type { CanvasMaterial } from '../src/dom/materials/material.ts';
 import { fluffy as fluffyMaterial } from '../src/dom/materials/fluffy.ts';
+import { matte as matteMaterial } from '../src/dom/materials/matte.ts';
 import * as fluffy from '../src/dom/fluffy/renderer.ts';
 import { avatarExtent, liveFrame } from '../src/render.ts';
 
@@ -142,6 +143,12 @@ describe('mountAvatar on a canvas', () => {
       avatar.update({ material: fluffyMaterial });
       await frame();
       expect(renderFluffy).toHaveBeenCalledTimes(1);
+      expect(renderFluffy.mock.lastCall?.[4]).toBeUndefined();
+      // Matte is fluffy's renderer without the pile.
+      avatar.update({ material: matteMaterial });
+      await frame();
+      expect(renderFluffy).toHaveBeenCalledTimes(2);
+      expect(renderFluffy.mock.lastCall?.[4]).toBe('matte');
       renderGlass.mockReturnValue(null);
       avatar.update({ material: glassMaterial });
       await frame();
@@ -215,10 +222,14 @@ describe('mountAvatar on a canvas', () => {
       expect(painted(el).some((call) => call.op === 'drawImage')).toBe(false);
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0][0]).toContain('Import { fluffy } from "open-bot-avatar/materials/fluffy"');
+      avatar.update({ material: 'matte' as never });
+      await frame();
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls[1][0]).toContain('Import { matte } from "open-bot-avatar/materials/matte"');
       avatar.update({ material: 'flat' });
       avatar.update({ material: undefined });
       await frame();
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledTimes(2);
     } finally {
       avatar.destroy();
       warn.mockRestore();

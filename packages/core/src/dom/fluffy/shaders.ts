@@ -10,6 +10,9 @@ import { SOCKET_PAD } from '../materials/socket.ts';
 /** The values of the `pass` uniform. */
 export const PASS = { body: 0, shell: 1, strand: 2 } as const;
 
+/** The values of the `finish` uniform. Matte draws the body pass alone, with no pile. */
+export const FINISH = { fluffy: 0, matte: 1 } as const;
+
 /** A number as a GLSL float literal. */
 const float = (n: number) => (Number.isInteger(n) ? `${n}.` : `${n}`);
 
@@ -145,7 +148,7 @@ uniform sampler2D dyeRamp;
 uniform highp sampler3D brushedPile;
 uniform vec3 color, ink;
 uniform mat3 view;
-uniform int pass;
+uniform int pass, finish;
 uniform float shell;
 in vec3 P, N, V, pilePosition, lean;
 in float tip, variation, across, pocketDepth;
@@ -171,6 +174,18 @@ float brushedHeight() {
   }
   float tuft = texture(brushedPile, uvw * .42).r;
   return clamp(.5 + 1.65 * (locks / 16. - .5) + .16 * (tuft - .5), 0., 1.);
+}
+
+// Matte: the body with no pile, lit like clay. d is the distance to the nearer eye's contour.
+vec3 matteSurface(vec3 n, vec3 light, float d) {
+  // Light wraps far round the body, and nothing shines.
+  float wrap = clamp((dot(n, light) + .8) / 1.8, 0., 1.);
+  float sky = .5 - .5 * n.y;
+  vec3 lit = color * (.66 + .40 * wrap * wrap + .05 * sky);
+  // Shadows keep their hue: darker, not greyer.
+  lit = mix(lit * lit, lit, .55 + .45 * wrap);
+  // The socket around each eye sits a little deeper.
+  return lit * (1. - .22 * (1. - smoothstep(-.1, 1.7, d)));
 }
 
 void main() {
@@ -258,6 +273,8 @@ void main() {
     float brightness = clamp(value * diffuseLevel + (.35 + .65 * value) * fiberLight, 0., 1.);
     base = mix(base, (dye + scatter) * brightness * pileFill, ramp.a);
   }
+
+  if (finish == ${FINISH.matte}) base = matteSurface(n, light, d);
 
   if (pass == BODY && d < 3.7) {
     // The eye: a glossy bead in the socket.

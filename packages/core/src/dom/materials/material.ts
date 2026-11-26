@@ -26,9 +26,9 @@ export interface MaterialLook {
  * Capsule for a ball or a bar, a Volume for any other outline, no eyes), and does the rest: it
  * places the images, keeps the marks as sprites and draws the ribbons.
  *
- * @experimental `fluffy` and `glass` are supported as values to pass. Writing a material of your
- * own is not yet: `render` is given the renderer's own model of a shape and of the view, which are
- * not part of the public API and may change in a minor release.
+ * @experimental `fluffy`, `glass` and `matte` are supported as values to pass. Writing a material of
+ * your own is not yet: `render` is given the renderer's own model of a shape and of the view, which
+ * are not part of the public API and may change in a minor release.
  */
 export interface CanvasMaterial {
   readonly id: string;
@@ -45,7 +45,11 @@ export interface CanvasMaterial {
 export type AvatarMaterial = 'flat' | CanvasMaterial;
 
 /** Where each built-in material is imported from, for a host that still passes its name. */
-const ENTRIES: Record<string, string> = { fluffy: 'open-bot-avatar/materials/fluffy', glass: 'open-bot-avatar/materials/glass' };
+const ENTRIES: Record<string, string> = {
+  fluffy: 'open-bot-avatar/materials/fluffy',
+  glass: 'open-bot-avatar/materials/glass',
+  matte: 'open-bot-avatar/materials/matte',
+};
 const warned = new Set<string>();
 
 /**
