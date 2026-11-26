@@ -16,11 +16,11 @@
 import { createAnimator } from '../animator.ts';
 import { pointerGaze } from '../follow.ts';
 import { lookOf, type AvatarStateDefinition } from '../motion.ts';
-import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
+import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, liveTransform, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
 import type { AvatarDefinition, AvatarMood, AvatarState, RenderOptions } from '../types.ts';
-import { requestFrame, subscribeFrames } from './clock.ts';
+import { currentPointer, isHighRefresh, subscribeMountFrames } from './clock.ts';
 import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
-import { canvasSupported, mountCanvas, paintCanvas, type CanvasSurface } from './paint.ts';
+import { cancelDeferredCoat, canvasSupported, currentMaterialEpoch, mountCanvas, paintCanvas, paintLiveCanvas, releaseCanvas, type CanvasSurface } from './paint.ts';
 import { trackPointer } from './pointer.ts';
 import { prefersReducedMotion } from './reduced.ts';
 
@@ -169,13 +169,13 @@ function eyesOrigin(definition: AvatarDefinition): { x: number; y: number } {
   return { x: at(x), y: at(y) };
 }
 
-/** Avatars smaller than this (CSS px) redraw at SMALL_FPS: the difference doesn't show, and pages often hold many. */
+/** Avatars smaller than this (CSS px), or in calm steady motion, redraw at SMALL_FPS. */
 const SMALL_SIZE = 128;
 const SMALL_FPS = 30;
+/** Cap live redraws at 60 fps on >= 110 Hz displays so 120 Hz+ ProMotion doesn't do 2x redundant work. */
+const MAX_FPS = 60;
 /** How far outside the viewport (CSS px) avatars keep animating, so they are already moving as they scroll in. */
 const VIEW_MARGIN = 100;
-/** Slack so a 60 Hz display reliably draws every other frame rather than drifting between 1 and 3. */
-const FRAME_SLACK = 0.004;
 
 /**
  * The frame that last painted a material still. They take turns, one a frame: the first paint of a
@@ -201,9 +201,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         if (next === size) return;
         size = next;
         dirty = true;
-        requestFrame();
+        frames.request();
       });
-  resize?.observe(host);
 
   /** Whether the host is in or near the viewport. Offscreen, a live avatar only redraws after a change. */
   let visible = true;
@@ -214,11 +213,11 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           const next = entries[entries.length - 1].isIntersecting;
           if (next === visible) return;
           visible = next;
-          if (visible) requestFrame();
+          if (!visible && surface) cancelDeferredCoat(surface);
+          if (visible) frames.request();
         },
         { rootMargin: `${VIEW_MARGIN}px` },
       );
-  intersect?.observe(host);
 
   if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
 
@@ -244,6 +243,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   };
 
   const clear = () => {
+    if (surface) releaseCanvas(surface);
     host.textContent = '';
     scene = null;
     surface = null;
@@ -253,17 +253,36 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   /** Imported materials use a painted canvas even for stills. */
   const canvasMaterial = () => canvasMaterialOf(opts.material) !== null && opts.renderer !== 'scene' && canvasSupported();
 
-  const paint = (p: AvatarOptions, options: RenderOptions) => {
+  let lastEyeKey = '';
+  let calmFrame = false;
+  let stillEpoch = -1;
+
+  const ensureSurface = (p: AvatarOptions): CanvasSurface => {
     if (scene || lastStill) clear();
-    const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
     const key = `${geometryKey(p.definition)}|${p.depth}`;
-    if (!surface || surface.key !== key || !host.contains(surface.canvas)) surface = mountCanvas(host, key, p.definition, p.depth);
+    if (!surface || surface.key !== key || !host.contains(surface.canvas)) {
+      if (surface) releaseCanvas(surface);
+      surface = mountCanvas(host, key, p.definition, p.depth);
+    }
+    return surface;
+  };
+
+  const resolveColors = (p: AvatarOptions, fallbackFill: string, fallbackInk: string): { fill: string; ink: string } => {
     // Any CSS color works, as in the scene: one that is not hex is read back every frame from the
     // host's computed `color` and --avatar-ink (which syncHost sets), so themes apply live.
     const css = isHex(p.color) && isHex(p.eyeColor) ? null : getComputedStyle(host);
-    const fill = css && !isHex(p.color) ? css.color || flat.color : flat.color;
-    const ink = css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || flat.ink : flat.ink;
-    paintCanvas(surface, flat, size, fill, ink, p.material);
+    return {
+      fill: css && !isHex(p.color) ? css.color || fallbackFill : fallbackFill,
+      ink: css && !isHex(p.eyeColor) ? css.getPropertyValue('--avatar-ink').trim() || fallbackInk : fallbackInk,
+    };
+  };
+
+  const paintStill = (p: AvatarOptions, options: RenderOptions) => {
+    const flat = liveFrame(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+    const target = ensureSurface(p);
+    const { fill, ink } = resolveColors(p, flat.color, flat.ink);
+    paintCanvas(target, flat, size, fill, ink, p.material);
+    stillEpoch = currentMaterialEpoch();
   };
 
   const draw = (time: number, pointer: { x: number; y: number } | null): boolean => {
@@ -286,7 +305,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         };
         if (canvasMaterial()) {
           // Nothing to paint until the host has a size; the resize that gives it one redraws.
-          if (size > 0) paint(p, { ...options, size });
+          if (size > 0) paintStill(p, { ...options, size });
           failed = false;
           return false;
         }
@@ -320,10 +339,17 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         view: p.view,
         reducedMotion,
       };
+      const isCalmState = !step.moving && look.mood !== 'happy' && (look.state === 'idle' || look.state === 'waiting' || look.state === 'done');
       if (p.renderer !== 'scene' && canvasSupported()) {
-        paint(p, options);
+        const target = ensureSurface(p);
+        const transform = liveTransform(p.definition, { ...options, color: p.color, eyeColor: p.eyeColor });
+        const { fill, ink } = resolveColors(p, transform.color, transform.ink);
+        // Never defer an offscreen dirty update so offscreen bitmaps stay current for printing.
+        const { eyesKey, deferred } = paintLiveCanvas(target, transform, size, fill, ink, p.material, visible ? time : -1);
+        calmFrame = !deferred && isCalmState && !transform.hasOverlay && eyesKey === lastEyeKey;
+        lastEyeKey = eyesKey;
         failed = false;
-        return !reducedMotion || step.moving;
+        return !reducedMotion || step.moving || deferred;
       }
       if (surface) clear();
       const frame = sceneFrame(p.definition, { ...options, color: p.color });
@@ -331,6 +357,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         scene = mountScene(host, p.definition, p.depth);
       }
       apply(scene, frame);
+      calmFrame = isCalmState && frame.back === '' && frame.front === '';
       failed = false;
       return !reducedMotion || step.moving;
     } catch (error) {
@@ -344,34 +371,44 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
   };
 
   syncHost();
-  const unsubscribe = subscribeFrames({
+  const frames = subscribeMountFrames({
     measure: () => {
-      rect = visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
+      rect = currentPointer() && visible && opts.followPointer && !opts.still && !opts.holdGaze && !opts.lookAt ? host.getBoundingClientRect() : null;
     },
     draw: (time, pointer) => {
-      // Stills, and live avatars out of view, only redraw after a change; live avatars in view every
-      // frame they ask for. A change still draws offscreen, so the content is current when printed.
-      if ((opts.still || !visible) && !dirty) return false;
+      // Stills, and live avatars out of view, only redraw after a change (or after WebGL context restore).
+      const materialStale = !!opts.still && size > 0 && canvasMaterial() && stillEpoch !== currentMaterialEpoch();
+      if ((opts.still || !visible) && !dirty && !materialStale) return false;
       if (opts.still && size > 0 && canvasMaterial()) {
         if (materialStillAt === time) return true;
         materialStillAt = time;
       }
       dirty = false;
+      calmFrame = false;
       const more = draw(time, pointer);
-      if (!visible) return false;
-      return more && size > 0 && size < SMALL_SIZE ? 1 / SMALL_FPS - FRAME_SLACK : more;
+      if (!visible || !more) return false;
+      if ((size > 0 && size < SMALL_SIZE) || calmFrame) return 1 / SMALL_FPS;
+      return isHighRefresh() ? 1 / MAX_FPS : true;
     },
+  }, () => {
+    if (opts.still || !visible) return true;
+    // Pointer-relative layout, CSS themes and custom pose functions can change without update().
+    // Keep sampling them when other avatars run, as before, without keeping the clock awake.
+    return !failed && !(opts.followPointer && !opts.holdGaze && !opts.lookAt) &&
+      isHex(opts.color) && isHex(opts.eyeColor) && typeof opts.state !== 'object';
   });
+  resize?.observe(host);
+  intersect?.observe(host);
 
   return {
     update(next) {
       opts = { ...opts, ...next };
       syncHost();
       dirty = true;
-      requestFrame();
+      frames.request();
     },
     destroy() {
-      unsubscribe();
+      frames.unsubscribe();
       resize?.disconnect();
       intersect?.disconnect();
       releasePointer?.();

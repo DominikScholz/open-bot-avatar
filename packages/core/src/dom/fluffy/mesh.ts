@@ -104,6 +104,9 @@ function addPart(g: Grid, part: VolumePart) {
   // By winding, as the volume's own height does: grid columns start at the body's bounds, where
   // many outlines have a straight edge, and a point on an edge must fall on the same side.
   const outline = edgeBands(part.polys);
+  const zAt = Float64Array.from({ length: g.nz }, (_, k) => Math.abs(g.z0 + k * STEP));
+  const topAt = rounded ? zAt.map(z => Math.max(0, (z - part.depth / 2 + part.rz) / part.rz)) : null;
+  const scale = Math.min(part.rxy, part.rz);
   for (let j = 0; j < g.ny; j++) {
     const y = g.y0 + j * STEP;
     for (let i = 0; i < nx; i++) {
@@ -112,13 +115,14 @@ function addPart(g: Grid, part: VolumePart) {
       const sd = inside ? distances[i + j * nx] : -distances[i + j * nx];
       // An inflated part is shaped by its fillet instead; outside the outline there is no height.
       const h = part.kind === 'inflate' || !inside ? 0 : part.height(x, y);
+      const side = rounded ? Math.max(0, (part.rxy - sd) / part.rxy) : 0;
       for (let k = 0; k < g.nz; k++) {
-        const z = Math.abs(g.z0 + k * STEP);
         let d;
-        if (rounded) {
-          const side = (part.rxy - sd) / part.rxy, top = (z - part.depth / 2 + part.rz) / part.rz;
-          d = (1 - Math.hypot(Math.max(0, side), Math.max(0, top))) * Math.min(part.rxy, part.rz);
-        } else d = Math.min(sd, Math.max(0.55, h) - z);
+        if (topAt) {
+          const top = topAt[k];
+          // Both legs are nonnegative. Across the face or along the wall only one contributes.
+          d = (1 - (side === 0 ? top : top === 0 ? side : Math.hypot(side, top))) * scale;
+        } else d = Math.min(sd, Math.max(0.55, h) - zAt[k]);
         const at = i + j * nx + k * plane;
         if (d > field[at]) field[at] = d;
       }
@@ -272,7 +276,11 @@ function randomFrom(seed: number): () => number {
 /** Hair roots spread evenly by area, each with two random numbers for its strand. */
 function scatterRoots(vertices: number[], indices: number[]): Float32Array {
   const random = randomFrom(51821);
-  const roots: number[] = [];
+  // Scatter in seed order, but store each pass contiguously within a block. The final
+  // buffer can then be assembled with bulk copies instead of shuffling individual floats.
+  const perPass = 256, blockRoots = ROOT_PASSES * perPass;
+  const blocks: Float32Array[] = [];
+  let total = 0;
   for (let i = 0; i < indices.length; i += 3) {
     const a = indices[i] * 6, b = indices[i + 1] * 6, c = indices[i + 2] * 6;
     const abx = vertices[b] - vertices[a], aby = vertices[b + 1] - vertices[a + 1], abz = vertices[b + 2] - vertices[a + 2];
@@ -281,15 +289,24 @@ function scatterRoots(vertices: number[], indices: number[]): Float32Array {
     const count = Math.floor(area * ROOT_DENSITY + random());
     for (let n = 0; n < count; n++) {
       const u = Math.sqrt(random()), v = u * random();
-      for (let k = 0; k < 6; k++) roots.push((1 - u) * vertices[a + k] + (u - v) * vertices[b + k] + v * vertices[c + k]);
-      roots.push(random(), random());
+      const local = total++ % blockRoots;
+      if (local === 0) blocks.push(new Float32Array(blockRoots * 8));
+      const block = blocks[blocks.length - 1];
+      const at = ((local % ROOT_PASSES) * perPass + Math.floor(local / ROOT_PASSES)) * 8;
+      for (let k = 0; k < 6; k++) block[at + k] = (1 - u) * vertices[a + k] + (u - v) * vertices[b + k] + v * vertices[c + k];
+      block[at + 6] = random();
+      block[at + 7] = random();
     }
   }
-  const total = roots.length / 8;
-  const passes = new Float32Array(roots.length);
+  const passes = new Float32Array(total * 8);
   let at = 0;
   for (let pass = 0; pass < ROOT_PASSES; pass++) {
-    for (let i = pass; i < total; i += ROOT_PASSES) for (let k = 0; k < 8; k++) passes[at++] = roots[8 * i + k];
+    const start = pass * perPass * 8;
+    for (let i = 0; i < blocks.length; i++) {
+      const count = Math.min(perPass, Math.ceil((total - i * blockRoots - pass) / ROOT_PASSES));
+      passes.set(blocks[i].subarray(start, start + count * 8), at);
+      at += count * 8;
+    }
   }
   return passes;
 }

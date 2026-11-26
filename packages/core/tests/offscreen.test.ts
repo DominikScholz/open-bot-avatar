@@ -77,6 +77,23 @@ describe('mountAvatar offscreen', () => {
     avatar.destroy();
   });
 
+  it('pauses the animation loop while the document is hidden and resumes on visibilitychange', async () => {
+    const el = document.createElement('div');
+    document.body.append(el);
+    const avatar = mountAvatar(el, { definition: examples[0], reducedMotion: false });
+    expect(await framesDuring(() => wait(80))).toBeGreaterThan(0);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await wait(50);
+    expect(await framesDuring(() => wait(80))).toBe(0);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(await framesDuring(() => wait(80))).toBeGreaterThan(0);
+    avatar.destroy();
+  });
+
   it('draws its first frame even when mounted out of view', async () => {
     const el = document.createElement('div');
     document.body.append(el);

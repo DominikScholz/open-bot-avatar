@@ -22,6 +22,8 @@ const f = (n: number) => {
 /** One piece of a ribbon: the part of it in front of the body, or the part behind. */
 export interface RibbonPiece {
   d: string;
+  /** Numeric polygon vertices for direct canvas drawing without SVG path serialization/parsing. */
+  points: [number, number][];
   front: boolean;
   box: Box;
   /**
@@ -201,6 +203,7 @@ const SWEEP_LONGEST = 4;
 export const LANES = 3;
 export const HOOPS = 3;
 const SAMPLES = 24;
+const uniformSamples = Array.from({ length: SAMPLES + 1 }, (_, j) => j / SAMPLES);
 /** A ribbon is cut into stretches this many samples long, each with a gradient of its own, so its colour follows its length even where it curves round. */
 const STRETCH = 6;
 /** How far either side of a layer change a ribbon is sampled, radians: the piece behind runs this far on under the piece in front. */
@@ -235,13 +238,13 @@ export function ribbonReach(rimMax?: number): { radius: number; width: number; b
  * behind the body only off its outline.
  */
 export function ribbonPieces(
-  b: Bounds, presence: number, seed: number, _time: number, sweep = 0, cage = 0, rim?: Rim,
+  b: Bounds, presence: number, seed: number, _time: number, sweep = 0, cage = 0, rim?: Rim, needPath = true,
 ): RibbonPiece[] {
   const k = clamp(presence, 0, 1), more = cage >= 0.5 ? 1 : 0;
   if (k <= 0.01) return [];
   const cx = rim ? rim.cx : (b.minX + b.maxX) / 2, cy = rim ? rim.cy : (b.minY + b.maxY) / 2;
   const rolls = hoopRolls(seed), rollOf = (i: number) => rolls[i];
-  const cageRing = rim ? Math.max(...[0, 1, 2].map((i) => rim.at(rollOf(i)))) + RIM_MARGIN : RING;
+  const cageRing = more && rim ? Math.max(...rolls.map(angle => rim.at(angle))) + RIM_MARGIN : RING;
   const unit = UNIT;
   const dir = sweep < 0 ? -1 : 1;
   // How long the sweep has been going, from how far it has got.
@@ -279,23 +282,19 @@ export function ribbonPieces(
       let full = size * BRUSH * unit * (FAR + (1 - FAR) * nearHead) * smooth(life / GROW_S) * (1 - 0.72 * ret * ret);
       // A point of the ribbon is in front of the body on the near half of its hoop (depth above 0).
       const lamAt = (u: number) => head - dir * length * (1 - u);
-      const point = (lam: number): [number, number] => {
-        const a = Math.sin(lam), y = -Math.cos(lam) * flat;
-        return [cx + r * (a * cr - y * sr), cy + r * (a * sr + y * cr)];
-      };
       // Where along the ribbon (0 tail .. 1 head) to sample it: evenly, plus exactly where it
       // passes from one layer to the other (the hoop's sides, where its depth is 0) and a sliver
       // either side, so every ribbon on a hoop changes layer along the same line.
       const along = (lam: number) => 1 - (head - lam) / (dir * length);
       const sliver = SLIVER / length;
-      const ss: number[] = [];
-      for (let j = 0; j <= SAMPLES; j++) ss.push(j / SAMPLES);
+      let ss = uniformSamples;
       const lo = Math.min(head, head - dir * length), hi = Math.max(head, head - dir * length);
       for (let side = Math.ceil((lo - Math.PI / 2) / Math.PI); Math.PI / 2 + side * Math.PI < hi; side++) {
         const u = along(Math.PI / 2 + side * Math.PI);
+        if (ss === uniformSamples) ss = uniformSamples.slice();
         for (const d of [-sliver, 0, sliver]) if (u + d > 0 && u + d < 1) ss.push(u + d);
       }
-      ss.sort((x, y) => x - y);
+      if (ss !== uniformSamples) ss.sort((x, y) => x - y);
       // A sample exactly on a side belongs with the stretch after it.
       const near = ss.map((u) => Math.cos(lamAt(u) + dir * 1e-6) > 0);
       // Centre, half width, unit normal (on screen) at each sample, tail to head.
@@ -303,14 +302,15 @@ export function ribbonPieces(
       for (const u of ss) {
         const lam = lamAt(u);
         // On the hoop before its roll: the ellipse's normal.
-        const nx = Math.sin(lam) * flat, ny = -Math.cos(lam);
+        const sn = Math.sin(lam), c = Math.cos(lam);
+        const nx = sn * flat, ny = -c;
         const nl = Math.hypot(nx, ny) || 1;
         const ux = nx / nl, uy = ny / nl;
-        mid.push(point(lam));
+        const y = ny * flat;
+        mid.push([cx + r * (sn * cr - y * sr), cy + r * (sn * sr + y * cr)]);
         norm.push([ux * cr - uy * sr, ux * sr + uy * cr]);
         halfs.push(0.5 + 0.5 * u);
         // How tightly the hoop curves here, as a radius: a ribbon wider than it would fold.
-        const c = Math.cos(lam), sn = Math.sin(lam);
         bend.push((r * (c * c + flat * flat * sn * sn) ** 1.5) / flat);
       }
       const last = ss.length - 1;
@@ -352,12 +352,19 @@ export function ribbonPieces(
         if (end === last) pts.push(...cap(last, true));
         for (let q = end; q >= start; q--) pts.push(side(q, -1));
         if (start === 0) pts.push(...cap(0, false));
-        const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
-        const x = Math.min(...xs), y = Math.min(...ys);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (let q = 0; q < pts.length; q++) {
+          const px = pts[q][0], py = pts[q][1];
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
         pieces.push({
-          d: `M${pts.map((p) => `${f(p[0])} ${f(p[1])}`).join('L')}Z`,
+          d: needPath ? `M${pts.map((p) => `${f(p[0])} ${f(p[1])}`).join('L')}Z` : '',
+          points: pts,
           front: near[from],
-          box: { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y },
+          box: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
           ribbon: i * LANES + l,
           along: [ss[from], ss[to]],
           from: mid[from],

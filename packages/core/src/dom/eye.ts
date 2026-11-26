@@ -11,15 +11,28 @@ export function eyeBox(mark: EyeMark): FramePath['box'] {
   return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
 }
 
+const eyePaths = new Map<string, Path2D>();
+const MAX_EYE_PATHS = 64;
+
+function cachedEyePath(d: string): Path2D {
+  let path = eyePaths.get(d);
+  if (!path) {
+    if (eyePaths.size >= MAX_EYE_PATHS) eyePaths.clear();
+    path = new Path2D(d);
+    eyePaths.set(d, path);
+  }
+  return path;
+}
+
 /** Fill or stroke the mark in the context's current styles. */
 export function paintEye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
   if (mark.shape === 'path') {
-    ctx.fill(new Path2D(mark.d));
+    ctx.fill(cachedEyePath(mark.d));
     return;
   }
   if (mark.shape === 'arc') {
     ctx.lineWidth = mark.strokeWidth;
-    ctx.stroke(new Path2D(mark.d));
+    ctx.stroke(cachedEyePath(mark.d));
     return;
   }
   const { x, y, width: w, height: h, radius: r } = mark;

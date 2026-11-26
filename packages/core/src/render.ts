@@ -118,8 +118,29 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
   return { ...rim, cx: bx + pose.sx * (rim.cx - bx), cy: by + pose.sy * (rim.cy - by) + pose.lift };
 }
 
+// Path text dominates the serialized key. Compare it directly on repeat calls and
+// serialize only the small tail, keeping eyes at index 3 for custom toJSON hooks.
+interface GeometryHit { id: string; name: string; path: string; tail: string; prepared: Prepared }
+let geometryHits = new WeakMap<AvatarDefinition, GeometryHit>();
+const emptyPrefix = '[null,null,null';
+
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
-  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth]);
+  const id = definition?.id, name = definition?.name, path = definition?.body?.path, eyes = definition?.eyes;
+  if (typeof definition === 'object' && typeof id === 'string' && typeof name === 'string' &&
+      typeof path === 'string' && !('toJSON' in Array.prototype)) {
+    const tail = JSON.stringify([null, null, null, eyes, depth]);
+    const hit = geometryHits.get(definition);
+    if (hit && hit.id === id && hit.name === name && hit.path === path && hit.tail === tail) return hit.prepared;
+    // Same key as the full serialization below, without reading the eye record a second time.
+    const key = `[${JSON.stringify(id)},${JSON.stringify(name)},${JSON.stringify(path)}${tail.slice(emptyPrefix.length)}`;
+    const prepared = prepareKey(definition, depth, key);
+    geometryHits.set(definition, { id, name, path, tail, prepared });
+    return prepared;
+  }
+  return prepareKey(definition, depth, JSON.stringify([id, name, path, eyes, depth]));
+}
+
+function prepareKey(definition: AvatarDefinition, depth: number, key: string): Prepared {
   const hit = cache.get(key);
   if (hit) return hit;
   const res = validateAvatar(definition);
@@ -140,7 +161,10 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     detail: new Map(),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
   };
-  if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
+  if (cache.size >= 64) {
+    cache.delete(cache.keys().next().value as string);
+    geometryHits = new WeakMap();
+  }
   cache.set(key, prepared);
   return prepared;
 }
@@ -291,16 +315,30 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
  * viewer, minus z-slices hidden behind the core (they add nothing to the
  * silhouette or the paint). Their union is the silhouette on screen.
  */
+/** Minimum projected screen shift (CSS px) between adjacent drawn z-slices on a live canvas. */
+const SLICE_SCREEN_GAP_PX = 0.55;
+
 function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
   const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
   const drawn = sliceCull(v);
   const kept = sliceDetail(p, stack, size);
+  // Skip intermediate z-slices whose projected screen shift from the previous drawn slice is sub-pixel.
+  const px = Number.isFinite(size) && (size as number) > 0 ? (size as number) : 0;
+  const sweep = stack === 'z' ? Math.hypot(v.sY, v.cY * v.sP) : 0;
+  const minShift = px && stack === 'z' ? (sweep > 1e-4 ? (SLICE_SCREEN_GAP_PX * 100) / (px * sweep) : Infinity) : 0;
   let k = 0;
   vol.parts.forEach((part, i) => {
-    (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
+    const slices = stack === 'z' ? part.zSlices : part.xSlices;
+    let lastAt = -Infinity;
+    slices.forEach((s, j) => {
       if (!kept[k++] || !drawn(s)) return;
+      if (minShift > 0) {
+        const essential = (s.at === 0 && s.inset === 0) || j === 0 || j === slices.length - 1;
+        if (!essential && s.at - lastAt < minShift) return;
+        lastAt = s.at;
+      }
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
@@ -367,11 +405,23 @@ function eyeMark(e: EyeState): EyeMark {
   return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
 }
 
+// A mounted avatar usually keeps both colors across frames. Cache normalized hex only;
+// CSS variables are still resolved against the host at paint time.
+const normalized = new Map<string, string>();
+function normalizedColor(input: string | undefined, fallback: string): string {
+  if (!input) return fallback;
+  const hit = normalized.get(input);
+  if (hit !== undefined) return hit;
+  const rgb = parseHex(input);
+  if (!rgb) return fallback;
+  const hex = toHex(rgb);
+  if (normalized.size >= 64) normalized.clear();
+  normalized.set(input, hex);
+  return hex;
+}
+
 function colors(options: RenderOptions): { color: string; ink: string } {
-  return {
-    color: toHex(parseHex(options.color) ?? (parseHex(DEFAULT_COLOR) as Rgb)),
-    ink: toHex(parseHex(options.eyeColor) ?? (parseHex(DEFAULT_EYE_COLOR) as Rgb)),
-  };
+  return { color: normalizedColor(options.color, DEFAULT_COLOR), ink: normalizedColor(options.eyeColor, DEFAULT_EYE_COLOR) };
 }
 
 // ---------------------------------------------------------------------------
@@ -471,9 +521,55 @@ export interface SurfaceEye {
   dy: number;
 }
 
+const ribbonPoints = new WeakMap<FrameShape, readonly [number, number][]>();
+
+/** Numeric vertices of a live ribbon shape, so the canvas painter avoids SVG path parsing. */
+export function ribbonPointsOf(shape: FrameShape): readonly [number, number][] | undefined {
+  return ribbonPoints.get(shape);
+}
+
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
 export function avatarFrame(definition: AvatarDefinition, options: RenderOptions = {}): AvatarFrame {
   return flatFrame(definition, options, undefined);
+}
+
+/**
+ * Lightweight per-frame check for live canvas avatars: computes pose, view, root matrix and eye
+ * state once without building slice paths or sorting shapes. Calling `buildFrame()` materializes
+ * the full `AvatarFrame` from that already-computed pose only on a cache miss.
+ */
+export interface LiveTransform {
+  view: ViewBasis;
+  root: Matrix;
+  eyes: SurfaceEye[];
+  color: string;
+  ink: string;
+  hasOverlay: boolean;
+  buildFrame: () => AvatarFrame;
+}
+
+export function liveTransform(definition: AvatarDefinition, options: RenderOptions = {}): LiveTransform {
+  const p = prepare(definition, depthOption(options));
+  const pose = poseOf(p, options);
+  const { color, ink } = colors(options);
+  const v = viewBasis(pose.yaw, pose.pitch);
+  const root = rootMatrix(pose, p.vol.bounds);
+  const hasOverlay = pose.ribbons > 0.01 || pose.marks.length > 0;
+  const states = eyeStates(p, pose);
+  const eyes: SurfaceEye[] = states.map((e) => ({
+    mark: eyeMark({ ...e, dx: 0, dy: 0 }),
+    dx: e.dx,
+    dy: e.dy,
+  }));
+  return {
+    view: v,
+    root,
+    eyes,
+    color,
+    ink,
+    hasOverlay,
+    buildFrame: () => flatFrameFrom(p, pose, v, root, states, eyes, color, ink, options, options.size),
+  };
 }
 
 /**
@@ -577,7 +673,7 @@ function ribbonPalette(color: string | undefined, seed: number): Rgb[][] {
 interface Effects {
   /** How much of its size the body keeps while it gives way to a mark (0 = gone). */
   body: number;
-  ribbons: { d: string; box: Box; front: boolean; fill: string; gradient: RibbonGradient }[];
+  ribbons: { d: string; points: [number, number][]; box: Box; front: boolean; fill: string; gradient: RibbonGradient }[];
   marks: { id: string; d: string; box: Box; matrix: M; round: boolean }[];
 }
 
@@ -591,7 +687,7 @@ function markId(shape: string): string {
   return /^[A-Za-z][A-Za-z0-9]*$/.test(shape) ? shape : `m-${hashString(String(shape)).toString(36)}`;
 }
 
-function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
+function effectsOf(p: Prepared, pose: Pose, options: RenderOptions, needRibbonPath = true): Effects {
   const b = p.vol.bounds;
   const time = Number.isFinite(options.time) ? (options.time as number) : 0;
   const still = options.reducedMotion === true;
@@ -599,7 +695,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   return {
     body: bodyScale(pose.marks),
     // No ribbons are out below a presence of 0.01 (see ribbonPieces), so their rims are not measured for it.
-    ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b)).map((r) => {
+    ribbons: still || pose.ribbons <= 0.01 ? [] : ribbonPieces(b, pose.ribbons, p.seed, time, pose.sweep, pose.cage, ribbonsFollow(pose.cage >= 0.5 ? p.rims().cage : p.rims().work, pose, b), needRibbonPath).map((r) => {
       const hue = ribbonPalette(options.color, p.seed)[r.ribbon];
       // The piece's stretch of its ribbon's colour run, front and back alike.
       const [s0, s1] = r.along;
@@ -607,7 +703,7 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
       // A gradient needs some length; a piece too short to have one takes its middle colour.
       const long = Math.hypot(r.to[0] - r.from[0], r.to[1] - r.from[1]) > 0.01;
       return {
-        d: r.d, box: r.box, front: r.front, fill: stops[1],
+        d: r.d, points: r.points, box: r.box, front: r.front, fill: stops[1],
         gradient: long ? { x1: r.from[0], y1: r.from[1], x2: r.to[0], y2: r.to[1], stops } : { x1: r.from[0], y1: r.from[1], x2: r.from[0] + 0.01, y2: r.from[1], stops: [stops[1], stops[1], stops[1]] },
       };
     }),
@@ -626,18 +722,35 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
 
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
-  const { vol } = p;
-  const b = vol.bounds;
   const { color, ink } = colors(options);
   const pose = poseOf(p, options);
-  const pivot = pivotOf(b);
   const v = viewBasis(pose.yaw, pose.pitch);
+  const root = rootMatrix(pose, p.vol.bounds);
+  const states = eyeStates(p, pose);
+  const eyes: SurfaceEye[] = states.map((e) => ({ mark: eyeMark({ ...e, dx: 0, dy: 0 }), dx: e.dx, dy: e.dy }));
+  return flatFrameFrom(p, pose, v, root, states, eyes, color, ink, options, size);
+}
+
+function flatFrameFrom(
+  p: Prepared,
+  pose: Pose,
+  v: ViewBasis,
+  root: Matrix,
+  states: [EyeState, EyeState],
+  eyes: SurfaceEye[],
+  color: string,
+  ink: string,
+  options: RenderOptions,
+  size: number | undefined,
+): AvatarFrame {
+  const { vol } = p;
+  const b = vol.bounds;
+  const pivot = pivotOf(b);
   const stack = activeStack(v);
-  const eyes: SurfaceEye[] = [];
-  const fx = effectsOf(p, pose, options);
-  const root = rootMatrix(pose, b);
+  const fx = effectsOf(p, pose, options, size === undefined);
   // The body shrinks toward its center as it gives way to a mark.
-  const shrink = (m: M): M => (fx.body < 1 ? mul(about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]), m) : m);
+  const shrinkMatrix = fx.body > 0 && fx.body < 1 ? about(pivot[0], pivot[1], [fx.body, 0, 0, fx.body, 0, 0]) : null;
+  const shrink = (m: M): M => shrinkMatrix ? mul(shrinkMatrix, m) : m;
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
@@ -654,9 +767,8 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
     });
     // Painted on the surface; each eye goes once the surface under it turns away.
-    eyeStates(p, pose).forEach((e, idx) => {
+    states.forEach((e, idx) => {
       const plane = vol.eyePlanes[idx];
-      eyes.push({ mark: eyeMark({ ...e, dx: 0, dy: 0 }), dx: e.dx, dy: e.dy });
       if (!eyeVisible(v, plane)) return;
       // A slice through the middle of a mark must paint before the entire mark: sort at the near
       // edge of its footprint on the active stack.
@@ -676,21 +788,28 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
 
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
   const fixed = fx.ribbons.length || fx.marks.length ? invert(root) : null;
-  const ribbon = (front: boolean): FrameShape[] =>
-    fx.ribbons.flatMap((r, i) =>
-      r.front === front ? [{ kind: 'ribbon' as const, key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front, fill: r.fill, gradient: r.gradient }] : [],
-    );
-  const marks = fx.marks.map((mark, i): FrameShape => {
+  // Fill the final array in paint order: back ribbons, sorted body, front ribbons, marks.
+  const shapes = new Array<FrameShape>(items.length + fx.ribbons.length + fx.marks.length);
+  let back = 0;
+  for (const r of fx.ribbons) if (!r.front) back++;
+  for (let i = 0; i < items.length; i++) shapes[back + i] = items[i].shape;
+  let backAt = 0, frontAt = back + items.length;
+  fx.ribbons.forEach((r, i) => {
+    const shape: FrameShape = { kind: 'ribbon', key: `ribbon-${i}`, d: r.d, box: r.box, matrix: fixed as M, front: r.front, fill: r.fill, gradient: r.gradient };
+    ribbonPoints.set(shape, r.points);
+    shapes[r.front ? frontAt++ : backAt++] = shape;
+  });
+  fx.marks.forEach((mark, i) => {
     // Two parts of one name share a path; given different outlines, the later one gets a path of its own.
     const taken = paths.get(mark.id);
     const id = taken && taken.d !== mark.d ? `${mark.id}-${hashString(mark.d).toString(36)}` : mark.id;
     if (!paths.has(id)) paths.set(id, { id, d: mark.d, evenOdd: false, box: mark.box, ...(mark.round ? { round: true } : {}) });
-    return { kind: 'slice', key: `mark-${i}`, path: id, matrix: mul(fixed as M, mark.matrix) };
+    shapes[frontAt++] = { kind: 'slice', key: `mark-${i}`, path: id, matrix: mul(fixed as M, mark.matrix) };
   });
   return {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
-    shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
-    surface: { view: v, scale: fx.body, eyes },
+    shapes,
+    surface: { view: v, scale: fx.body, eyes: fx.body > 0 ? eyes : [] },
   };
 }
 

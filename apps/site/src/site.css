@@ -210,6 +210,12 @@
       padding: 32px 0 24px;
     }
 
+    .page-status {
+      flex: 1;
+      padding-top: 120px;
+      padding-bottom: 80px;
+    }
+
     .page-head {
       margin-bottom: 28px;
     }
