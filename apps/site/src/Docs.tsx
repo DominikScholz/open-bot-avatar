@@ -39,11 +39,12 @@ const STATE_USAGE = `${STATES_SOURCE.replace(/^export /gm, "").trim()}
 
 avatar.update({ state: asking });`;
 
-/** The three finishes, in the order of the Studio's toggle, each with the import it needs. */
+/** The four finishes, in the order of the Studio's toggle, each with the import it needs. */
 const MATERIALS: { name: MaterialName; label: string; text: string; code: string }[] = [
   { name: "flat", label: "Flat", text: "Solid color. The default, built in.", code: `// Built in. Nothing to import.` },
   { name: "fluffy", label: "Fluffy", text: "A coat of fur, with the eyes set into it.", code: `import { fluffy } from "open-bot-avatar/materials/fluffy";` },
   { name: "glass", label: "Glass", text: "Tinted glass that reflects and refracts.", code: `import { glass } from "open-bot-avatar/materials/glass";` },
+  { name: "matte", label: "Matte", text: "Soft and shadowed like clay, with no shine.", code: `import { matte } from "open-bot-avatar/materials/matte";` },
 ];
 
 const REACT_USAGE = `import { useEffect, useRef } from "react";
@@ -109,7 +110,7 @@ const PROPS: [string, string][] = [
   ["view", "Extra rotation, { yaw, pitch } in radians."],
   ["depth", "Volume, 0 (flat) to 14. Default: 6."],
   ["reducedMotion", 'true, false or "system" (default).'],
-  ["material", 'The body\'s finish: "flat" (default), or an imported material, fluffy or glass (see Materials).'],
+  ["material", 'The body\'s finish: "flat" (default), or an imported material, fluffy, glass or matte (see Materials).'],
   ["still", "One fixed pose, no animation: an SVG, or one painted canvas for an imported material. Default: false."],
   ["renderer", '"canvas" (default) or "scene", a CSS 3D scene: more CPU, less video memory for one large avatar.'],
   ["label", 'Accessible name. Default: the definition\'s name; "" for decorative.'],
@@ -221,7 +222,7 @@ export function Docs({ material }: { material: MaterialName }) {
 
       <h2>Materials</h2>
       <p>
-        A material is the body's finish. There are three, shown here live on the avatar from the example above.
+        A material is the body's finish. There are four, shown here live on the avatar from the example above.
       </p>
       <MaterialRow size="large" />
       <p>
@@ -231,8 +232,8 @@ export function Docs({ material }: { material: MaterialName }) {
       <Code snippet="material" language="TypeScript" />
       <ul className="notes">
         <li>
-          Fluffy and glass need the canvas renderer and WebGL2, and draw flat without them. <code>renderer: "scene"</code> and{" "}
-          <code>renderAvatarSvg</code> always draw flat.
+          Fluffy, glass and matte need the canvas renderer and WebGL2, and draw flat without them. <code>renderer: "scene"</code>{" "}
+          and <code>renderAvatarSvg</code> always draw flat.
         </li>
         <li>
           A material is a value, not a name. <code>material: "fluffy"</code>, as it was written before, draws flat and logs one

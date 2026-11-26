@@ -6,12 +6,14 @@ import { build } from 'vite';
 /** Build real public imports, including the case where a material was imported but never used. */
 describe('opt-in material bundles', () => {
   it.each([
-    { name: 'flat', imports: '', material: '', fluffy: false, glass: false },
-    { name: 'fluffy', imports: 'import { fluffy } from "open-bot-avatar/materials/fluffy";', material: 'material: fluffy,', fluffy: true, glass: false },
-    { name: 'glass', imports: 'import { glass } from "open-bot-avatar/materials/glass";', material: 'material: glass,', fluffy: false, glass: true },
-    { name: 'unused imports', imports: 'import { fluffy } from "open-bot-avatar/materials/fluffy"; import { glass } from "open-bot-avatar/materials/glass";', material: '', fluffy: false, glass: false },
-    { name: 'both', imports: 'import { fluffy } from "open-bot-avatar/materials/fluffy"; import { glass } from "open-bot-avatar/materials/glass";', material: 'material: location.hash ? fluffy : glass,', fluffy: true, glass: true },
-  ])('$name ships only the requested renderers', async ({ name, imports, material, fluffy, glass }) => {
+    { name: 'flat', imports: '', material: '', fluffy: false, glass: false, matte: false },
+    { name: 'fluffy', imports: 'import { fluffy } from "open-bot-avatar/materials/fluffy";', material: 'material: fluffy,', fluffy: true, glass: false, matte: false },
+    { name: 'glass', imports: 'import { glass } from "open-bot-avatar/materials/glass";', material: 'material: glass,', fluffy: false, glass: true, matte: false },
+    // Matte is drawn by fluffy's renderer, so it ships that renderer too.
+    { name: 'matte', imports: 'import { matte } from "open-bot-avatar/materials/matte";', material: 'material: matte,', fluffy: true, glass: false, matte: true },
+    { name: 'unused imports', imports: 'import { fluffy } from "open-bot-avatar/materials/fluffy"; import { glass } from "open-bot-avatar/materials/glass"; import { matte } from "open-bot-avatar/materials/matte";', material: '', fluffy: false, glass: false, matte: false },
+    { name: 'both', imports: 'import { fluffy } from "open-bot-avatar/materials/fluffy"; import { glass } from "open-bot-avatar/materials/glass";', material: 'material: location.hash ? fluffy : glass,', fluffy: true, glass: true, matte: false },
+  ])('$name ships only the requested renderers', async ({ name, imports, material, fluffy, glass, matte }) => {
     const result = await build({
       configFile: false,
       root: fileURLToPath(new URL('..', import.meta.url)),
@@ -40,6 +42,7 @@ describe('opt-in material bundles', () => {
     const modules = chunks.flatMap((c) => Object.entries(c.modules).filter(([, info]) => info.renderedLength > 0).map(([id]) => id));
     expect(modules.some((id) => /\/dom\/fluffy\/mesh\.(ts|js)$/.test(id))).toBe(fluffy);
     expect(modules.some((id) => /\/dom\/glass\/renderer\.(ts|js)$/.test(id))).toBe(glass);
+    expect(modules.some((id) => /\/dom\/materials\/matte\.(ts|js)$/.test(id))).toBe(matte);
     if (!fluffy && !glass) expect(code).not.toContain('#version 300 es');
     console.info(`${name}: ${Buffer.byteLength(code)} bytes minified, ${gzipSync(code).length} bytes gzip`);
   }, 20_000);

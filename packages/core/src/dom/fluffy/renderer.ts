@@ -13,8 +13,11 @@ import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import { halfDepth } from '../materials/shape.ts';
 import { DYE_RAMP_SIZE, dyeRamp } from './dye.ts';
 import { ROOT_PASSES, buildMesh, rootsIn, type IndexRange, type FluffyShape } from './mesh.ts';
-import { PASS, fragmentShader, vertexShader } from './shaders.ts';
+import { FINISH, PASS, fragmentShader, vertexShader } from './shaders.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
+
+/** How the surface is finished: a coat of fur, or the bare body lit as matte clay. */
+export type FluffyFinish = keyof typeof FINISH;
 
 /** The colors of a coat and the eyes set into it (none for a state mark). */
 export interface FluffyLook {
@@ -176,7 +179,7 @@ function colorReader(): (color: string) => Rgb {
   };
 }
 
-type Renderer = (shape: FluffyShape, view: ViewBasis, look: FluffyLook, scale: number) => FluffyImage | null;
+type Renderer = (shape: FluffyShape, view: ViewBasis, look: FluffyLook, scale: number, finish: FluffyFinish) => FluffyImage | null;
 
 /** Null without WebGL2. Throws if the shaders don't compile. */
 function createRenderer(onContextRestored: () => void): Renderer | null {
@@ -194,7 +197,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const uniform = (name: string) => gl.getUniformLocation(program, name);
   const u = {
     view: uniform('view'), pivot: uniform('pivot'), extent: uniform('extent'), radius: uniform('radius'),
-    shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), color: uniform('color'), ink: uniform('ink'),
+    shell: uniform('shell'), strandWidth: uniform('strandWidth'), pass: uniform('pass'), finish: uniform('finish'), color: uniform('color'), ink: uniform('ink'),
     eyeRegion: uniform('eyeRegion[0]'), eyeSize: uniform('eyeSize[0]'),
   };
   gl.enable(gl.DEPTH_TEST);
@@ -326,12 +329,12 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 
   const readColor = colorReader();
   const shown = {
-    geometry: null as Geometry | null, view: null as ViewBasis | null, pixels: 0, color: '', ink: '',
+    geometry: null as Geometry | null, view: null as ViewBasis | null, pixels: 0, color: '', ink: '', finish: '',
     regions: new Float32Array(8), contours: ['', ''],
   };
   let dye = '';
 
-  return (shape, view, look, scale) => {
+  return (shape, view, look, scale, finish) => {
     if (gl.isContextLost()) return null;
     const geometry = geometryOf(shape);
     const { cx, cy, radius } = geometry;
@@ -358,7 +361,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
       ? Math.abs(view.cY - shown.view.cY) + Math.abs(view.sY - shown.view.sY) + Math.abs(view.sP - shown.view.sP) + Math.abs(view.cP - shown.view.cP)
       : Infinity;
     if (
-      shown.geometry === geometry && shown.pixels === pixels && shown.color === look.color && shown.ink === look.ink &&
+      shown.geometry === geometry && shown.pixels === pixels && shown.color === look.color && shown.ink === look.ink && shown.finish === finish &&
       contours.every((key, slot) => key === shown.contours[slot]) && regions.every((value, i) => value === shown.regions[i]) &&
       turn < SAME_VIEW / (radius * scale)
     ) {
@@ -369,6 +372,8 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     shown.pixels = pixels;
     shown.color = look.color;
     shown.ink = look.ink;
+    shown.finish = finish;
+    gl.uniform1i(u.finish, FINISH[finish]);
     shown.regions.set(regions);
 
     look.eyes.forEach(({ mark }, slot) => {
@@ -404,6 +409,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.bindVertexArray(geometry.surface);
     gl.uniform1i(u.pass, PASS.body);
     gl.drawElements(gl.TRIANGLES, triangles.count, gl.UNSIGNED_INT, 4 * triangles.start);
+    if (finish !== 'fluffy') return image;
     gl.uniform1i(u.pass, PASS.shell);
     for (let layer = 1; layer <= shells; layer++) {
       gl.uniform1f(u.shell, layer / shells);
@@ -420,10 +426,11 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
 let renderer: Renderer | null | undefined;
 
 /**
- * Render `shape` under `view` at `scale` pixels per viewBox unit. Null where fluffy can't be
- * drawn (no WebGL2, or its context is lost): the caller paints flat instead.
+ * Render `shape` under `view` at `scale` pixels per viewBox unit, as fur or (`finish` 'matte') as the
+ * bare body. Null where it can't be drawn (no WebGL2, or its context is lost): the caller paints
+ * flat instead.
  */
-export function renderFluffy(shape: FluffyShape, view: ViewBasis, look: FluffyLook, scale: number): FluffyImage | null {
+export function renderFluffy(shape: FluffyShape, view: ViewBasis, look: FluffyLook, scale: number, finish: FluffyFinish = 'fluffy'): FluffyImage | null {
   if (renderer === undefined) {
     renderer = null;
     try {
@@ -433,5 +440,5 @@ export function renderFluffy(shape: FluffyShape, view: ViewBasis, look: FluffyLo
       console.warn('open-bot-avatar: fluffy is unavailable, drawing flat', error);
     }
   }
-  return renderer?.(shape, view, look, scale) ?? null;
+  return renderer?.(shape, view, look, scale, finish) ?? null;
 }
