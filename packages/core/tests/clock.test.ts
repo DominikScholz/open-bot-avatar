@@ -2,6 +2,30 @@
 import { expect, it, vi } from 'vitest';
 import { requestFrame, subscribeFrames, subscribeMountFrames } from '../src/dom/clock.ts';
 
+it.each(['measure', 'draw'] as const)('skips subscribers removed during %s while processing active ones', phase => {
+  let pending: FrameRequestCallback | undefined;
+  const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => { pending = cb; return 1; });
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { pending = undefined; });
+  const removedMeasure = vi.fn(), removedDraw = vi.fn(() => false);
+  const activeMeasure = vi.fn(), activeDraw = vi.fn(() => false);
+  let remove: () => void;
+  const first = subscribeFrames({
+    measure() { if (phase === 'measure') remove(); },
+    draw() { if (phase === 'draw') remove(); return false; },
+  });
+  remove = subscribeFrames({ measure: removedMeasure, draw: removedDraw });
+  const active = subscribeFrames({ measure: activeMeasure, draw: activeDraw });
+  try {
+    pending!(performance.now());
+    expect(removedMeasure).toHaveBeenCalledTimes(phase === 'measure' ? 0 : 1);
+    expect(removedDraw).not.toHaveBeenCalled();
+    expect(activeMeasure).toHaveBeenCalledTimes(1);
+    expect(activeDraw).toHaveBeenCalledTimes(1);
+  } finally {
+    first(); remove(); active(); raf.mockRestore(); cancel.mockRestore();
+  }
+});
+
 it('runs only the live subscriber until parked mounts are invalidated', () => {
   let pending: FrameRequestCallback | undefined;
   const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => { pending = cb; return 1; });

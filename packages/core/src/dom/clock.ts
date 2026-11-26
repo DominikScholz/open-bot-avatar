@@ -73,9 +73,13 @@ function tick(now: number) {
     if (at !== undefined && at - time > DUE_TOLERANCE) busy = true;
     else ready.push(s);
   }
-  for (let i = 0; i < ready.length; i++) ready[i].measure?.();
   for (let i = 0; i < ready.length; i++) {
     const s = ready[i];
+    if (subscribers.has(s)) s.measure?.();
+  }
+  for (let i = 0; i < ready.length; i++) {
+    const s = ready[i];
+    if (!subscribers.has(s)) continue;
     const prevDue = due.get(s);
     const next = s.draw(time, pointer);
     if (typeof next === 'number') {

@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { Component, lazy, Suspense, type ReactNode } from "react";
 import { BotAvatar } from "./BotAvatar";
 import { CONTRIBUTORS, pictureAt } from "./contributorData";
 import { topOthers } from "./contributors";
@@ -41,10 +41,35 @@ export function App() {
           </a>
         </nav>
       </header>
-      {route === "studio" ? <Studio look={look} setLook={setLook} /> : route === "docs" ? <Docs material={look.material} /> : <Contributors />}
+      <PageErrorBoundary key={route}>
+        <Suspense fallback={<main className="page page-status" role="status">Loading page…</main>}>
+          {route === "studio" ? <Studio look={look} setLook={setLook} /> : route === "docs" ? <Docs material={look.material} /> : <Contributors />}
+        </Suspense>
+      </PageErrorBoundary>
       <Credit />
     </div>
   );
+}
+
+class PageErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <main className="page page-status" role="alert">
+          <h1>Could not load this page</h1>
+          <p>Check your connection and reload, or choose another page.</p>
+          <button type="button" onClick={() => window.location.reload()}>Reload page</button>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 /** Who made it: the author, and the faces of the three people who added the most, which lead to everyone. */
