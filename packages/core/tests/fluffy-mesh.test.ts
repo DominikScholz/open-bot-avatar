@@ -5,6 +5,12 @@ import { getExample } from '../src/examples.ts';
 import { preparedVolume } from '../src/render.ts';
 
 const vec = (a: Float32Array, i: number, stride: number, offset = 0) => [a[i * stride + offset], a[i * stride + offset + 1], a[i * stride + offset + 2]];
+/** Whether two long arrays hold the same numbers: a loop, where toEqual takes most of a second. */
+const same = (a: ArrayLike<number>, b: ArrayLike<number>) => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
 
 describe('fluffy mesh', () => {
   const { vol } = preparedVolume(getExample('mug')!);
@@ -73,7 +79,7 @@ describe('fluffy mesh', () => {
     const merged = buildMesh(vol, { cell: 2 });
     expect(merged.coarse.count).toBeLessThan(mesh.coarse.count / 3);
     expect(merged.fine.count).toBeGreaterThan(merged.coarse.count);
-    expect(merged.roots).toEqual(mesh.roots);
+    expect(same(merged.roots, mesh.roots)).toBe(true);
     const triangles = merged.coarse.count / 3, out = outward(merged);
     expect(Math.min(out, triangles - out)).toBeLessThan(triangles / 100);
     // The same way round as the full mesh.
@@ -81,7 +87,9 @@ describe('fluffy mesh', () => {
     // Still out to the handle, front and back.
     const depth = Math.max(...vol.parts.map((part) => part.depth));
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (let i = 0; i <= Math.max(...merged.indices.subarray(0, merged.coarse.count)); i++) {
+    // Only the merged vertices: those the refined triangles add come after.
+    const count = merged.indices.subarray(0, merged.coarse.count).reduce((most, i) => Math.max(most, i), 0) + 1;
+    for (let i = 0; i < count; i++) {
       const [x, , z] = vec(merged.vertices, i, 6);
       minX = Math.min(minX, x), maxX = Math.max(maxX, x), minZ = Math.min(minZ, z), maxZ = Math.max(maxZ, z);
     }
@@ -95,7 +103,7 @@ describe('fluffy mesh', () => {
     const plain = buildMesh(vol, { cell: 3, sockets: false, roots: false });
     expect(plain.fine).toEqual(plain.coarse);
     expect(plain.roots.length).toBe(0);
-    expect(buildMesh(vol, { cell: STEP }).indices).toEqual(mesh.indices);
+    expect(same(buildMesh(vol, { cell: STEP }).indices, mesh.indices)).toBe(true);
   });
 
   it('roots hairs all over the surface, the same ones every time', () => {
